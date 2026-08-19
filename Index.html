@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ระบบแจ้งเตือนปฏิทิน</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!--
+  ใช้ Tailwind Play CDN ตามที่ตกลง — ทีม Tailwind เตือนว่า CDN ตัวนี้ไม่แนะนำสำหรับโปรดักชันจริงจัง
+  (compile ใน browser สดทุกครั้ง ไม่มีการ purge/optimize) แต่เนื่องจากไฟล์นี้ต้อง deploy แบบ
+  copy-paste เข้า Apps Script โดยตรง ไม่มี build pipeline (npm/PostCSS/CLI) ให้ใช้ระหว่างทาง
+  จึงเป็นทางเดียวที่ใช้ Tailwind ได้จริงในบริบทนี้ ยอมรับข้อเสียเรื่อง production ได้เพราะเป็น
+  เครื่องมือใช้ภายในหน่วยงานเล็กๆ ไม่ใช่เว็บสาธารณะที่มีทราฟฟิกสูง
+-->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          primary: { DEFAULT: '#0F6E56', dark: '#0B5643', light: '#E6F2EF' },
+          canvas: '#F6F8F7',
+        },
+        fontFamily: {
+          sans: ['"IBM Plex Sans Thai"', 'sans-serif'],
+          mono: ['"IBM Plex Mono"', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+</head>
+<body class="font-sans bg-canvas text-slate-900 text-[15px] leading-relaxed">
+
+  <header class="bg-primary text-white">
+    <div class="max-w-2xl mx-auto px-4 py-5">
+      <h1 class="text-lg font-semibold mb-2.5">📅 ระบบแจ้งเตือนปฏิทินงาน</h1>
+      <div class="inline-flex items-center gap-2 bg-white/15 rounded-full px-3.5 py-1.5 text-sm">
+        <span id="statusDot" class="w-2 h-2 rounded-full bg-emerald-300 flex-none"></span>
+        <span id="statusText">กำลังโหลดสถานะ…</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="max-w-2xl mx-auto px-4 py-5 pb-16">
+
+    <nav class="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 mb-5">
+      <button type="button" data-tab="settings" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium bg-primary text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">การตั้งค่า</button>
+      <button type="button" data-tab="holidays" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">วันหยุด</button>
+      <button type="button" data-tab="logs" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ประวัติการส่ง</button>
+    </nav>
+
+    <!-- ===== Settings ===== -->
+    <section id="tab-settings">
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+        <div class="flex items-center justify-between">
+          <label for="f-enabled" class="text-sm font-semibold text-slate-500">เปิดใช้งานการแจ้งเตือน</label>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" id="f-enabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-slate-300 rounded-full peer-checked:bg-primary transition-colors motion-reduce:transition-none
+                        after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full
+                        after:h-5 after:w-5 after:transition-transform after:motion-reduce:transition-none peer-checked:after:translate-x-5"></div>
+          </label>
+        </div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-5">
+        <div>
+          <label for="f-time" class="block text-sm font-semibold text-slate-500 mb-1.5">เวลาแจ้งเตือนทุกเช้า</label>
+          <input type="time" id="f-time" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+          <p class="text-xs text-slate-500 mt-1.5">หลังแก้เวลา ให้กด “ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ” ในเมนู Google Sheet</p>
+        </div>
+        <div>
+          <label for="f-calendar" class="block text-sm font-semibold text-slate-500 mb-1.5">Notion Database ID</label>
+          <input type="text" id="f-calendar" placeholder="your_notion_database_id" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+          <p class="text-xs text-slate-500 mt-1.5">เอาจาก URL ของหน้า database ใน Notion (ส่วนก่อนเครื่องหมาย ?) และต้องแชร์ database ให้ integration ก่อน</p>
+        </div>
+        <div>
+          <label for="f-group" class="block text-sm font-semibold text-slate-500 mb-1.5">LINE Group ID</label>
+          <input type="text" id="f-group" placeholder="เติมอัตโนมัติหลังตั้งค่า Webhook" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+          <p class="text-xs text-slate-500 mt-1.5">ปกติระบบเติมให้เองหลังเชิญบอทเข้ากลุ่ม แก้เองตรงนี้ได้ถ้าจำเป็น</p>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-500 mb-1.5">รูปแบบข้อความ</label>
+          <div id="f-format" class="flex border border-slate-200 rounded-lg overflow-hidden">
+            <button type="button" data-value="text" class="format-btn flex-1 py-2.5 text-sm border-r border-slate-200 bg-primary-light text-primary-dark font-semibold">ข้อความธรรมดา</button>
+            <button type="button" data-value="flex" class="format-btn flex-1 py-2.5 text-sm text-slate-500">การ์ด Flex</button>
+          </div>
+        </div>
+      </div>
+
+      <button type="button" id="btnSaveSettings" class="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50 disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">บันทึกการตั้งค่า</button>
+      <p class="text-xs text-slate-500 mt-3.5">อยากทดสอบส่งจริง เปิด Google Sheet แล้วใช้เมนู "ระบบแจ้งเตือนปฏิทิน &gt; ทดสอบส่งตอนนี้" — หน้านี้ไม่แตะ LINE token โดยตรงเพื่อความปลอดภัย</p>
+    </section>
+
+    <!-- ===== Holidays ===== -->
+    <section id="tab-holidays" class="hidden">
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="grid grid-cols-1 sm:grid-cols-[1fr_1.6fr_1fr_auto] gap-2 items-end p-4 border-b border-slate-200">
+          <div>
+            <label for="h-date" class="block text-xs font-semibold text-slate-500 mb-1.5">วันที่</label>
+            <input type="date" id="h-date" class="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+          <div>
+            <label for="h-name" class="block text-xs font-semibold text-slate-500 mb-1.5">ชื่อวันหยุด</label>
+            <input type="text" id="h-name" placeholder="เช่น วันขึ้นปีใหม่" class="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+          <div>
+            <label for="h-type" class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภท</label>
+            <select id="h-type" class="w-full px-2.5 py-2 border border-slate-200 rounded-lg text-sm">
+              <option value="ราชการปกติ">ราชการปกติ</option>
+              <option value="ชดเชย">ชดเชย</option>
+              <option value="กรณีพิเศษ">กรณีพิเศษ</option>
+            </select>
+          </div>
+          <button type="button" id="btnAddHoliday" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark">เพิ่ม</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-slate-500 font-semibold">
+                <th class="px-4 py-2.5">วันที่</th><th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">ประเภท</th><th class="px-4 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody id="holidayBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+        <p id="holidayEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีวันหยุดในตาราง</p>
+      </div>
+    </section>
+
+    <!-- ===== Logs ===== -->
+    <section id="tab-logs" class="hidden">
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-slate-500 font-semibold">
+                <th class="px-4 py-2.5">วันที่</th><th class="px-4 py-2.5">บันทึกเมื่อ</th><th class="px-4 py-2.5">สถานะ</th><th class="px-4 py-2.5">รายละเอียด</th>
+              </tr>
+            </thead>
+            <tbody id="logBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+        <p id="logEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีประวัติการทำงาน</p>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg opacity-0 pointer-events-none transition-opacity motion-reduce:transition-none max-w-[calc(100%-2rem)] text-center"></div>
+
+<script>
+  let currentFormat = 'text';
+  const toastEl = document.getElementById('toast');
+
+  function $(id) { return document.getElementById(id); }
+
+  function showToast(msg, isError) {
+    toastEl.textContent = msg;
+    toastEl.classList.remove('opacity-0', 'pointer-events-none', 'bg-slate-900', 'bg-red-600');
+    toastEl.classList.add('opacity-100', isError ? 'bg-red-600' : 'bg-slate-900');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => {
+      toastEl.classList.remove('opacity-100');
+      toastEl.classList.add('opacity-0', 'pointer-events-none');
+    }, 2600);
+  }
+
+  function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  function todayStr_() {
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+
+  function daysBetween_(dateStrA, dateStrB) {
+    const a = new Date(dateStrA + 'T00:00:00');
+    const b = new Date(dateStrB + 'T00:00:00');
+    return Math.round((b - a) / 86400000);
+  }
+
+  // ---------- Tabs ----------
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('bg-primary', 'text-white');
+        b.classList.add('text-slate-500');
+      });
+      btn.classList.add('bg-primary', 'text-white');
+      btn.classList.remove('text-slate-500');
+      ['settings', 'holidays', 'logs'].forEach(name => {
+        $('tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab);
+      });
+      if (btn.dataset.tab === 'logs') loadLogs();
+    });
+  });
+
+  // ---------- Settings ----------
+  function loadSettings() {
+    google.script.run.withSuccessHandler(renderSettings).withFailureHandler(onError).api_getSettings();
+  }
+
+  function normalizeTimeForInput_(value) {
+    const text = String(value == null ? '' : value).trim();
+    const match = text.match(/^(\d{1,2}):([0-5]\d)(?::[0-5]\d(?:\.\d{1,3})?)?$/);
+    if (!match || Number(match[1]) > 23) return '08:30';
+    return String(Number(match[1])).padStart(2, '0') + ':' + match[2];
+  }
+
+  function renderSettings(response) {
+    const s = response && typeof response === 'object' ? response : {};
+    $('f-enabled').checked = String(s.enabled).toUpperCase() === 'TRUE';
+    $('f-time').value = normalizeTimeForInput_(s.notify_time);
+    $('f-calendar').value = s.notion_database_id || '';
+    $('f-group').value = s.line_group_id || '';
+    setFormat(String(s.message_format || 'text').toLowerCase());
+    if (!response) showToast('ไม่พบข้อมูลการตั้งค่า กรุณาลองโหลดหน้าใหม่', true);
+  }
+
+  function setFormat(value) {
+    currentFormat = value === 'flex' ? 'flex' : 'text';
+    document.querySelectorAll('.format-btn').forEach(b => {
+      const active = b.dataset.value === currentFormat;
+      b.classList.toggle('bg-primary-light', active);
+      b.classList.toggle('text-primary-dark', active);
+      b.classList.toggle('font-semibold', active);
+      b.classList.toggle('text-slate-500', !active);
+    });
+  }
+  document.querySelectorAll('.format-btn').forEach(b => {
+    b.addEventListener('click', () => setFormat(b.dataset.value));
+  });
+
+  $('btnSaveSettings').addEventListener('click', () => {
+    const payload = {
+      enabled: $('f-enabled').checked ? 'TRUE' : 'FALSE',
+      notify_time: $('f-time').value,
+      notion_database_id: $('f-calendar').value.trim(),
+      line_group_id: $('f-group').value.trim(),
+      message_format: currentFormat,
+    };
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(payload.notify_time)) { showToast('เวลาแจ้งเตือนไม่ถูกต้อง', true); return; }
+    if (!payload.notion_database_id) { showToast('กรุณาใส่ Notion Database ID', true); return; }
+
+    $('btnSaveSettings').disabled = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        $('btnSaveSettings').disabled = false;
+        if (res.ok) showToast('บันทึกแล้ว — หากเปลี่ยนเวลา ให้ไปอัปเดต Trigger ใน Google Sheet');
+        else showToast((res.errors || ['บันทึกไม่สำเร็จ']).join(', '), true);
+      })
+      .withFailureHandler(err => { $('btnSaveSettings').disabled = false; onError(err); })
+      .api_saveSettings(payload);
+  });
+
+  // ---------- Holidays ----------
+  function loadHolidays() {
+    google.script.run.withSuccessHandler(renderHolidays).withFailureHandler(onError).api_getHolidays();
+  }
+
+  function renderHolidays(list) {
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    const today = todayStr_();
+    const body = $('holidayBody');
+    body.innerHTML = '';
+    $('holidayEmpty').classList.toggle('hidden', list.length > 0);
+    list.forEach(h => {
+      const tr = document.createElement('tr');
+      if (h.date < today) tr.className = 'opacity-50';
+      tr.innerHTML =
+        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + escapeHtml(h.date) + '</td>' +
+        '<td class="px-4 py-2.5">' + escapeHtml(h.name) + '</td>' +
+        '<td class="px-4 py-2.5"><span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">' + escapeHtml(h.type || '') + '</span></td>' +
+        '<td class="px-4 py-2.5 text-right"></td>';
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'px-3 py-1.5 rounded-lg border border-slate-200 text-red-700 text-xs font-medium hover:bg-red-50';
+      delBtn.textContent = 'ลบ';
+      delBtn.addEventListener('click', () => deleteHoliday(h.row));
+      tr.lastElementChild.appendChild(delBtn);
+      body.appendChild(tr);
+    });
+  }
+
+  function deleteHoliday(row) {
+    if (!confirm('ลบวันหยุดนี้?')) return;
+    google.script.run
+      .withSuccessHandler(() => { showToast('ลบแล้ว'); loadHolidays(); }) // โหลดใหม่เสมอ กันเลขแถวที่เหลือเพี้ยนหลังลบ
+      .withFailureHandler(onError)
+      .api_deleteHoliday(row);
+  }
+
+  $('btnAddHoliday').addEventListener('click', () => {
+    const date = $('h-date').value;
+    const name = $('h-name').value.trim();
+    const type = $('h-type').value;
+    if (!date || !name) { showToast('กรอกวันที่และชื่อให้ครบ', true); return; }
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.ok) {
+          $('h-date').value = '';
+          $('h-name').value = '';
+          showToast('เพิ่มวันหยุดแล้ว');
+          loadHolidays();
+        } else {
+          showToast(res.error || 'เพิ่มไม่สำเร็จ', true);
+        }
+      })
+      .withFailureHandler(onError)
+      .api_addHoliday(date, name, type);
+  });
+
+  // ---------- Logs ----------
+  function loadLogs() {
+    google.script.run.withSuccessHandler(renderLogs).withFailureHandler(onError).api_getLogs(40);
+  }
+
+  function badgeClasses(status) {
+    const s = String(status || '');
+    if (s.indexOf('success') === 0) return 'bg-emerald-50 text-emerald-700';
+    if (s.indexOf('error') === 0) return 'bg-red-50 text-red-700';
+    return 'bg-slate-100 text-slate-500';
+  }
+
+  function renderLogs(list) {
+    const body = $('logBody');
+    body.innerHTML = '';
+    $('logEmpty').classList.toggle('hidden', list.length > 0);
+    list.forEach(l => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + escapeHtml(l.date) + '</td>' +
+        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + escapeHtml(l.timestamp) + '</td>' +
+        '<td class="px-4 py-2.5"><span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ' + badgeClasses(l.status) + '">' + escapeHtml(l.status) + '</span></td>' +
+        '<td class="px-4 py-2.5">' + escapeHtml(l.detail) + '</td>';
+      body.appendChild(tr);
+    });
+
+    if (list.length) {
+      const latest = list[0];
+      $('statusText').textContent = 'เช็คล่าสุด ' + latest.date + ' — ' + latest.status;
+      const isStale = String(latest.status).indexOf('error') === 0 || daysBetween_(latest.date, todayStr_()) >= 2;
+      $('statusDot').className = 'w-2 h-2 rounded-full flex-none ' + (isStale ? 'bg-amber-400' : 'bg-emerald-300');
+    } else {
+      $('statusText').textContent = 'ยังไม่มีประวัติการทำงาน';
+      $('statusDot').className = 'w-2 h-2 rounded-full flex-none bg-amber-400';
+    }
+  }
+
+  function onError(err) {
+    showToast('เกิดข้อผิดพลาด: ' + (err && err.message ? err.message : err), true);
+  }
+
+  // ---------- Init ----------
+  loadSettings();
+  loadHolidays();
+  loadLogs();
+</script>
+</body>
+</html>
