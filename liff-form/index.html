@@ -61,40 +61,68 @@
     กำลังเปิดระบบลางาน…
   </section>
 
-  <!-- ===== ยังไม่ลงทะเบียน: เลือกชื่อตัวเอง ===== -->
+  <!-- ===== ยังไม่ลงทะเบียน: กรอกข้อมูลตัวเอง ===== -->
   <section id="view-register" class="hidden">
     <header class="mb-4">
-      <h1 class="text-lg font-bold">เลือกชื่อของคุณ</h1>
-      <p class="text-sm text-slate-500 mt-1">ครั้งแรกครั้งเดียว — ระบบจะจำบัญชี LINE นี้กับชื่อดังกล่าวตลอดไป หากไม่พบชื่อของคุณในรายการ ติดต่อผู้ดูแลระบบ</p>
+      <h1 class="text-lg font-bold">ลงทะเบียนครั้งแรก</h1>
+      <p class="text-sm text-slate-500 mt-1">กรอก 1 ครั้ง ระบบจะจำบัญชี LINE นี้กับข้อมูลดังกล่าวตลอดไป — กรอกให้ตรงตามข้อมูลจริงของท่าน</p>
     </header>
-    <input id="nameSearch" type="search" placeholder="ค้นหาชื่อ…" autocomplete="off"
-           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl bg-white text-sm mb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
-    <div id="nameList" class="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100"></div>
-    <p id="nameEmpty" class="hidden text-center text-slate-500 text-sm py-8 bg-white border border-slate-200 rounded-2xl">ไม่พบชื่อที่ค้นหา</p>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+      <div>
+        <label for="regPrefix" class="block text-sm font-semibold text-slate-600 mb-1.5">คำนำหน้าชื่อ</label>
+        <select id="regPrefix" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+          <option value="">— เลือก —</option>
+        </select>
+        <input id="regPrefixOther" type="text" placeholder="พิมพ์คำนำหน้า เช่น แพทย์หญิง" maxlength="30"
+               class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label for="regFirstName" class="block text-sm font-semibold text-slate-600 mb-1.5">ชื่อ</label>
+          <input id="regFirstName" type="text" maxlength="50" autocomplete="given-name"
+                 class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
+        </div>
+        <div>
+          <label for="regLastName" class="block text-sm font-semibold text-slate-600 mb-1.5">สกุล</label>
+          <input id="regLastName" type="text" maxlength="50" autocomplete="family-name"
+                 class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
+        </div>
+      </div>
+      <div>
+        <label for="regGroup" class="block text-sm font-semibold text-slate-600 mb-1.5">กลุ่มงาน</label>
+        <select id="regGroup" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+          <option value="">— เลือกกลุ่มงาน —</option>
+        </select>
+      </div>
+      <div>
+        <label for="regPosition" class="block text-sm font-semibold text-slate-600 mb-1.5">ตำแหน่ง</label>
+        <select id="regPosition" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+          <option value="">— เลือกตำแหน่ง —</option>
+        </select>
+        <input id="regPositionOther" type="text" placeholder="พิมพ์ตำแหน่งของท่าน" maxlength="50"
+               class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
+      </div>
+      <p id="regNoGroups" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
+        ผู้ดูแลยังไม่ได้ตั้งค่ารายชื่อกลุ่มงานในระบบ — ติดต่อผู้ดูแลก่อนลงทะเบียน
+      </p>
+    </div>
+
+    <p id="regError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mt-4"></p>
+    <button id="btnRegNext" type="button" class="w-full mt-4 py-3.5 rounded-xl font-semibold text-white bg-primary">ตรวจสอบข้อมูล</button>
   </section>
 
-  <!-- ===== กรอกคำนำหน้าชื่อ ===== -->
-  <section id="view-prefix" class="hidden">
+  <!-- ===== ยืนยันข้อมูลก่อนบันทึก ===== -->
+  <section id="view-confirm" class="hidden">
     <header class="mb-4">
-      <h1 class="text-lg font-bold">คำนำหน้าชื่อของคุณ</h1>
-      <p class="text-sm text-slate-500 mt-1">ใช้แสดงในใบลาและการแจ้งเตือน (ชื่อ-นามสกุลกำหนดตามทำเนียบ แก้ไม่ได้)</p>
+      <h1 class="text-lg font-bold">ยืนยันข้อมูลของคุณ</h1>
+      <p class="text-sm text-slate-500 mt-1">ข้อมูลนี้จะใช้ในใบลาและการแจ้งเตือนทั้งหมด ตรวจให้แน่ใจก่อนยืนยัน (แก้ไขภายหลังติดต่อผู้ดูแล)</p>
     </header>
-    <div class="bg-white border border-slate-200 rounded-2xl p-5">
-      <p class="text-sm text-slate-500 mb-1">ชื่อ-นามสกุล</p>
-      <p id="prefixName" class="font-semibold"></p>
-      <p class="text-sm text-slate-500 mt-4 mb-2">คำนำหน้า</p>
-      <div class="grid grid-cols-2 gap-2">
-        <button type="button" data-prefix="นาย" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">นาย</button>
-        <button type="button" data-prefix="นาง" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">นาง</button>
-        <button type="button" data-prefix="นางสาว" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">นางสาว</button>
-        <button type="button" data-prefix="__other" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">อื่นๆ</button>
-      </div>
-      <input id="prefixOther" type="text" placeholder="พิมพ์คำนำหน้า เช่น แพทย์หญิง" maxlength="30"
-             class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
-      <div id="prefixPreview" class="hidden mt-4 p-3 rounded-xl bg-primary-light text-primary-dark font-semibold text-center"></div>
+    <div id="confirmSummary" class="bg-white border border-slate-200 rounded-2xl p-5 text-sm divide-y divide-slate-100"></div>
+    <div class="flex gap-2 mt-4">
+      <button id="btnRegBack" type="button" class="flex-1 py-3.5 rounded-xl font-semibold text-primary bg-primary-light">แก้ไข</button>
+      <button id="btnBind" type="button" class="flex-[2] py-3.5 rounded-xl font-semibold text-white bg-primary">ยืนยันและเริ่มใช้งาน</button>
     </div>
-    <button id="btnBind" type="button" disabled
-            class="w-full mt-4 py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ยืนยันและเริ่มใช้งาน</button>
   </section>
 
   <!-- ===== ฟอร์มยื่นลา ===== -->
@@ -176,7 +204,8 @@
   ];
 
   const state = {
-    staffNames: [], selectedName: '', prefix: '', prefixOther: false,
+    options: { prefixes: [], groups: [], positions: [] },
+    reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
     holidays: new Set(), today: '', leaveType: '', user: null, sending: false,
   };
 
@@ -184,7 +213,7 @@
 
   function $(id) { return document.getElementById(id); }
   function show(view) {
-    ['loading', 'register', 'prefix', 'form', 'success', 'error'].forEach(v => {
+    ['loading', 'register', 'confirm', 'form', 'success', 'error'].forEach(v => {
       $('view-' + v).classList.toggle('hidden', v !== view);
     });
     window.scrollTo(0, 0);
@@ -270,8 +299,8 @@
         await loadCalendar();
         showForm();
       } else {
-        state.staffNames = session.staffNames || [];
-        renderNameList('');
+        state.options = session.options || { prefixes: [], groups: [], positions: [] };
+        renderRegisterForm();
         show('register');
       }
     } catch (err) {
@@ -289,65 +318,78 @@
     }
   }
 
-  // ---------- ขั้นเลือกชื่อ ----------
+  // ---------- ขั้นลงทะเบียน: ฟอร์มกรอกเอง (dropdown ทั้งหมดมาจากคอนฟิกฝั่งผู้ดูแล) ----------
 
-  function renderNameList(query) {
-    const q = query.trim().toLowerCase();
-    const list = $('nameList');
-    list.innerHTML = '';
-    const names = state.staffNames.filter(n => !q || n.toLowerCase().includes(q));
-    $('nameEmpty').classList.toggle('hidden', names.length > 0);
-    names.forEach(name => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'w-full text-left px-4 py-3 hover:bg-primary-light transition-colors motion-reduce:transition-none';
-      btn.textContent = name;
-      btn.addEventListener('click', () => {
-        state.selectedName = name;
-        $('prefixName').textContent = name;
-        show('prefix');
-      });
-      list.appendChild(btn);
+  function fillSelect_(selectEl, options, placeholder) {
+    selectEl.innerHTML = '';
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.textContent = placeholder;
+    selectEl.appendChild(placeholderOption);
+    options.forEach(opt => {
+      const option = document.createElement('option');
+      option.value = opt;
+      option.textContent = opt;
+      selectEl.appendChild(option);
     });
   }
 
-  $('nameSearch').addEventListener('input', e => renderNameList(e.target.value));
-
-  // ---------- ขั้นคำนำหน้า ----------
-
-  let selectedPrefix = '';
-
-  function refreshPrefixPreview() {
-    const other = selectedPrefix === '__other';
-    $('prefixOther').classList.toggle('hidden', !other);
-    const prefix = other ? $('prefixOther').value.trim() : selectedPrefix;
-    const valid = prefix.length > 0;
-    $('prefixPreview').classList.toggle('hidden', !valid);
-    if (valid) $('prefixPreview').textContent = prefix + ' ' + state.selectedName;
-    $('btnBind').disabled = !valid;
+  function renderRegisterForm() {
+    fillSelect_($('regPrefix'), state.options.prefixes, '— เลือก —');
+    fillSelect_($('regGroup'), state.options.groups, '— เลือกกลุ่มงาน —');
+    fillSelect_($('regPosition'), state.options.positions, '— เลือกตำแหน่ง —');
+    $('regNoGroups').classList.toggle('hidden', state.options.groups.length > 0);
   }
 
-  document.querySelectorAll('.prefix-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      selectedPrefix = btn.dataset.prefix;
-      document.querySelectorAll('.prefix-btn').forEach(b => {
-        const active = b === btn;
-        b.classList.toggle('bg-primary', active);
-        b.classList.toggle('text-white', active);
-        b.classList.toggle('border-primary', active);
-      });
-      refreshPrefixPreview();
-    });
+  // ตัวเลือก "อื่นๆ" ใน dropdown เปิดช่องพิมพ์เองถัดจาก select (คำนำหน้าและตำแหน่ง)
+  $('regPrefix').addEventListener('change', e => {
+    $('regPrefixOther').classList.toggle('hidden', e.target.value !== 'อื่นๆ');
   });
-  $('prefixOther').addEventListener('input', refreshPrefixPreview);
+  $('regPosition').addEventListener('change', e => {
+    $('regPositionOther').classList.toggle('hidden', e.target.value !== 'อื่นๆ');
+  });
+
+  function collectRegistration_() {
+    const prefix = $('regPrefix').value === 'อื่นๆ' ? $('regPrefixOther').value.trim() : $('regPrefix').value;
+    const position = $('regPosition').value === 'อื่นๆ' ? $('regPositionOther').value.trim() : $('regPosition').value;
+    return {
+      prefix: prefix,
+      firstName: $('regFirstName').value.trim(),
+      lastName: $('regLastName').value.trim(),
+      groupName: $('regGroup').value,
+      position: position,
+    };
+  }
+
+  $('btnRegNext').addEventListener('click', () => {
+    const err = $('regError');
+    err.classList.add('hidden');
+    const reg = collectRegistration_();
+    if (!reg.prefix) { err.textContent = 'กรุณาเลือกคำนำหน้าชื่อ'; err.classList.remove('hidden'); return; }
+    if (!reg.firstName || !reg.lastName) { err.textContent = 'กรุณากรอกชื่อและสกุล'; err.classList.remove('hidden'); return; }
+    if (!reg.groupName) { err.textContent = 'กรุณาเลือกกลุ่มงาน'; err.classList.remove('hidden'); return; }
+    if (!reg.position) { err.textContent = 'กรุณาเลือกตำแหน่ง'; err.classList.remove('hidden'); return; }
+    state.reg = reg;
+
+    const fullName = reg.prefix + ' ' + reg.firstName + ' ' + reg.lastName;
+    $('confirmSummary').innerHTML = [
+      ['ชื่อ-สกุล', fullName],
+      ['กลุ่มงาน', reg.groupName],
+      ['ตำแหน่ง', reg.position],
+    ].map(([label, value]) =>
+      '<div class="flex justify-between gap-4 py-2.5"><span class="text-slate-500 flex-none">' + label +
+      '</span><span class="font-semibold text-right">' + escapeHtml(value) + '</span></div>'
+    ).join('');
+    show('confirm');
+  });
+
+  $('btnRegBack').addEventListener('click', () => show('register'));
 
   $('btnBind').addEventListener('click', async () => {
-    const prefix = selectedPrefix === '__other' ? $('prefixOther').value.trim() : selectedPrefix;
-    if (!prefix) return;
     $('btnBind').disabled = true;
     $('btnBind').textContent = 'กำลังบันทึก…';
     try {
-      const result = await api('bind', { staffName: state.selectedName, prefix: prefix });
+      const result = await api('bind', state.reg);
       state.user = result;
       await loadCalendar();
       showForm();
@@ -363,7 +405,7 @@
 
   function showForm() {
     $('greetingName').textContent = 'สวัสดี ' + state.user.name;
-    $('greetingGroup').textContent = state.user.groupName || state.user.level || '';
+    $('greetingGroup').textContent = [state.user.groupName, state.user.position].filter(Boolean).join(' · ');
     // อักษรแรกของชื่อ (ตัดคำนำหน้าออกก่อน) ไว้ทำอวตารกลมๆ
     const nameForInitial = (state.user.name || 'ก').replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|แพทย์หญิง)\s*/, '');
     $('userInitial').textContent = nameForInitial.charAt(0) || (state.user.name || 'ก').charAt(0);
@@ -451,7 +493,7 @@
         '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end)) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + result.workDays + ' วัน</span></div>' +
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
-        (result.needsDirector ? '<span class="block text-xs text-slate-500 mt-1">ประเภทนี้อนุมัติครบสองชั้น: หัวหน้ากลุ่มงาน → ผอ.</span>' : '') + '</div>';
+        (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '') + '</div>';
       show('success');
     } catch (submitErr) {
       err.textContent = submitErr.message;

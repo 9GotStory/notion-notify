@@ -641,13 +641,14 @@ function setupSheet() {
   ensureSheet_(ss, 'Settings', 'การตั้งค่าระบบแจ้งเตือน + ระบบลางาน', ['คีย์', 'ค่า', 'คำอธิบาย'], status);
   ensureSheet_(ss, 'Holidays', 'วันหยุดราชการ (ตรวจทานกับ soc.go.th ทุกต้นปี)', ['วันที่', 'ชื่อวันหยุด', 'ประเภท'], status);
   ensureSheet_(ss, 'Logs', 'บันทึกการทำงานของระบบ (เขียนอัตโนมัติ ไม่ต้องแก้ไข)', ['เวลาที่บันทึก', 'วันที่', 'สถานะ', 'รายละเอียด'], status);
-  ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ — ระบบลางาน', STAFF_SHEET_COLUMNS, status);
+  ensureSheet_(ss, 'Approvers', 'ผู้อนุมัติระบบลางาน — กลุ่มงานไหน ใครอนุมัติ ส่งต่อ หัวหน้า สสอ. ไหม', APPROVERS_SHEET_COLUMNS, status);
+  ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ — เพิ่มอัตโนมัติเมื่อแต่ละคนลงทะเบียนผ่านฟอร์มเอง', STAFF_SHEET_COLUMNS, status);
 
   // บังคับรูปแบบวันที่ให้แสดงเป็น yyyy-MM-dd — โค้ดอ่านค่าตามที่แสดงบนจอ (readHolidaySet_)
   // ถ้าปล่อยให้ Sheet จัดรูปแบบภาษาไทย วันหยุดจะหลุดจากการนับวันทำการของใบลา
   const holidays = ss.getSheetByName('Holidays');
   holidays.getRange('A3:A').setNumberFormat('yyyy-MM-dd');
-  ss.getSheetByName('Staff').getRange('G3:G').setNumberFormat('yyyy-MM-dd');
+  ss.getSheetByName('Staff').getRange('H3:H').setNumberFormat('yyyy-MM-dd');
 
   // เติมค่าตั้งต้นของ Settings เฉพาะ key ที่ยังไม่มี (พร้อมคำอธิบายในคอลัมน์ C — โค้ดอ่านแค่ A/B)
   const addedKeys = [];
@@ -658,7 +659,9 @@ function setupSheet() {
     ['line_group_id', '', 'เติมอัตโนมัติเมื่อบอทเข้ากลุ่ม LINE และมีคนพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)'],
     ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
-    ['leave_types_needing_director', 'ลาพักร้อน,ลาคลอด,ลาบวช', 'ประเภทการลาที่ต้องอนุมัติโดย ผอ. ด้วย (คั่นด้วยจุลภาค)'],
+    ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
+    ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
+    ['position_options', 'นักวิชาการสาธารณสุข,นักวิชาการอนามัย,นักวิชาการคอมพิวเตอร์,นักบริหารงานสาธารณสุข,พยาบาลวิชาชีพ,พยาบาลช่วยแพทย์,เจ้าพนักงานธุรการ,ลูกจ้างชั่วคราว,อื่นๆ', 'ตัวเลือกตำแหน่งในฟอร์มลงทะเบียน (แก้ให้ตรงหน่วยงานได้เลย คั่นด้วยจุลภาค)'],
   ].forEach(row => {
     if (upsertSettingRow_(row[0], row[1], row[2])) addedKeys.push(row[0]);
   });
@@ -671,9 +674,11 @@ function setupSheet() {
     'สิ่งที่ต้องทำต่อ (ครั้งแรกเท่านั้น):\n' +
     '1. วาง Database ID ของ "ปฏิทินการปฏิบัติงาน" ในแถว notion_database_id\n' +
     '2. สร้าง database "ใบลา" ใน Notion แล้ววาง ID ในแถว leave_database_id (สเปกใน SETUP.md ข้อ 11.2)\n' +
-    '3. กรอกทำเนียบชีต Staff (ชื่อ-สกุลห้ามซ้ำ / กลุ่มงาน / ระดับ: เจ้าหน้าที่, หัวหน้ากลุ่มงาน หรือ ผอ.)\n' +
-    '4. ใส่วันหยุดในชีต Holidays (ตรวจกับประกาศทางการ)\n' +
-    '5. ตั้งค่า Secret ใน Script Properties แล้ว deploy ตาม SETUP.md';
+    '3. กรอกชีต Approvers: กลุ่มงาน | ผู้อนุมัติ (ชื่อ สกุล) | ส่งต่อให้ หัวหน้า สสอ. (TRUE ถ้าต้องส่งต่อ)\n' +
+    '4. ใส่รายชื่อ หัวหน้า สสอ. ในแถว second_approvers ของชีต Settings (ถ้ามีกลุ่มงานที่ส่งต่อ)\n' +
+    '5. ใส่วันหยุดในชีต Holidays (ตรวจกับประกาศทางการ)\n' +
+    '6. ตั้งค่า Secret ใน Script Properties แล้ว deploy ตาม SETUP.md\n' +
+    '(ชีต Staff ไม่ต้องกรอก — เพิ่มอัตโนมัติเมื่อเจ้าหน้าที่ลงทะเบียนผ่านฟอร์มเอง)';
   // ถ้ารันจากเมนูในชีต → เด้ง popup แต่ถ้ารันจากปุ่ม Run ใน editor (ไม่มี UI) → log แทน
   // แบบเดียวกับ runUnitTests ใน Tests.gs (งานจริงทำเสร็จก่อนถึงตรงนี้เสมอ จึงไม่ใช่จุดพังของข้อมูล)
   try {
@@ -684,13 +689,20 @@ function setupSheet() {
 }
 
 // สร้างชีตถ้ายังไม่มี + ใส่หัวตารางถ้ายังไม่ใส่ (แถว 1 = ชื่อตาราง, แถว 2 = หัวคอลัมน์, ข้อมูลเริ่มแถว 3)
-// คืนสถานะสั้นๆ สำหรับสรุปให้ผู้ใช้เห็นว่าทำอะไรไปบ้าง
+// ถ้าชีตมีอยู่แล้วแต่หัวตารางไม่ตรง "และ" มีข้อมูลอยู่ (เช่นโครงคอลัมน์รุ่นเก่า) จะไม่แตะ
+// แล้วแจ้งเตือนให้จัดการย้ายข้อมูลเองก่อน — กันพังข้อมูลเงียบๆ
 function ensureSheet_(ss, name, title, headers, status) {
   let sheet = ss.getSheetByName(name);
   const isNew = !sheet;
   if (isNew) sheet = ss.insertSheet(name);
 
-  if (String(sheet.getRange(2, 1).getDisplayValue()).trim() !== String(headers[0]).trim()) {
+  const currentHeader = String(sheet.getRange(2, 1).getDisplayValue()).trim();
+  const hasData = sheet.getLastRow() > 2;
+  if (currentHeader && currentHeader !== String(headers[0]).trim() && hasData) {
+    status.push('⚠ ชีต ' + name + ' ใช้หัวตารางโครงเดิมและมีข้อมูลอยู่ — ไม่แตะ ให้ย้ายข้อมูลเองแล้วลบหัวเดิม (ดู SETUP.md)');
+    return;
+  }
+  if (currentHeader !== String(headers[0]).trim()) {
     sheet.getRange(1, 1).setValue(title);
     headers.forEach((header, i) => sheet.getRange(2, i + 1).setValue(header));
     sheet.getRange(2, 1, 1, headers.length).setFontWeight('bold');
@@ -729,7 +741,7 @@ function testLeaveCardNow() {
       start: bangkokTodayStr_(),
       end: bangkokTodayStr_(),
       reason: 'ไปต่อด่านที่ว่าการอำเภอ (ข้อมูลตัวอย่าง)',
-      status: LEAVE_STATUS.pendingChief,
+      status: LEAVE_STATUS.pendingApprover,
       workDays: 1,
     };
     const bubble = buildLeaveApprovalBubble_(samplePage);

@@ -6,15 +6,23 @@
  * ใครมาเลือกซ้ำไม่ได้) ทุกคำขอจาก LIFF ต้องแนบ access token และฝั่งเซิร์ฟเวอร์ตรวจกับ LINE จริงทุกครั้ง
  * (api.line.me/oauth2/v2.1/verify + /v2/profile) — ไม่เชื่อข้อมูลใดๆ ที่มาจากฝั่ง browser
  *
- * การอนุมัติสองชั้น: หัวหน้ากลุ่มงาน → ผอ. (เฉพาะประเภทใน Settings "leave_types_needing_director")
+ * การอนุมัติสองชั้น (คอนฟิกทั้งหมดในชีต ไม่มี hardcode): ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.
+ * (ชีต Approvers กำหนดว่ากลุ่มงานไหนใครอนุมัติ + ต้องส่งต่อ หัวหน้า สสอ. ไหม; รายชื่อ หัวหน้า สสอ. อยู่ใน Settings คีย์ second_approvers)
  * การ์ดส่งหาผู้อนุมัติแบบ 1:1 พร้อมปุ่ม postback อนุมัติ/ไม่อนุมัติ
  * การตรวจสิทธิ์คนกดปุ่มอ้างอิง "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion (ดู canApproveLeave_)
  * — เป็นชั้นป้องกันหลักแทนการตรวจ X-Line-Signature ที่ Apps Script เข้าถึง header นี้ไม่ได้
  *
- * โครงสร้างชีต Staff (สร้างอัตโนมัติด้วยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" — setupSheet ใน Code.gs):
+ * โครงสร้างชีต Staff (สร้างหัวตารางโดยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" — แถวข้อมูลเกิดจากการลงทะเบียน
+ * ของแต่ละคนผ่านฟอร์มเอง ไม่ต้องกรอกล่วงหน้า):
  *   แถว 1: ชื่อตาราง / แถว 2: หัวคอลัมน์ / เริ่มข้อมูลแถว 3 (ตามแบบชีต Settings/Holidays)
- *   ชื่อ-สกุล | กลุ่มงาน | ระดับ (เจ้าหน้าที่/หัวหน้ากลุ่มงาน/ผอ.) | คำนำหน้า (ผู้ใช้กรอก)
- *   | LINE User ID | ชื่อที่แสดงใน LINE | วันที่ลงทะเบียน
+ *   คำนำหน้า | ชื่อ | สกุล | กลุ่มงาน | ตำแหน่ง | LINE User ID | ชื่อที่แสดงใน LINE | วันที่ลงทะเบียน
+ *
+ * โครงสร้างชีต Approvers (ผู้ดูแลกรอกเอง — เป็นทั้งคอนฟิกผู้อนุมัติและรายชื่อกลุ่มงานสำหรับ dropdown):
+ *   กลุ่มงาน | ผู้อนุมัติ (ชื่อ สกุล ตามที่ลงทะเบียน หลายคนคั่นจุลภาค ใครกดก่อนได้ก่อน)
+ *   | ส่งต่อให้ หัวหน้า สสอ. (TRUE ถ้าใบลาของกลุ่มงานนี้ต้องผ่าน หัวหน้า สสอ. ด้วย)
+ *   รายชื่อ หัวหน้า สสอ. อยู่ใน Settings คีย์ second_approvers (คั่นจุลภาค)
+ *   ตัวเลือก dropdown ของฟอร์มลงทะเบียน (คำนำหน้า/กลุ่มงาน/ตำแหน่ง) มาจาก prefix_options /
+ *   ชีต Approvers (คอลัมน์กลุ่มงาน) / position_options ตามลำดับ — แก้ที่ชีตได้ทั้งหมด
  *
  * โครงสร้าง Notion database "ใบลา" (ชื่อ property อ้างอิงผ่าน PROPS_LEAVE):
  *   ผู้ลา (title, เก็บชื่อเต็ม คำนำหน้า+ชื่อ-สกุล) / กลุ่มงาน (rich_text)
@@ -37,8 +45,8 @@ const PROPS_LEAVE = {
 };
 
 const LEAVE_STATUS = {
-  pendingChief: 'รอหัวหน้าอนุมัติ',
-  pendingDirector: 'รอ ผอ.อนุมัติ',
+  pendingApprover: 'รอผู้อนุมัติ',
+  pendingChiefOffice: 'รอหัวหน้า สสอ.อนุมัติ',
   approved: 'อนุมัติ',
   rejected: 'ไม่อนุมัติ',
   cancelled: 'ยกเลิก',
@@ -46,14 +54,16 @@ const LEAVE_STATUS = {
 
 const LEAVE_TYPES = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'ลาคลอด', 'ลาบวช', 'อื่นๆ'];
 
-const STAFF_LEVEL = {
-  staff: 'เจ้าหน้าที่',
-  chief: 'หัวหน้ากลุ่มงาน',
-  director: 'ผอ.',
-};
+// การอนุมัติไม่ hardcode ในโค้ด — อ่านจากชีต Approvers (กลุ่มงาน → ผู้อนุมัติ → ส่งต่อ หัวหน้า สสอ. ไหม)
+// และ Settings คีย์ second_approvers (รายชื่อ หัวหน้า สสอ.) — แก้ที่ชีตได้เสมอไม่ต้องแตะโค้ด
+const APPROVERS_SHEET_COLUMNS = [
+  'กลุ่มงาน',
+  'ผู้อนุมัติ (ชื่อ สกุล — หลายคนคั่นด้วยจุลภาค)',
+  'ส่งต่อให้ หัวหน้า สสอ. (TRUE)',
+];
 
 const STAFF_SHEET_COLUMNS = [
-  'ชื่อ-สกุล', 'กลุ่มงาน', 'ระดับ', 'คำนำหน้า (ผู้ใช้กรอก)',
+  'คำนำหน้า', 'ชื่อ', 'สกุล', 'กลุ่มงาน', 'ตำแหน่ง',
   'LINE User ID', 'ชื่อที่แสดงใน LINE', 'วันที่ลงทะเบียน',
 ];
 
@@ -118,7 +128,7 @@ function verifyLineToken_(accessToken) {
   return { userId: profile.userId, displayName: profile.displayName || '' };
 }
 
-// ---------- ทำเนียบ Staff ----------
+// ---------- ทำเนียบ Staff (เกิดจากการลงทะเบียนผ่านฟอร์ม ไม่ต้องกรอกล่วงหน้า) ----------
 
 function readStaffRoster_() {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Staff');
@@ -128,16 +138,17 @@ function readStaffRoster_() {
   const lastRow = sheet.getLastRow();
   const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, STAFF_SHEET_COLUMNS.length).getDisplayValues() : [];
   return data
-    .filter(row => String(row[0]).trim())
+    .filter(row => String(row[1]).trim() && String(row[2]).trim()) // ต้องมีทั้งชื่อและสกุลจึงนับ
     .map((row, i) => ({
       row: 3 + i,
-      name: String(row[0]).trim(),
-      groupName: String(row[1]).trim(),
-      level: String(row[2]).trim(),
-      prefix: String(row[3]).trim(),
-      lineUserId: String(row[4]).trim(),
-      lineDisplayName: String(row[5]).trim(),
-      registeredAt: String(row[6]).trim(),
+      prefix: String(row[0]).trim(),
+      firstName: String(row[1]).trim(),
+      lastName: String(row[2]).trim(),
+      groupName: String(row[3]).trim(),
+      position: String(row[4]).trim(),
+      lineUserId: String(row[5]).trim(),
+      lineDisplayName: String(row[6]).trim(),
+      registeredAt: String(row[7]).trim(),
     }));
 }
 
@@ -145,54 +156,114 @@ function findStaffByUserId_(roster, userId) {
   return (roster || []).find(s => s.lineUserId && s.lineUserId === userId) || null;
 }
 
-function findStaffByName_(roster, name) {
-  return (roster || []).find(s => s.name === String(name || '').trim()) || null;
+// "ชื่อ สกุล" — key ที่ใช้อ้างอิงคนในชีต Approvers และ Settings (second_approvers)
+function staffKey_(staff) {
+  return staff ? (staff.firstName + ' ' + staff.lastName).trim() : '';
 }
 
-function findDirectors_(roster) {
-  return (roster || []).filter(s => s.level === STAFF_LEVEL.director && s.lineUserId);
-}
-
-// ชื่อเต็มสำหรับแสดงผล = คำนำหน้า (ผู้ใช้กรอกเองตอนลงทะเบียน) + ชื่อ-สกุล (จากทำเนียบ)
+// ชื่อเต็มสำหรับแสดงผล = คำนำหน้า + ชื่อ + สกุล
 function staffDisplayName_(staff) {
   if (!staff) return '';
-  return (staff.prefix ? staff.prefix + ' ' : '') + staff.name;
+  return (staff.prefix ? staff.prefix + ' ' : '') + staffKey_(staff);
+}
+
+// ---------- คอนฟิกผู้อนุมัติ (ชีต Approvers + Settings) — ไม่มีการ hardcode ระดับใดๆ ในโค้ด ----------
+
+function readApproversConfig_() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('Approvers');
+  if (!sheet) {
+    throw new Error('ยังไม่มีชีต Approvers — ใช้เมนู "ระบบแจ้งเตือนปฏิทิน > เตรียม/ตรวจสอบชีตทั้งหมด" ก่อน');
+  }
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, APPROVERS_SHEET_COLUMNS.length).getDisplayValues() : [];
+  return data
+    .filter(row => String(row[0]).trim())
+    .map((row, i) => ({
+      row: 3 + i,
+      groupName: String(row[0]).trim(),
+      approverNames: splitConfigNames_(row[1]),
+      forward: String(row[2]).trim().toUpperCase() === 'TRUE',
+    }));
+}
+
+// แยกรายชื่อ/ตัวเลือกที่คั่นด้วยจุลภาคจากชีต (pure)
+function splitConfigNames_(value) {
+  return String(value || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+// รายชื่อ หัวหน้า สสอ. จาก Settings
+function secondApproverNames_(settings) {
+  return splitConfigNames_(settings.second_approvers);
+}
+
+// คนที่ลงทะเบียนแล้วและชื่อตรงกับรายชื่อที่กำหนด (เอา userId ไม่ได้ = ยังไม่พร้อมรับการ์ด)
+function registeredStaffByNames_(roster, names) {
+  return (roster || []).filter(s => s.lineUserId && names.includes(staffKey_(s)));
+}
+
+// พูลผู้อนุมัติทั้งหมดที่กำหนดไว้ในระบบ (ทุกกลุ่มงาน + หัวหน้า สสอ.) ที่ลงทะเบียนแล้ว
+// ใช้เป็นเฟืองพื้นสุดท้ายเมื่อผู้อนุมัติเฉพาะกลุ่มยังไม่พร้อม (การ์ดเข้ากลุ่มหลัก ใครในพูลกดได้)
+function allApproverPool_(config, settings, roster, excludeKey) {
+  const names = new Set();
+  config.forEach(c => c.approverNames.forEach(n => names.add(n)));
+  secondApproverNames_(settings).forEach(n => names.add(n));
+  return (roster || []).filter(s =>
+    s.lineUserId && names.has(staffKey_(s)) && staffKey_(s) !== excludeKey);
 }
 
 /**
- * บันไดเลือกผู้อนุมัติขั้นแรกของใบลา:
- *   หัวหน้ากลุ่มงานเดียวกันที่ลงทะเบียนแล้ว → ผอ. ที่ลงทะเบียนแล้ว → ไม่มีเลย (ส่งกลุ่มหลัก)
- * ผู้ยื่นเป็นหัวหน้ากลุ่มงานเองจะข้ามขั้นหัวหน้าไป ผอ. ทันที (ไม่อนุมัติใบลาของตัวเอง)
- * คืน { mode:'user', level, approvers:[staff...] } หรือ { mode:'level', level } เมื่อต้องส่งเข้ากลุ่มหลัก
+ * คำนวณเส้นทางการอนุมัติของใบลาใหม่จากคอนฟิกทั้งหมด (pure — ทดสอบได้):
+ * คืน { stage:'first'|'second', targets:[staff...], needsSecond } หรือ throw เป็นภาษาไทยเมื่อคอนฟิกยังใช้ไม่ได้
+ *   stage 'first'  = เริ่มที่ผู้อนุมัติของกลุ่มงาน (หรือพูลสำรองเมื่อผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)
+ *   stage 'second' = ข้ามไป หัวหน้า สสอ. เลย (ผู้ยื่นคือผู้อนุมัติของกลุ่มตัวเอง หรือกลุ่มส่งต่อและผู้อนุมัติไม่พร้อม)
  */
-function findApproverForStaff_(roster, staff) {
-  if (staff.level !== STAFF_LEVEL.chief && staff.level !== STAFF_LEVEL.director) {
-    const chief = (roster || []).find(s =>
-      s.level === STAFF_LEVEL.chief && s.groupName === staff.groupName && s.lineUserId);
-    if (chief) return { mode: 'user', level: STAFF_LEVEL.chief, approvers: [chief] };
+function resolveApprovalChain_(config, settings, roster, submitter) {
+  const submitterKey = staffKey_(submitter);
+  if (secondApproverNames_(settings).includes(submitterKey)) {
+    throw new Error('การลาของ หัวหน้า สสอ. ยื่นผ่านช่องทางเดิมของหน่วยงาน (นอกระบบนี้)');
   }
-  const directors = findDirectors_(roster);
-  if (directors.length) return { mode: 'user', level: STAFF_LEVEL.director, approvers: directors };
-  return { mode: 'level', level: STAFF_LEVEL.chief };
+  const row = (config || []).find(c => c.groupName === submitter.groupName);
+  if (!row) {
+    throw new Error('กลุ่มงาน ' + submitter.groupName + ' ยังไม่ได้ตั้งค่าผู้อนุมัติในชีต Approvers — ติดต่อผู้ดูแล');
+  }
+
+  const needsSecond = row.forward;
+  const second = registeredStaffByNames_(roster, secondApproverNames_(settings))
+    .filter(s => staffKey_(s) !== submitterKey);
+  const first = registeredStaffByNames_(roster, row.approverNames)
+    .filter(s => staffKey_(s) !== submitterKey);
+  const submitterIsApprover = row.approverNames.includes(submitterKey);
+
+  // ผู้ยื่นคือผู้อนุมัติของกลุ่มตัวเอง → ไม่อนุมัติใบลาของตัวเอง ส่งต่อ หัวหน้า สสอ. ทันที
+  if (submitterIsApprover) {
+    if (needsSecond && second.length) return { stage: 'second', targets: second, needsSecond: true };
+    throw new Error('คุณเป็นผู้อนุมัติของกลุ่มงานนี้ — ให้เปิดช่อง "ส่งต่อให้ หัวหน้า สสอ." ในชีต Approvers ก่อนจึงจะยื่นลาได้');
+  }
+
+  if (first.length) return { stage: 'first', targets: first, needsSecond: needsSecond };
+
+  // ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน → ขึ้นไปเริ่มที่ หัวหน้า สสอ. แทน ถ้าเปิดส่งต่อไว้
+  if (needsSecond && second.length) {
+    return { stage: 'second', targets: second, needsSecond: true, viaFallback: true };
+  }
+  // ยังไม่มีใครพร้อมเป็นการ์ดแรก → ใช้พูลผู้อนุมัติทั้งหมด (การ์ดจะเข้ากลุ่มหลัก)
+  const pool = allApproverPool_(config, settings, roster, submitterKey);
+  if (pool.length) {
+    return { stage: 'first', targets: pool, needsSecond: needsSecond, viaPool: true };
+  }
+  throw new Error('ผู้อนุมัติของกลุ่มงานคุณยังไม่ได้ลงทะเบียนในระบบ — ให้ผู้อนุมัติเปิดฟอร์มลงทะเบียนก่อน');
 }
 
 /**
  * ตรวจสิทธิ์ผู้กดปุ่มอนุมัติตาม "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion
- *   mode 'user'  = ต้องมี userId ตรงกับรายการใดรายการหนึ่งใน userIds
- *   mode 'level' = การ์ดถูกส่งเข้ากลุ่มหลัก (ไม่มีผู้อนุมัติรายคน) ยอมให้หัวหน้ากลุ่มงาน/ผอ. ที่ลงทะเบียนแล้วกดได้
- * คืน { ok:true, staff } หรือ { ok:false, reason:'not-approver'|'done' }
+ * (JSON {stage, userIds, names} — เขียนตอนส่งการ์ด/เปลี่ยนขั้น ผู้ปลอมต้องรู userId ของผู้อนุมัติจริงจึงผ่านได้)
+ * คืน true เมื่อ userId ของผู้กดอยู่ในรายการ
  */
-function canApproveLeave_(approverInfo, tapperUserId, roster) {
-  if (!approverInfo) return { ok: false, reason: 'done' };
-  const tapper = findStaffByUserId_(roster, tapperUserId);
-  if (approverInfo.mode === 'level') {
-    const allowed = tapper && (tapper.level === STAFF_LEVEL.chief || tapper.level === STAFF_LEVEL.director);
-    return allowed ? { ok: true, staff: tapper } : { ok: false, reason: 'not-approver' };
-  }
-  if (!tapper || !(approverInfo.userIds || []).includes(tapperUserId)) {
-    return { ok: false, reason: 'not-approver' };
-  }
-  return { ok: true, staff: tapper };
+function canApproveLeave_(approverInfo, tapperUserId) {
+  return !!(approverInfo && (approverInfo.userIds || []).includes(tapperUserId));
 }
 
 // ---------- วันที่ / วันทำการ ----------
@@ -292,6 +363,12 @@ function leaveDateLabel_(startStr, endStr) {
 
 // ---------- API actions ----------
 
+// ตัวเลือก dropdown ทั้งหมดมาจากชีต — แก้ที่ Settings ได้เลยไม่ต้องแตะโค้ด
+function optionList_(settingValue, fallback) {
+  const list = splitConfigNames_(settingValue);
+  return list.length ? list : splitConfigNames_(fallback);
+}
+
 function apiSession_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
   const roster = readStaffRoster_();
@@ -299,46 +376,80 @@ function apiSession_(body) {
   if (staff) {
     return {
       ok: true, registered: true,
-      name: staffDisplayName_(staff), groupName: staff.groupName, level: staff.level,
+      name: staffDisplayName_(staff), groupName: staff.groupName, position: staff.position,
     };
   }
+  const settings = getSettings_();
+  const config = readApproversConfig_();
   return {
     ok: true, registered: false,
-    staffNames: roster.filter(s => !s.lineUserId).map(s => s.name),
+    options: {
+      prefixes: optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ'),
+      groups: config.map(c => c.groupName), // รายชื่อกลุ่มงาน = คอลัมน์แรกของชีต Approvers
+      positions: optionList_(settings.position_options, 'อื่นๆ'),
+    },
   };
 }
 
 function apiBind_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
-  const staffName = String(body.staffName || '').trim();
   const prefix = String(body.prefix || '').trim().substring(0, 30);
-  if (!staffName) throw new Error('กรุณาเลือกชื่อของคุณ');
-  if (!prefix) throw new Error('กรุณากรอกคำนำหน้าชื่อ');
+  const firstName = String(body.firstName || '').trim().substring(0, 50);
+  const lastName = String(body.lastName || '').trim().substring(0, 50);
+  const groupName = String(body.groupName || '').trim();
+  const position = String(body.position || '').trim().substring(0, 50);
+  if (!firstName || !lastName) throw new Error('กรุณากรอกชื่อและสกุล');
+  if (!prefix) throw new Error('กรุณาเลือกคำนำหน้าชื่อ');
+  if (!position) throw new Error('กรุณาเลือกตำแหน่ง');
+
+  const settings = getSettings_();
+  const config = readApproversConfig_();
+  const prefixes = optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ');
+  const positions = optionList_(settings.position_options, 'อื่นๆ');
+  // 'อื่นๆ' ในลิสต์ = เปิดช่องพิมพ์เอง จึงยอมรับค่าใดๆ ที่ไม่ว่าง; ถ้าไม่มี 'อื่นๆ' ต้องตรงลิสต์เป๊ะ
+  if (!prefixes.includes(prefix) && !prefixes.includes('อื่นๆ')) throw new Error('คำนำหน้าชื่อไม่ถูกต้อง');
+  if (!positions.includes(position) && !positions.includes('อื่นๆ')) throw new Error('ตำแหน่งไม่ถูกต้อง');
+  if (!groupName || !config.some(c => c.groupName === groupName)) {
+    throw new Error('กลุ่มงานไม่ถูกต้อง หรือยังไม่ได้ตั้งค่าในระบบ — ตรวจอีกครั้งหรือติดต่อผู้ดูแล');
+  }
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new Error('ระบบ busy ลองอีกครั้ง');
   try {
     const roster = readStaffRoster_();
-    const staff = findStaffByName_(roster, staffName);
-    if (!staff) throw new Error('ไม่พบชื่อนี้ในทำเนียบ — ตรวจการสะกดหรือติดต่อผู้ดูแล');
-    if (staff.lineUserId && staff.lineUserId !== profile.userId) {
-      throw new Error('ชื่อนี้ถูกลงทะเบียนไปแล้ว — หากคุณคือเจ้าของชื่อนี้จริง ติดต่อผู้ดูแลให้ล้างการลงทะเบียนเดิม');
+    const myKey = staffKey_({ firstName: firstName, lastName: lastName });
+    const sameName = roster.find(s => staffKey_(s) === myKey);
+    if (sameName && sameName.lineUserId && sameName.lineUserId !== profile.userId) {
+      throw new Error('มีผู้ใช้ชื่อนี้ลงทะเบียนแล้ว — หากคุณคือคนเดียวกัน ติดต่อผู้ดูแลให้ล้างการลงทะเบียนเดิม');
     }
+    const sameUser = findStaffByUserId_(roster, profile.userId);
+    if (sameUser && staffKey_(sameUser) !== myKey) {
+      throw new Error('บัญชี LINE นี้ลงทะเบียนเป็นชื่ออื่นไปแล้ว — ติดต่อผู้ดูแลให้ล้างก่อนจึงจะลงทะเบียนใหม่ได้');
+    }
+
     const todayStr = bangkokTodayStr_();
     const sheet = SpreadsheetApp.getActive().getSheetByName('Staff');
-    sheet.getRange(staff.row, 4).setValue(prefix);
-    sheet.getRange(staff.row, 5).setValue(profile.userId);
-    sheet.getRange(staff.row, 6).setValue(profile.displayName);
-    sheet.getRange(staff.row, 7).setValue(todayStr);
+    if (sameName) {
+      // มีแถวชื่อนี้อยู่ก่อนแต่ยังไม่ผูกบัญชี → เติมข้อมูลให้ครบในแถวเดิม (ไม่สร้างซ้ำ)
+      sheet.getRange(sameName.row, 1, 1, 8).setValues([[
+        prefix, firstName, lastName, groupName, position,
+        profile.userId, profile.displayName, todayStr,
+      ]]);
+    } else {
+      sheet.appendRow([
+        prefix, firstName, lastName, groupName, position,
+        profile.userId, profile.displayName, todayStr,
+      ]);
+    }
 
-    const fullName = (prefix ? prefix + ' ' : '') + staff.name;
-    // แจ้งเข้ากลุ่มหลักทุกครั้งที่มีการผูกชื่อ ให้ผู้ดูแลเทียบ "ชื่อใน LINE" กับ "ชื่อที่เลือก" เป็นชั้นตรวจ
+    const fullName = (prefix ? prefix + ' ' : '') + myKey;
+    // แจ้งเข้ากลุ่มหลักทุกครั้งที่มีการลงทะเบียน ให้ผู้ดูแลเทียบ "ชื่อใน LINE" กับ "ชื่อที่กรอก" เป็นชั้นตรวจ
     try {
-      sendLineMessage_(getSettings_().line_group_id, {
+      sendLineMessage_(settings.line_group_id, {
         type: 'text',
         text: '🔔 ระบบลางาน: ' + (profile.displayName || '(ไม่ทราบชื่อ LINE)') +
           ' ลงทะเบียนเป็น ' + fullName +
-          (staff.groupName ? ' (' + staff.groupName + ')' : '') + ' แล้ว',
+          ' (' + groupName + (position ? ' · ' + position : '') + ') แล้ว',
       });
     } catch (notifyErr) {
       logResult_(new Date(), 'leave-bind', 'แจ้งกลุ่มไม่สำเร็จ: ' + notifyErr);
@@ -346,28 +457,18 @@ function apiBind_(body) {
     logResult_(new Date(), 'leave-bind', fullName + ' ← ' + profile.userId);
     return {
       ok: true, registered: true,
-      name: fullName, groupName: staff.groupName, level: staff.level,
+      name: fullName, groupName: groupName, position: position,
     };
   } finally {
     lock.releaseLock();
   }
 }
 
-function splitDirectorTypes_(settingValue) {
-  return String(settingValue || '')
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean);
-}
-
 function apiSubmit_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
-  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อเลือกชื่อของคุณก่อน');
-  if (staff.level === STAFF_LEVEL.director) {
-    throw new Error('การลาของ ' + STAFF_LEVEL.director + ' ยื่นผ่านช่องทางเดิมของหน่วยงาน (นอกระบบนี้)');
-  }
+  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
 
   const leaveType = String(body.leaveType || '').trim();
   if (!LEAVE_TYPES.includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
@@ -380,9 +481,9 @@ function apiSubmit_(body) {
     throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');
   }
 
-  const needsDirector = splitDirectorTypes_(settings.leave_types_needing_director).includes(leaveType);
   const workDays = countBusinessDays_(range.start, range.end, readHolidaySet_());
-  const approver = findApproverForStaff_(roster, staff);
+  const config = readApproversConfig_();
+  const chain = resolveApprovalChain_(config, settings, roster, staff); // throw ไทยสุภาพเมื่อคอนฟิกยังไม่พร้อม
 
   const payload = buildLeavePagePayload_({
     dataSourceId: resolveLeaveDataSourceId_(leaveDbId),
@@ -394,31 +495,35 @@ function apiSubmit_(body) {
     end: range.end,
     reason: reason,
     workDays: workDays,
-    initialStatus: approver.level === STAFF_LEVEL.chief
-      ? LEAVE_STATUS.pendingChief
-      : LEAVE_STATUS.pendingDirector,
-    currentApprover: serializeApproverInfo_(approver),
+    initialStatus: chain.stage === 'second'
+      ? LEAVE_STATUS.pendingChiefOffice
+      : LEAVE_STATUS.pendingApprover,
+    currentApprover: serializeApproverInfo_(chain.stage, chain.targets),
   });
 
   const page = createNotionLeavePage_(payload);
   const leavePage = parseLeavePage_(page);
 
   const card = buildLeaveApprovalBubble_(leavePage);
-  let approverLabel;
-  if (approver.mode === 'user') {
-    const userIds = approver.approvers.map(s => s.lineUserId);
-    approverLabel = approver.approvers.map(s => staffDisplayName_(s) + ' (' + s.level + ')').join(', ');
-    pushApproverCardWithFallback_(userIds, card, leavePage);
-  } else {
-    // ไม่มีผู้อนุมัติรายคนเลย — การ์ดเข้ากลุ่มหลัก ให้หัวหน้า/ผอ. ที่ลงทะเบียนแล้วกดปุ่มแทน
-    approverLabel = 'กลุ่ม LINE หลัก (หัวหน้ากลุ่มงาน/ผอ. กดอนุมัติได้)';
+  let approverLabel = chain.targets.map(s => staffDisplayName_(s)).join(', ');
+  if (chain.viaPool) {
+    // ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน — การ์ดเข้ากลุ่มหลัก ให้ผู้อนุมัติที่ลงทะเบียนแล้วรายอื่นกดแทน
+    approverLabel += ' (เข้ากลุ่มหลัก — ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)';
     try {
       sendLineMessage_(settings.line_group_id, card);
     } catch (err) {
       logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติเข้ากลุ่มไม่สำเร็จ: ' + err);
       throw new Error('ส่งเรื่องให้ผู้อนุมัติไม่สำเร็จ โปรดลองอีกครั้ง (หากยังไม่สำเร็จติดต่อผู้ดูแล)');
     }
-    logResult_(new Date(), 'leave', 'ใบลา ' + leavePage.fullName + ' ส่งเข้ากลุ่มหลัก (ไม่มีผู้อนุมัติรายคน)');
+    logResult_(new Date(), 'leave', 'ใบลา ' + leavePage.fullName + ' ส่งเข้ากลุ่มหลัก (ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)');
+  } else {
+    if (chain.viaFallback) {
+      logResult_(new Date(), 'leave', 'ใบลา ' + leavePage.fullName + ' ขึ้น หัวหน้า สสอ. ทันที (ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)');
+    }
+    pushApproverCardWithFallback_(chain.targets.map(s => s.lineUserId), card, leavePage);
+  }
+  if (chain.needsSecond && chain.stage === 'first') {
+    approverLabel += ' → ส่งต่อ หัวหน้า สสอ.';
   }
 
   logResult_(new Date(), 'leave',
@@ -429,7 +534,7 @@ function apiSubmit_(body) {
     ok: true,
     workDays: workDays,
     approverName: approverLabel,
-    needsDirector: needsDirector,
+    needsSecond: chain.needsSecond && chain.stage === 'first',
   };
 }
 
@@ -469,15 +574,13 @@ function buildLeavePagePayload_(leave) {
   };
 }
 
-function serializeApproverInfo_(approver) {
-  if (approver.mode === 'level') {
-    return JSON.stringify({ mode: 'level', level: approver.level });
-  }
+// "ผู้อนุมัติปัจจุบัน" เก็บในหน้าใบลาเป็น JSON {stage, userIds, names} —
+// stage 'first' = ผู้อนุมัติของกลุ่มงาน, 'second' = หัวหน้า สสอ.
+function serializeApproverInfo_(stage, targets) {
   return JSON.stringify({
-    mode: 'user',
-    level: approver.level,
-    userIds: approver.approvers.map(s => s.lineUserId),
-    names: approver.approvers.map(s => staffDisplayName_(s)),
+    stage: stage,
+    userIds: (targets || []).map(s => s.lineUserId),
+    names: (targets || []).map(s => staffDisplayName_(s)),
   });
 }
 
@@ -671,7 +774,9 @@ function pushPrivateMessage_(userId, messageObj) {
 
 function formatAuditLine_(approverStaff, actionLabel) {
   const stamp = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'dd/MM/yy HH:mm');
-  return stamp + ' ' + staffDisplayName_(approverStaff) + '(' + approverStaff.level + ') ' + actionLabel;
+  const who = staffDisplayName_(approverStaff) +
+    (approverStaff && approverStaff.position ? '(' + approverStaff.position + ')' : '');
+  return stamp + ' ' + who + ' ' + actionLabel;
 }
 
 function leaveSummaryText_(leavePage) {
@@ -697,8 +802,10 @@ function handleLeavePostback_(event, webhookEventId) {
     const page = getLeavePage_(data.p);
     const leavePage = parseLeavePage_(page);
     const roster = readStaffRoster_();
+    const settings = getSettings_();
 
-    const isPending = leavePage.status === LEAVE_STATUS.pendingChief || leavePage.status === LEAVE_STATUS.pendingDirector;
+    const isPending = leavePage.status === LEAVE_STATUS.pendingApprover ||
+      leavePage.status === LEAVE_STATUS.pendingChiefOffice;
     if (!isPending) {
       pushPrivateMessage_(tapperUserId, {
         type: 'text',
@@ -707,8 +814,8 @@ function handleLeavePostback_(event, webhookEventId) {
       return;
     }
 
-    const verdict = canApproveLeave_(leavePage.currentApprover, tapperUserId, roster);
-    if (!verdict.ok) {
+    // ชั้นป้องกันหลัก: userId ของผู้กดต้องตรงกับ "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion
+    if (!canApproveLeave_(leavePage.currentApprover, tapperUserId)) {
       pushPrivateMessage_(tapperUserId, {
         type: 'text',
         text: 'คุณไม่ใช่ผู้อนุมัติของใบลานี้',
@@ -716,47 +823,66 @@ function handleLeavePostback_(event, webhookEventId) {
       logResult_(new Date(), 'leave-approve', 'ผู้ไม่มีสิทธิ์กดปุ่มใบลา ' + leavePage.fullName + ': ' + tapperUserId);
       return;
     }
-    const tapper = verdict.staff;
-    const settings = getSettings_();
+    const tapper = findStaffByUserId_(roster, tapperUserId);
 
     const auditBase = leavePage.audit ? leavePage.audit + '\n' : '';
     const isApprove = data.a === 'approve';
     const actionLabel = isApprove ? 'อนุมัติ' : 'ไม่อนุมัติ';
     const auditText = auditBase + formatAuditLine_(tapper, actionLabel);
 
-    // อนุมัติขั้นหัวหน้า + ประเภทนี้ต้องไปต่อ ผอ. → เปลี่ยนขั้นแทนจบ
-    const needsDirector = splitDirectorTypes_(settings.leave_types_needing_director).includes(leavePage.leaveType);
-    if (isApprove && leavePage.status === LEAVE_STATUS.pendingChief && needsDirector) {
-      const directors = findDirectors_(roster);
-      const nextApprover = directors.length
-        ? { mode: 'user', level: STAFF_LEVEL.director, approvers: directors }
-        : { mode: 'level', level: STAFF_LEVEL.director };
-      updateLeavePage_(leavePage.pageId, {
-        [PROPS_LEAVE.status]: { select: { name: LEAVE_STATUS.pendingDirector } },
-        [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_(nextApprover)),
-        [PROPS_LEAVE.audit]: richTextValue_(auditText),
-      });
+    // อนุมัติขั้นแรก + กลุ่มงานนี้ตั้งค่าให้ส่งต่อ หัวหน้า สสอ. → เปลี่ยนขั้นแทนจบ
+    // (อ่านธงส่งต่อสดๆ จากชีต Approvers ทุกครั้ง — ผู้ดูแลสลับค่ากลางทางได้)
+    if (isApprove && leavePage.status === LEAVE_STATUS.pendingApprover) {
+      const submitter = findStaffByUserId_(roster, leavePage.submitterUserId);
+      const config = readApproversConfig_();
+      const configRow = config.find(c => c.groupName === (submitter ? submitter.groupName : ''));
+      const needsSecond = !!(configRow && configRow.forward);
 
-      if (directors.length) {
-        pushApproverCardWithFallback_(
-          directors.map(s => s.lineUserId),
-          buildLeaveApprovalBubble_(Object.assign({}, leavePage, { status: LEAVE_STATUS.pendingDirector })),
-          leavePage
-        );
-      } else {
-        try {
-          sendLineMessage_(settings.line_group_id, buildLeaveApprovalBubble_(
-            Object.assign({}, leavePage, { status: LEAVE_STATUS.pendingDirector })));
-        } catch (err) {
-          logResult_(new Date(), 'error', 'ส่งการ์ดขั้น ผอ. เข้ากลุ่มไม่สำเร็จ: ' + err);
+      if (needsSecond) {
+        const submitterKey = submitter ? staffKey_(submitter) : '';
+        const second = registeredStaffByNames_(roster, secondApproverNames_(settings))
+          .filter(s => staffKey_(s) !== submitterKey);
+        const nextTargets = second.length
+          ? second
+          : allApproverPool_(config, settings, roster, submitterKey)
+              .filter(s => s.lineUserId !== tapperUserId);
+
+        if (!nextTargets.length) {
+          // ยังไม่มี หัวหน้า สสอ. ที่ลงทะเบียน — ไม่แตะสถานะ ให้อนุมัติใหม่ภายหลังเมื่อพร้อม
+          pushPrivateMessage_(tapperUserId, {
+            type: 'text',
+            text: 'ยังส่งต่อให้ หัวหน้า สสอ. ไม่ได้ เพราะยังไม่มีรายชื่อที่ลงทะเบียนพร้อม — ติดต่อผู้ดูแล (ใบลายังอยู่ที่สถานะเดิม)',
+          });
+          logResult_(new Date(), 'error',
+            'ส่งต่อขั้น หัวหน้า สสอ. ไม่ได้ (ไม่มีเป้าหมายพร้อม) ใบลา ' + leavePage.fullName);
+          return;
         }
+
+        updateLeavePage_(leavePage.pageId, {
+          [PROPS_LEAVE.status]: { select: { name: LEAVE_STATUS.pendingChiefOffice } },
+          [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_('second', nextTargets)),
+          [PROPS_LEAVE.audit]: richTextValue_(auditText),
+        });
+
+        const secondCard = buildLeaveApprovalBubble_(
+          Object.assign({}, leavePage, { status: LEAVE_STATUS.pendingChiefOffice }));
+        if (second.length) {
+          pushApproverCardWithFallback_(second.map(s => s.lineUserId), secondCard, leavePage);
+        } else {
+          // ไม่มี หัวหน้า สสอ. ที่ลงทะเบียน — การ์ดเข้ากลุ่มหลักให้ผู้อนุมัติรายอื่นที่กำหนดไว้กดแทน
+          try {
+            sendLineMessage_(settings.line_group_id, secondCard);
+          } catch (err) {
+            logResult_(new Date(), 'error', 'ส่งการ์ดขั้น หัวหน้า สสอ. เข้ากลุ่มไม่สำเร็จ: ' + err);
+          }
+        }
+        pushPrivateMessage_(leavePage.submitterUserId, {
+          type: 'text',
+          text: '⏳ ผู้อนุมัติอนุมัติแล้ว รอ หัวหน้า สสอ. พิจารณาต่อ\n' + leaveSummaryText_(leavePage),
+        });
+        logResult_(new Date(), 'leave-approve', leavePage.fullName + ' ผ่านขั้นแรก รอ หัวหน้า สสอ.');
+        return;
       }
-      pushPrivateMessage_(leavePage.submitterUserId, {
-        type: 'text',
-        text: '⏳ หัวหน้ากลุ่มงานอนุมัติแล้ว รอ ' + STAFF_LEVEL.director + ' พิจารณาต่อ\n' + leaveSummaryText_(leavePage),
-      });
-      logResult_(new Date(), 'leave-approve', leavePage.fullName + ' ผ่านขั้นหัวหน้า รอ ' + STAFF_LEVEL.director);
-      return;
     }
 
     // จบการอนุมัติ (อนุมัติขั้นสุดท้าย หรือไม่อนุมัติทุกขั้น)
@@ -770,7 +896,8 @@ function handleLeavePostback_(event, webhookEventId) {
       type: 'text',
       text: (isApprove ? '✅ ใบลาของคุณได้รับการอนุมัติ' : '❌ ใบลาไม่ได้รับการอนุมัติ') +
         '\n' + leaveSummaryText_(leavePage) +
-        '\nโดย: ' + staffDisplayName_(tapper) + ' (' + tapper.level + ')',
+        '\nโดย: ' + staffDisplayName_(tapper) +
+        (tapper && tapper.position ? ' (' + tapper.position + ')' : ''),
     });
     pushPrivateMessage_(tapperUserId, {
       type: 'text',

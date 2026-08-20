@@ -21,12 +21,12 @@ function runUnitTests() {
     testNotionPlaceholder_,
     // ระบบลางาน (Leave.gs)
     testStaffDisplayName_,
-    testFindApproverForStaff_,
+    testResolveApprovalChain_,
     testCanApproveLeave_,
     testCountBusinessDays_,
     testLeaveRangeOverlap_,
     testLeaveDateLabel_,
-    testSplitDirectorTypes_,
+    testSplitConfigNames_,
     testBuildLeavePagePayload_,
     testParseLeavePage_,
     testBuildLeaveApprovalBubble_,
@@ -266,11 +266,25 @@ function createTestItem_() {
 
 function createTestRoster_() {
   return [
-    { row: 3, name: 'สมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', level: 'เจ้าหน้าที่', prefix: 'นาย', lineUserId: 'U_SUBMITTER', lineDisplayName: 'Somsak', registeredAt: '2026-08-01' },
-    { row: 4, name: 'สมหญิง ใจงาม', groupName: 'กลุ่มงานคลังสินค้า', level: 'หัวหน้ากลุ่มงาน', prefix: 'นางสาว', lineUserId: 'U_CHIEF', lineDisplayName: 'Somying', registeredAt: '2026-08-01' },
-    { row: 5, name: 'สมชาย ใจแข็ง', groupName: 'กลุ่มงานแพทย์และการพยาบาล', level: 'เจ้าหน้าที่', prefix: '', lineUserId: '', lineDisplayName: '', registeredAt: '' },
-    { row: 6, name: 'สมพร ผู้อำนวยการดี', groupName: 'บริหาร', level: 'ผอ.', prefix: 'นาย', lineUserId: 'U_DIRECTOR', lineDisplayName: 'Director', registeredAt: '2026-08-01' },
+    { row: 3, prefix: 'นาย', firstName: 'สมศักดิ์', lastName: 'ใจดี', groupName: 'กลุ่มงานคลังสินค้า', position: 'นักวิชาการสาธารณสุข', lineUserId: 'U_SUBMITTER', lineDisplayName: 'Somsak', registeredAt: '2026-08-01' },
+    { row: 4, prefix: 'นางสาว', firstName: 'สมหญิง', lastName: 'ใจงาม', groupName: 'กลุ่มงานคลังสินค้า', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_CHIEF', lineDisplayName: 'Somying', registeredAt: '2026-08-01' },
+    { row: 5, prefix: '', firstName: 'สมชื่น', lastName: 'ใจเย็น', groupName: 'กลุ่มงานแพทย์และการพยาบาล', position: 'พยาบาลวิชาชีพ', lineUserId: 'U_NURSE', lineDisplayName: 'Somchuen', registeredAt: '2026-08-01' },
+    { row: 6, prefix: 'นาย', firstName: 'สมชาย', lastName: 'ใจแข็ง', groupName: 'กลุ่มงานแพทย์และการพยาบาล', position: 'พยาบาลวิชาชีพ', lineUserId: '', lineDisplayName: '', registeredAt: '' },
+    { row: 7, prefix: 'นาย', firstName: 'สมพร', lastName: 'ผู้อำนวยการดี', groupName: 'บริหาร', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_SECOND1', lineDisplayName: 'ChiefOffice1', registeredAt: '2026-08-01' },
+    { row: 8, prefix: 'นาง', firstName: 'สมศรี', lastName: 'ผู้อำนวยการดี', groupName: 'บริหาร', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_SECOND2', lineDisplayName: 'ChiefOffice2', registeredAt: '2026-08-01' },
   ];
+}
+
+// คอนฟิกจำลองตามโครงชีต Approvers: กลุ่มงาน | ผู้อนุมัติ | ส่งต่อ หัวหน้า สสอ.
+function createTestApproversConfig_() {
+  return [
+    { row: 3, groupName: 'กลุ่มงานคลังสินค้า', approverNames: ['สมหญิง ใจงาม'], forward: true },
+    { row: 4, groupName: 'กลุ่มงานแพทย์และการพยาบาล', approverNames: ['สมชื่น ใจเย็น'], forward: false },
+  ];
+}
+
+function createTestSettings_() {
+  return { second_approvers: 'สมพร ผู้อำนวยการดี, สมศรี ผู้อำนวยการดี' };
 }
 
 function createTestLeave_() {
@@ -284,8 +298,8 @@ function createTestLeave_() {
     start: '2026-08-20',
     end: '2026-08-21',
     reason: 'ไปต่อด่านที่ว่าการอำเภอ',
-    status: 'รอหัวหน้าอนุมัติ',
-    currentApprover: { mode: 'user', level: 'หัวหน้ากลุ่มงาน', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] },
+    status: LEAVE_STATUS.pendingApprover,
+    currentApprover: { stage: 'first', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] },
     audit: '',
     workDays: 2,
   };
@@ -294,54 +308,77 @@ function createTestLeave_() {
 function testStaffDisplayName_() {
   const roster = createTestRoster_();
   assertEqual_(staffDisplayName_(roster[0]), 'นาย สมศักดิ์ ใจดี');
-  assertEqual_(staffDisplayName_(roster[2]), 'สมชาย ใจแข็ง'); // ยังไม่ได้กรอกคำนำหน้า
+  assertEqual_(staffDisplayName_(roster[2]), 'สมชื่น ใจเย็น'); // ไม่ได้กรอกคำนำหน้า
+  assertEqual_(staffKey_(roster[0]), 'สมศักดิ์ ใจดี'); // key ที่ใช้อ้างในชีต Approvers
   assertEqual_(staffDisplayName_(null), '');
 }
 
-function testFindApproverForStaff_() {
+function testResolveApprovalChain_() {
   const roster = createTestRoster_();
+  const config = createTestApproversConfig_();
+  const settings = createTestSettings_();
 
-  // เจ้าหน้าที่ธรรมดา มีหัวหน้ากลุ่มงานเดียวกันที่ลงทะเบียนแล้ว
-  const normal = findApproverForStaff_(roster, roster[0]);
-  assertEqual_(normal.mode, 'user');
-  assertEqual_(normal.level, 'หัวหน้ากลุ่มงาน');
-  assertEqual_(normal.approvers.length, 1);
-  assertEqual_(normal.approvers[0].lineUserId, 'U_CHIEF');
+  // ปกติ: ผู้อนุมัติของกลุ่ม (ลงทะเบียนแล้ว) และกลุ่มนี้ต้องส่งต่อ หัวหน้า สสอ.
+  const normal = resolveApprovalChain_(config, settings, roster, roster[0]);
+  assertEqual_(normal.stage, 'first');
+  assertEqual_(normal.targets.length, 1);
+  assertEqual_(normal.targets[0].lineUserId, 'U_CHIEF');
+  assertTrue_(normal.needsSecond);
 
-  // หัวหน้ากลุ่มงานยื่นเอง → ข้ามขั้นตัวเองไป ผอ. ทันที
-  const chiefSelf = findApproverForStaff_(roster, roster[1]);
-  assertEqual_(chiefSelf.mode, 'user');
-  assertEqual_(chiefSelf.level, 'ผอ.');
-  assertEqual_(chiefSelf.approvers[0].lineUserId, 'U_DIRECTOR');
+  // กลุ่มที่ไม่ต้องส่งต่อ (ผู้ยื่นคนละคนกับผู้อนุมัติ)
+  const noForward = resolveApprovalChain_(config, settings, roster, roster[3]);
+  assertEqual_(noForward.stage, 'first');
+  assertFalse_(noForward.needsSecond);
+  assertEqual_(noForward.targets[0].lineUserId, 'U_NURSE');
 
-  // กลุ่มงานที่หัวหน้ายังไม่ลงทะเบียน (สมชาย) → ขึ้น ผอ.
-  const noChief = findApproverForStaff_(roster, roster[2]);
-  assertEqual_(noChief.mode, 'user');
-  assertEqual_(noChief.level, 'ผอ.');
+  // ผู้ยื่นคือผู้อนุมัติของกลุ่มตัวเอง + กลุ่มส่งต่อ → ข้ามไป หัวหน้า สสอ. ทันที
+  const selfApprover = resolveApprovalChain_(config, settings, roster, roster[1]);
+  assertEqual_(selfApprover.stage, 'second');
+  assertEqual_(selfApprover.targets.map(s => s.lineUserId).join(','), 'U_SECOND1,U_SECOND2');
 
-  // ไม่มี ผอ. เลย → fallback เป็นโหมดระดับ (การ์ดเข้ากลุ่มหลัก)
-  const noDirectorRoster = roster.filter(s => s.level !== 'ผอ.');
-  const fallback = findApproverForStaff_(noDirectorRoster, roster[2]);
-  assertEqual_(fallback.mode, 'level');
+  // ผู้ยื่นคือผู้อนุมัติของกลุ่มที่ "ไม่" ส่งต่อ → คอนฟิกไม่สมเหตุสมผล ต้อง throw
+  assertThrows_(
+    function () { resolveApprovalChain_(config, settings, roster, roster[2]); },
+    'ส่งต่อให้ หัวหน้า สสอ.'
+  );
+
+  // หัวหน้า สสอ. ยื่นเอง → นอกระบบ
+  assertThrows_(
+    function () { resolveApprovalChain_(config, settings, roster, roster[4]); },
+    'นอกระบบนี้'
+  );
+
+  // กลุ่มงานที่ยังไม่มีแถวในชีต Approvers (ต้องเป็นคนที่ไม่อยู่ในลิสต์ หัวหน้า สสอ. ไม่งั้นชนเคสนอกระบบก่อน)
+  const orphanStaff = { prefix: 'นาย', firstName: 'สมโชค', lastName: 'ใจสั้น', groupName: 'กลุ่มงานซ่อมบำรุง', position: 'ช่างซ่อมบำรุง', lineUserId: 'U_ORPHAN', lineDisplayName: '', registeredAt: '2026-08-01' };
+  assertThrows_(
+    function () { resolveApprovalChain_(config, settings, roster, orphanStaff); },
+    'ยังไม่ได้ตั้งค่าผู้อนุมัติ'
+  );
+
+  // ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน + กลุ่มส่งต่อ → เริ่มที่ หัวหน้า สสอ. ทันที
+  const configUnregistered = [{ groupName: 'กลุ่มงานคลังสินค้า', approverNames: ['สมชาย ใจแข็ง'], forward: true }];
+  const escalated = resolveApprovalChain_(configUnregistered, settings, roster, roster[0]);
+  assertEqual_(escalated.stage, 'second');
+  assertEqual_(escalated.targets.length, 2);
+
+  // ผู้อนุมัต์ของกลุ่มยังไม่ลงทะเบียน + ไม่ส่งต่อ → ใช้พูลผู้อนุมัติอื่นที่ลงทะเบียนแล้ว (การ์ดเข้ากลุ่มหลัก)
+  const configUnregisteredNoForward = [{ groupName: 'กลุ่มงานคลังสินค้า', approverNames: ['สมชาย ใจแข็ง'], forward: false }];
+  const pooled = resolveApprovalChain_(configUnregisteredNoForward, settings, roster, roster[0]);
+  assertEqual_(pooled.stage, 'first');
+  assertTrue_(pooled.viaPool);
+  assertTrue_(pooled.targets.length >= 2);
 }
 
 function testCanApproveLeave_() {
-  const roster = createTestRoster_();
-  const userMode = { mode: 'user', level: 'หัวหน้ากลุ่มงาน', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] };
+  const approverInfo = { stage: 'first', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] };
 
-  // โหมดรายคน: ต้องตรง userId เท่านั้น
-  assertTrue_(canApproveLeave_(userMode, 'U_CHIEF', roster).ok);
-  assertFalse_(canApproveLeave_(userMode, 'U_SUBMITTER', roster).ok);
-  assertFalse_(canApproveLeave_(userMode, 'U_DIRECTOR', roster).ok);
+  // ต้องตรง userId ของผู้อนุมัติปัจจุบันเท่านั้น (ชั้นป้องกันหลักแทน signature)
+  assertTrue_(canApproveLeave_(approverInfo, 'U_CHIEF'));
+  assertFalse_(canApproveLeave_(approverInfo, 'U_SUBMITTER'));
+  assertFalse_(canApproveLeave_(approverInfo, 'U_SECOND1'));
 
-  // โหมดระดับ (การ์ดในกลุ่มหลัก): หัวหน้า/ผอ. ที่ลงทะเบียนแล้วกดได้ เจ้าหน้าที่ธรรมดากดไม่ได้
-  const levelMode = { mode: 'level', level: 'หัวหน้ากลุ่มงาน' };
-  assertTrue_(canApproveLeave_(levelMode, 'U_CHIEF', roster).ok);
-  assertTrue_(canApproveLeave_(levelMode, 'U_DIRECTOR', roster).ok);
-  assertFalse_(canApproveLeave_(levelMode, 'U_SUBMITTER', roster).ok);
-
-  // ไม่มีข้อมูลผู้อนุมัติ (ใบลาจบแล้ว)
-  assertEqual_(canApproveLeave_(null, 'U_CHIEF', roster).reason, 'done');
+  // ใบลาจบแล้ว (ไม่มีข้อมูลผู้อนุมัติปัจจุบัน)
+  assertFalse_(canApproveLeave_(null, 'U_CHIEF'));
 }
 
 function testCountBusinessDays_() {
@@ -370,17 +407,17 @@ function testLeaveDateLabel_() {
   assertEqual_(leaveDateLabel_('2026-08-30', '2026-09-02'), '30 ส.ค. 2569 – 2 ก.ย. 2569');
 }
 
-function testSplitDirectorTypes_() {
+function testSplitConfigNames_() {
   assertEqual_(
-    splitDirectorTypes_('ลาพักร้อน, ลาคลอด ,ลาบวช').join('|'),
-    'ลาพักร้อน|ลาคลอด|ลาบวช'
+    splitConfigNames_('นาย, นางสาว ,อื่นๆ').join('|'),
+    'นาย|นางสาว|อื่นๆ'
   );
-  assertEqual_(splitDirectorTypes_('').length, 0);
-  assertEqual_(splitDirectorTypes_(null).length, 0);
+  assertEqual_(splitConfigNames_('').length, 0);
+  assertEqual_(splitConfigNames_(null).length, 0);
 }
 
 function testBuildLeavePagePayload_() {
-  const approver = { mode: 'user', level: 'หัวหน้ากลุ่มงาน', approvers: [createTestRoster_()[1]] };
+  const approvers = [createTestRoster_()[1]];
   const payload = buildLeavePagePayload_({
     dataSourceId: 'DS_ID',
     fullName: 'นายสมศักดิ์ ใจดี',
@@ -391,8 +428,8 @@ function testBuildLeavePagePayload_() {
     end: '2026-08-21',
     reason: 'ไปต่อด่าน',
     workDays: 2,
-    initialStatus: 'รอหัวหน้าอนุมัติ',
-    currentApprover: serializeApproverInfo_(approver),
+    initialStatus: LEAVE_STATUS.pendingApprover,
+    currentApprover: serializeApproverInfo_('first', approvers),
   });
 
   assertEqual_(payload.parent.data_source_id, 'DS_ID');
@@ -401,12 +438,22 @@ function testBuildLeavePagePayload_() {
   assertEqual_(payload.properties[PROPS_LEAVE.type].select.name, 'ลากิจ');
   assertEqual_(payload.properties[PROPS_LEAVE.date].date.start, '2026-08-20');
   assertEqual_(payload.properties[PROPS_LEAVE.date].date.end, '2026-08-21');
-  assertEqual_(payload.properties[PROPS_LEAVE.status].select.name, 'รอหัวหน้าอนุมัติ');
+  assertEqual_(payload.properties[PROPS_LEAVE.status].select.name, 'รอผู้อนุมัติ');
   assertEqual_(payload.properties[PROPS_LEAVE.workDays].number, 2);
-  // currentApprover เก็บเป็น JSON ที่อ่านกลับมาได้ครบ
+  // currentApprover เก็บเป็น JSON {stage, userIds, names} ที่อ่านกลับมาได้ครบ
   const parsed = JSON.parse(payload.properties[PROPS_LEAVE.currentApprover].rich_text[0].text.content);
-  assertEqual_(parsed.mode, 'user');
+  assertEqual_(parsed.stage, 'first');
   assertEqual_(parsed.userIds.join(','), 'U_CHIEF');
+
+  // กรณีเริ่มที่ หัวหน้า สสอ. ทันที (ผู้ยื่นคือผู้อนุมัติของกลุ่มตัวเอง)
+  const directPayload = buildLeavePagePayload_({
+    dataSourceId: 'DS_ID', fullName: 'นางสาวสมหญิง ใจงาม', groupName: 'กลุ่มงานคลังสินค้า',
+    submitterUserId: 'U_CHIEF', leaveType: 'ลาพักร้อน', start: '2026-08-20', end: '2026-08-20',
+    reason: '', workDays: 1,
+    initialStatus: LEAVE_STATUS.pendingChiefOffice,
+    currentApprover: serializeApproverInfo_('second', []),
+  });
+  assertEqual_(directPayload.properties[PROPS_LEAVE.status].select.name, 'รอหัวหน้า สสอ.อนุมัติ');
 }
 
 function testParseLeavePage_() {
@@ -431,7 +478,8 @@ function testParseLeavePage_() {
   assertEqual_(parsed.leaveType, 'ลากิจ');
   assertEqual_(parsed.start, '2026-08-20');
   assertEqual_(parsed.end, '2026-08-21');
-  assertEqual_(parsed.status, 'รอหัวหน้าอนุมัติ');
+  assertEqual_(parsed.status, 'รอผู้อนุมัติ');
+  assertEqual_(parsed.currentApprover.stage, 'first');
   assertEqual_(parsed.currentApprover.userIds.join(','), 'U_CHIEF');
   assertContains_(parsed.audit, 'อนุมัติ');
   assertEqual_(parsed.workDays, 2);
