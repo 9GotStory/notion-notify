@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ยื่นลา — สสอ.สอง แพร่</title>
+
+<!--
+  หน้าฟอร์มยื่นใบลาผ่าน LIFF (เปิดจากปุ่ม Rich Menu ของ OA หรือลิงก์ในกลุ่ม)
+  โฮสต์บน GitHub Pages — ห้ามโฮสต์บน Apps Script Web App เด็ดขาด เพราะ exec URL จะ redirect
+  ไป googleusercontent.com ทำให้ URL ไม่ตรงกับ endpoint ที่ลงทะเบียนไว้ใน LINE Developers Console
+  และ liff.init() จะพัง (ดูรายละเอียดใน SETUP.md หัวข้อระบบลางาน)
+
+  ตัวตนผู้ใช้ยืนยันด้วย LINE userId ทั้งหมด หน้านี้ไม่มี secret ใดๆ — ทุกคำขอส่ง access token
+  ไปให้ GAS ตรวจกับ api.line.me ฝั่งเซิร์ฟเวอร์เท่านั้น
+-->
+<script charset="utf-8" src="https://static.line-scdn.net/liff/sdk/2.22.3/sdk.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!--
+  ใช้ Tailwind Play CDN ตามแบบหน้าตั้งค่า (Index.html) — ทีม Tailwind เตือนว่า CDN นี้ไม่เหมาะ
+  กับโปรดักชันใหญ่ๆ (compile ใน browser สด) แต่ไฟล์นี้เป็นฟอร์มภายในหน่วยงานเล็ก ผู้ใช้ไม่กี่สิบคน
+  และต้อง deployment แบบไฟล์เดียวไม่มี build pipeline จึงยอมรับข้อเสียนี้แลกกับความเรียบง่าย
+-->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          primary: { DEFAULT: '#0F6E56', dark: '#0B5643', light: '#E6F2EF' },
+          canvas: '#F6F8F7',
+        },
+        fontFamily: { sans: ['"IBM Plex Sans Thai"', 'sans-serif'] },
+      },
+    },
+  };
+</script>
+
+<!-- ============================================================
+     ตั้งค่า 2 ค่านี้ก่อน deploy (ดูขั้นตอนใน SETUP.md)
+     ============================================================ -->
+<script>
+  const CONFIG = {
+    LIFF_ID: 'YOUR_LIFF_ID',        // จาก LINE Developers Console > LINE Login channel > LIFF
+    API_URL: 'YOUR_WEBAPP_URL/exec' // Web app URL ของโปรเจกต์ Apps Script หลัก (ตัวเดียวกับที่ใช้ทำ webhook)
+  };
+</script>
+</head>
+<body class="font-sans bg-canvas text-slate-900 text-[15px] leading-relaxed">
+
+<div class="max-w-lg mx-auto min-h-screen px-4 pt-6 pb-10">
+
+  <!-- ===== กำลังโหลด ===== -->
+  <section id="view-loading" class="py-24 text-center text-slate-500">
+    <div class="w-8 h-8 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+    กำลังเปิดระบบลางาน…
+  </section>
+
+  <!-- ===== ยังไม่ลงทะเบียน: เลือกชื่อตัวเอง ===== -->
+  <section id="view-register" class="hidden">
+    <header class="mb-4">
+      <h1 class="text-lg font-bold">เลือกชื่อของคุณ</h1>
+      <p class="text-sm text-slate-500 mt-1">ครั้งแรกครั้งเดียว — ระบบจะจำบัญชี LINE นี้กับชื่อดังกล่าวตลอดไป หากไม่พบชื่อของคุณในรายการ ติดต่อผู้ดูแลระบบ</p>
+    </header>
+    <input id="nameSearch" type="search" placeholder="ค้นหาชื่อ…" autocomplete="off"
+           class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl bg-white text-sm mb-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+    <div id="nameList" class="bg-white border border-slate-200 rounded-2xl overflow-hidden divide-y divide-slate-100"></div>
+    <p id="nameEmpty" class="hidden text-center text-slate-500 text-sm py-8 bg-white border border-slate-200 rounded-2xl">ไม่พบชื่อที่ค้นหา</p>
+  </section>
+
+  <!-- ===== กรอกคำนำหน้าชื่อ ===== -->
+  <section id="view-prefix" class="hidden">
+    <header class="mb-4">
+      <h1 class="text-lg font-bold">คำนำหน้าชื่อของคุณ</h1>
+      <p class="text-sm text-slate-500 mt-1">ใช้แสดงในใบลาและการแจ้งเตือน (ชื่อ-นามสกุลกำหนดตามทำเนียบ แก้ไม่ได้)</p>
+    </header>
+    <div class="bg-white border border-slate-200 rounded-2xl p-5">
+      <p class="text-sm text-slate-500 mb-1">ชื่อ-นามสกุล</p>
+      <p id="prefixName" class="font-semibold"></p>
+      <p class="text-sm text-slate-500 mt-4 mb-2">คำนำหน้า</p>
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" data-prefix="นาย" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">นาย</button>
+        <button type="button" data-prefix="นาง" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">นาง</button>
+        <button type="button" data-prefix="นางสาว" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">นางสาว</button>
+        <button type="button" data-prefix="__other" class="prefix-btn py-3 rounded-xl border border-slate-200 font-medium">อื่นๆ</button>
+      </div>
+      <input id="prefixOther" type="text" placeholder="พิมพ์คำนำหน้า เช่น แพทย์หญิง" maxlength="30"
+             class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
+      <div id="prefixPreview" class="hidden mt-4 p-3 rounded-xl bg-primary-light text-primary-dark font-semibold text-center"></div>
+    </div>
+    <button id="btnBind" type="button" disabled
+            class="w-full mt-4 py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ยืนยันและเริ่มใช้งาน</button>
+  </section>
+
+  <!-- ===== ฟอร์มยื่นลา ===== -->
+  <section id="view-form" class="hidden">
+    <header class="flex items-center gap-3 mb-5">
+      <div class="w-11 h-11 rounded-full bg-primary-light text-primary flex items-center justify-center text-lg font-bold flex-none" id="userInitial">ก</div>
+      <div class="min-w-0">
+        <p class="font-semibold leading-tight truncate" id="greetingName"></p>
+        <p class="text-xs text-slate-500 truncate" id="greetingGroup"></p>
+      </div>
+    </header>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+      <p class="text-sm font-semibold text-slate-600 mb-2.5">ประเภทการลา</p>
+      <div id="typeGrid" class="grid grid-cols-2 gap-2"></div>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+      <p class="text-sm font-semibold text-slate-600 mb-2.5">ช่วงวันที่ลา</p>
+      <div class="grid grid-cols-2 gap-2 mb-2.5">
+        <div>
+          <label for="dateStart" class="block text-xs text-slate-500 mb-1">ตั้งแต่</label>
+          <input id="dateStart" type="date" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+        </div>
+        <div>
+          <label for="dateEnd" class="block text-xs text-slate-500 mb-1">ถึง</label>
+          <input id="dateEnd" type="date" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <button type="button" id="quickToday" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">ลาวันนี้</button>
+        <button type="button" id="quickTomorrow" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">ลาพรุ่งนี้</button>
+      </div>
+      <p id="dayCount" class="hidden mt-3 p-3 rounded-xl bg-primary-light text-primary-dark text-sm font-medium"></p>
+      <p id="advanceWarning" class="hidden mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3"></p>
+    </div>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+      <label for="reason" class="block text-sm font-semibold text-slate-600 mb-2.5">เหตุผล <span class="font-normal text-slate-400">(กรอกเพื่อผู้อนุมัติพิจารณา)</span></label>
+      <textarea id="reason" rows="3" maxlength="500" placeholder="เช่น ไปทำธุระที่ธนาคาร / ไม่สบาย มีไข้"
+                class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"></textarea>
+    </div>
+
+    <p id="formError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
+
+    <button id="btnSubmit" type="button"
+            class="w-full py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ส่งใบลา</button>
+  </section>
+
+  <!-- ===== ส่งสำเร็จ ===== -->
+  <section id="view-success" class="hidden py-10 text-center">
+    <div class="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
+    <h1 class="text-lg font-bold mb-1">ส่งใบลาเรียบร้อย</h1>
+    <p class="text-sm text-slate-500 mb-5">ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้</p>
+    <div id="successCard" class="text-left bg-white border border-slate-200 rounded-2xl p-5 mb-5 text-sm space-y-2"></div>
+    <button id="btnAgain" type="button" class="w-full py-3.5 rounded-xl font-semibold text-primary bg-primary-light">ยื่นอีกใบ</button>
+  </section>
+
+  <!-- ===== ข้อผิดพลาด ===== -->
+  <section id="view-error" class="hidden py-24 text-center">
+    <div class="text-3xl mb-3">😟</div>
+    <p id="errorMessage" class="text-red-700 font-medium mb-5 px-4"></p>
+    <button id="btnRetry" type="button" class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-primary">ลองใหม่</button>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const LEAVE_TYPES = [
+    { name: 'ลาป่วย', desc: 'ไม่สบาย แจ้งได้ทันทีหรือย้อนหลัง' },
+    { name: 'ลากิจ', desc: 'ธุระจำเป็น ควรแจ้งล่วงหน้า 3 วันทำการ' },
+    { name: 'ลาพักร้อน', desc: 'พักผ่อนประจำปี — อนุมัติโดย ผอ.' },
+    { name: 'ลาคลอด', desc: 'คลอดบุตร — อนุมัติโดย ผอ.' },
+    { name: 'ลาบวช', desc: 'อุปสมบท/บวชเรียน — อนุมัติโดย ผอ.' },
+    { name: 'อื่นๆ', desc: 'ระบุรายละเอียดในช่องเหตุผล' },
+  ];
+
+  const state = {
+    staffNames: [], selectedName: '', prefix: '', prefixOther: false,
+    holidays: new Set(), today: '', leaveType: '', user: null, sending: false,
+  };
+
+  // ---------- เครื่องมือเล็กๆ ----------
+
+  function $(id) { return document.getElementById(id); }
+  function show(view) {
+    ['loading', 'register', 'prefix', 'form', 'success', 'error'].forEach(v => {
+      $('view-' + v).classList.toggle('hidden', v !== view);
+    });
+    window.scrollTo(0, 0);
+  }
+  function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function todayLocal() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  function addDays(dateStr, n) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  function daysBetween(a, b) {
+    return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+  }
+  function isWeekend(dateStr) {
+    const dow = new Date(dateStr + 'T00:00:00').getDay();
+    return dow === 0 || dow === 6;
+  }
+  // นับวันทำการแบบเดียวกับฝั่งเซิร์ฟเวอร์ (ตัวเลขจริงยึดผลจากเซิร์ฟเวอร์ตอน submit เสมอ)
+  function countBusinessDays(start, end) {
+    let count = 0;
+    for (let s = start; s <= end; s = addDays(s, 1)) {
+      if (!isWeekend(s) && !state.holidays.has(s)) count++;
+    }
+    return count;
+  }
+  const THAI_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+  function thaiShort(dateStr) {
+    const p = dateStr.split('-').map(Number);
+    return p[2] + ' ' + THAI_MONTH_SHORT[p[1] - 1] + ' ' + (p[0] + 543);
+  }
+  function dateRangeLabel(start, end) {
+    if (!start) return '';
+    if (!end || end === start) return thaiShort(start);
+    return thaiShort(start) + ' – ' + thaiShort(end);
+  }
+
+  // ---------- คุยกับ GAS API ----------
+
+  async function api(action, extra) {
+    const accessToken = liff.getAccessToken();
+    if (!accessToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ — ปิดแล้วเปิดใหม่อีกครั้ง');
+    const res = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // เลี่ยง CORS preflight ที่ Apps Script ตอบไม่ได้
+      body: JSON.stringify(Object.assign({ apiAction: action, accessToken: accessToken }, extra || {})),
+    });
+    let data = null;
+    try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง');
+    }
+    return data;
+  }
+
+  function showError(message) {
+    $('errorMessage').textContent = message || 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+    show('error');
+  }
+
+  // ---------- เริ่มทำงาน ----------
+
+  async function boot() {
+    show('loading');
+    try {
+      await liff.init({ liffId: CONFIG.LIFF_ID });
+      if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login(); return; }
+      const session = await api('session');
+      if (session.registered) {
+        state.user = session;
+        await loadCalendar();
+        showForm();
+      } else {
+        state.staffNames = session.staffNames || [];
+        renderNameList('');
+        show('register');
+      }
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  async function loadCalendar() {
+    try {
+      const cal = await api('calendar');
+      state.holidays = new Set(cal.holidays || []);
+      state.today = cal.today || todayLocal();
+    } catch (err) {
+      state.today = todayLocal(); // ยังใช้ฟอร์มได้ แค่นับวันหยุดไม่ได้ (ฝั่งเซิร์ฟเวอร์นับให้อยู่ดีตอน submit)
+    }
+  }
+
+  // ---------- ขั้นเลือกชื่อ ----------
+
+  function renderNameList(query) {
+    const q = query.trim().toLowerCase();
+    const list = $('nameList');
+    list.innerHTML = '';
+    const names = state.staffNames.filter(n => !q || n.toLowerCase().includes(q));
+    $('nameEmpty').classList.toggle('hidden', names.length > 0);
+    names.forEach(name => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'w-full text-left px-4 py-3 hover:bg-primary-light transition-colors motion-reduce:transition-none';
+      btn.textContent = name;
+      btn.addEventListener('click', () => {
+        state.selectedName = name;
+        $('prefixName').textContent = name;
+        show('prefix');
+      });
+      list.appendChild(btn);
+    });
+  }
+
+  $('nameSearch').addEventListener('input', e => renderNameList(e.target.value));
+
+  // ---------- ขั้นคำนำหน้า ----------
+
+  let selectedPrefix = '';
+
+  function refreshPrefixPreview() {
+    const other = selectedPrefix === '__other';
+    $('prefixOther').classList.toggle('hidden', !other);
+    const prefix = other ? $('prefixOther').value.trim() : selectedPrefix;
+    const valid = prefix.length > 0;
+    $('prefixPreview').classList.toggle('hidden', !valid);
+    if (valid) $('prefixPreview').textContent = prefix + ' ' + state.selectedName;
+    $('btnBind').disabled = !valid;
+  }
+
+  document.querySelectorAll('.prefix-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedPrefix = btn.dataset.prefix;
+      document.querySelectorAll('.prefix-btn').forEach(b => {
+        const active = b === btn;
+        b.classList.toggle('bg-primary', active);
+        b.classList.toggle('text-white', active);
+        b.classList.toggle('border-primary', active);
+      });
+      refreshPrefixPreview();
+    });
+  });
+  $('prefixOther').addEventListener('input', refreshPrefixPreview);
+
+  $('btnBind').addEventListener('click', async () => {
+    const prefix = selectedPrefix === '__other' ? $('prefixOther').value.trim() : selectedPrefix;
+    if (!prefix) return;
+    $('btnBind').disabled = true;
+    $('btnBind').textContent = 'กำลังบันทึก…';
+    try {
+      const result = await api('bind', { staffName: state.selectedName, prefix: prefix });
+      state.user = result;
+      await loadCalendar();
+      showForm();
+    } catch (err) {
+      showError(err.message);
+    } finally {
+      $('btnBind').disabled = false;
+      $('btnBind').textContent = 'ยืนยันและเริ่มใช้งาน';
+    }
+  });
+
+  // ---------- ฟอร์มลา ----------
+
+  function showForm() {
+    $('greetingName').textContent = 'สวัสดี ' + state.user.name;
+    $('greetingGroup').textContent = state.user.groupName || state.user.level || '';
+    // อักษรแรกของชื่อ (ตัดคำนำหน้าออกก่อน) ไว้ทำอวตารกลมๆ
+    const nameForInitial = (state.user.name || 'ก').replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|แพทย์หญิง)\s*/, '');
+    $('userInitial').textContent = nameForInitial.charAt(0) || (state.user.name || 'ก').charAt(0);
+    renderTypeGrid();
+    $('dateStart').min = addDays(state.today, -90);
+    $('dateStart').max = addDays(state.today, 365);
+    $('dateEnd').min = $('dateStart').min;
+    $('dateEnd').max = $('dateStart').max;
+    $('dateStart').value = state.today;
+    $('dateEnd').value = state.today;
+    refreshDayCount();
+    show('form');
+  }
+
+  function renderTypeGrid() {
+    const grid = $('typeGrid');
+    grid.innerHTML = '';
+    LEAVE_TYPES.forEach(t => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'type-btn text-left p-3.5 rounded-xl border border-slate-200 hover:border-primary transition-colors motion-reduce:transition-none';
+      btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(t.name) + '</span>' +
+        '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' + escapeHtml(t.desc) + '</span>';
+      btn.addEventListener('click', () => {
+        state.leaveType = t.name;
+        document.querySelectorAll('.type-btn').forEach(b => {
+          const active = b === btn;
+          b.classList.toggle('bg-primary-light', active);
+          b.classList.toggle('border-primary', active);
+        });
+        refreshDayCount();
+      });
+      grid.appendChild(btn);
+    });
+  }
+
+  function refreshDayCount() {
+    const start = $('dateStart').value;
+    const end = $('dateEnd').value || start;
+    const box = $('dayCount');
+    const warn = $('advanceWarning');
+    warn.classList.add('hidden');
+    if (!start || !end || end < start) { box.classList.add('hidden'); return; }
+
+    const workDays = countBusinessDays(start, end);
+    const total = daysBetween(start, end) + 1;
+    box.classList.remove('hidden');
+    box.textContent = thaiShort(start) + (end !== start ? ' – ' + thaiShort(end) : '') +
+      ' · ' + workDays + ' วันทำการ (รวม ' + total + ' วันปฏิทิน)';
+
+    // คำเตือนนุ่มๆ ตามระเบียบ (ไม่บล็อก — ปล่อยให้ผู้อนุมัติตัดสิน เพราะลากิจฉุกเฉินยื่นวันเดียวกันได้จริง)
+    if (state.leaveType === 'ลากิจ' && start <= addDays(state.today, 2)) {
+      warn.classList.remove('hidden');
+      warn.textContent = 'แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — ระบบจะยื่นให้ตามปกติ แต่ควรระบุเหตุผลความจำเป็นในช่องเหตุผลให้ชัดเจน';
+    }
+  }
+
+  ['dateStart', 'dateEnd'].forEach(id => $(id).addEventListener('change', () => {
+    if ($('dateStart').value && $('dateEnd').value && $('dateEnd').value < $('dateStart').value) {
+      $('dateEnd').value = $('dateStart').value;
+    }
+    refreshDayCount();
+  }));
+  $('quickToday').addEventListener('click', () => { $('dateStart').value = state.today; $('dateEnd').value = state.today; refreshDayCount(); });
+  $('quickTomorrow').addEventListener('click', () => { const t = addDays(state.today, 1); $('dateStart').value = t; $('dateEnd').value = t; refreshDayCount(); });
+
+  $('btnSubmit').addEventListener('click', async () => {
+    if (state.sending) return;
+    const err = $('formError');
+    err.classList.add('hidden');
+    if (!state.leaveType) { err.textContent = 'กรุณาเลือกประเภทการลา'; err.classList.remove('hidden'); return; }
+    const start = $('dateStart').value;
+    const end = $('dateEnd').value || start;
+    if (!start) { err.textContent = 'กรุณาเลือกวันที่ลา'; err.classList.remove('hidden'); return; }
+
+    state.sending = true;
+    $('btnSubmit').disabled = true;
+    $('btnSubmit').textContent = 'กำลังส่ง…';
+    try {
+      const result = await api('submit', {
+        leaveType: state.leaveType, start: start, end: end, reason: $('reason').value.trim(),
+      });
+      $('successCard').innerHTML =
+        '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(state.leaveType) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end)) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + result.workDays + ' วัน</span></div>' +
+        '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
+        (result.needsDirector ? '<span class="block text-xs text-slate-500 mt-1">ประเภทนี้อนุมัติครบสองชั้น: หัวหน้ากลุ่มงาน → ผอ.</span>' : '') + '</div>';
+      show('success');
+    } catch (submitErr) {
+      err.textContent = submitErr.message;
+      err.classList.remove('hidden');
+    } finally {
+      state.sending = false;
+      $('btnSubmit').disabled = false;
+      $('btnSubmit').textContent = 'ส่งใบลา';
+    }
+  });
+
+  $('btnAgain').addEventListener('click', () => {
+    state.leaveType = '';
+    $('reason').value = '';
+    renderTypeGrid();
+    $('dateStart').value = state.today;
+    $('dateEnd').value = state.today;
+    refreshDayCount();
+    show('form');
+  });
+
+  $('btnRetry').addEventListener('click', boot);
+
+  boot();
+})();
+</script>
+</body>
+</html>

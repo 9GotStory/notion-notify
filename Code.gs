@@ -6,6 +6,7 @@
  *   เมื่อแก้ notify_time ให้กดเมนูติดตั้ง/อัปเดตเวลาส่งอัตโนมัติเพื่อนัด trigger ใหม่
  * - ถ้าวันนั้นไม่มีงานเลย จะไม่ส่งข้อความเข้ากลุ่มใดๆ ทั้งสิ้น (เงียบ)
  *   แต่ยังบันทึกไว้ในชีต Logs ว่าเช็คแล้วและไม่มีงาน เพื่อยืนยันว่าระบบยังทำงานปกติ
+ *   (ระบบลางาน: เงียบเฉพาะเมื่อไม่มีงาน "และ" ไม่มีผู้ลาที่อนุมัติแล้วคร่อมวันนั้น — ดู Leave.gs)
  * - ถ้าตั้งค่าที่จำเป็น (notify_time/notion_database_id/line_group_id) ไม่ครบ ก็จะ log ไว้วันละครั้ง
  *   เช่นกัน (ไม่ return เงียบแบบไม่มีร่องรอย) ยกเว้นตอนปิดใช้งานไว้ตั้งใจ (enabled=FALSE) ที่จะไม่ log อะไรเลย
  * - รูปแบบข้อความเลือกได้จากชีต Settings คีย์ message_format: 'text' (ข้อความธรรมดา ค่าเริ่มต้น)
@@ -169,15 +170,17 @@ function checkAndSendNotification() {
     }
 
     const items = getNotionItemsForDay_(now, settings.notion_database_id);
+    // ส่วนผู้ลาวันนี้ — ถ้ายังไม่ได้ตั้งค่าระบบลา จะคืน [] พร้อม log เอง ไม่กระทบการส่งเช้าหลัก
+    const leaves = getApprovedLeavesForDay_(now, settings.leave_database_id);
 
-    if (items.length === 0) {
-      // ไม่มีงาน -> ไม่ส่งข้อความเข้ากลุ่มเลย แต่ยังบันทึก log ไว้เป็นหลักฐานว่าเช็คแล้วจริง
-      logResult_(now, 'skip', 'ไม่มีงานใน Notion วันนี้ — ไม่ส่งข้อความ');
+    if (items.length === 0 && leaves.length === 0) {
+      // ไม่มีงานและไม่มีผู้ลา -> ไม่ส่งข้อความเข้ากลุ่มเลย แต่ยังบันทึก log ไว้เป็นหลักฐานว่าเช็คแล้วจริง
+      logResult_(now, 'skip', 'ไม่มีงาน/ผู้ลาในระบบวันนี้ — ไม่ส่งข้อความ');
       props.setProperty('LAST_CHECKED_DATE', todayStr);
       return;
     }
 
-    const messageObj = buildLineMessage_(now, items, settings.message_format);
+    const messageObj = buildLineMessage_(now, items, leaves, settings.message_format);
     sendLineMessage_(settings.line_group_id, messageObj);
 
     props.setProperty('LAST_CHECKED_DATE', todayStr);
@@ -344,18 +347,21 @@ function itemTimeLabel_(item) {
 
 // ---------- จัดข้อความ ----------
 
-// เรียกเฉพาะตอน items.length > 0 เท่านั้น (ผู้เรียกเป็นคนกรองกรณีไม่มีงานไปแล้ว)
+// เรียกเมื่อ items.length > 0 หรือ leaves.length > 0 (อย่างน้อยหนึ่งด้าน — ผู้เรียกเป็นคนกรองกรณีว่างทั้งคู่ไปแล้ว)
 // message_format ในชีต Settings เลือกได้ 'text' (ค่าเริ่มต้นถ้าเว้นว่างหรือใส่ค่าอื่น) หรือ 'flex'
-function buildLineMessage_(date, items, format) {
+// leaves คือใบลาที่อนุมัติแล้วและคร่อมวันนี้ (จาก getApprovedLeavesForDay_ ใน Leave.gs)
+function buildLineMessage_(date, items, leaves, format) {
   if (String(format).trim().toLowerCase() === 'flex') {
     const dateLabel = thaiDateLabel_(date);
+    let altText = `📅 ปฏิทินงานวันที่ ${dateLabel} (${items.length} รายการ)`;
+    if (leaves.length) altText += ` — ผู้ลา ${leaves.length} คน`;
     return {
       type: 'flex',
-      altText: `📅 ปฏิทินงานวันที่ ${dateLabel} (${items.length} รายการ)`, // ข้อความสำรองตอนแจ้งเตือน/เครื่องที่ไม่รองรับ Flex
-      contents: buildFlexBubble_(date, items),
+      altText: altText, // ข้อความสำรองตอนแจ้งเตือน/เครื่องที่ไม่รองรับ Flex
+      contents: buildFlexBubble_(date, items, leaves),
     };
   }
-  return { type: 'text', text: buildTextMessage_(date, items) };
+  return { type: 'text', text: buildTextMessage_(date, items, leaves) };
 }
 
 // รายละเอียดย่อย (ผู้รับผิดชอบ/สถานที่/รายละเอียด/หมายเหตุ) คืนเป็น {label, value} เฉพาะฟิลด์ที่มีค่าเท่านั้น
@@ -369,23 +375,33 @@ function itemSubFields_(item) {
   return fields;
 }
 
-function buildTextMessage_(date, items) {
+function buildTextMessage_(date, items, leaves) {
   const dateLabel = thaiDateLabel_(date);
+  const sections = [];
 
-  const blocks = items.map(item => {
-    const lines = [`• ${itemTimeLabel_(item)} — ${item.title}`];
-    itemSubFields_(item).forEach(f => lines.push(`   ${f.label}: ${f.value}`));
-    return lines.join('\n');
-  });
+  if (items.length) {
+    const blocks = items.map(item => {
+      const lines = [`• ${itemTimeLabel_(item)} — ${item.title}`];
+      itemSubFields_(item).forEach(f => lines.push(`   ${f.label}: ${f.value}`));
+      return lines.join('\n');
+    });
+    sections.push(blocks.join('\n\n'));
+  }
 
-  return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${blocks.join('\n\n')}`;
+  if (leaves && leaves.length) {
+    sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` +
+      leaves.map(leave => '• ' + leaveSummaryLabel_(leave)).join('\n'));
+  }
+
+  return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
 }
 
 // โครงสร้าง Flex Message ("bubble") ตามสเปกของ LINE Messaging API
 // สไตล์ทางการ: header สีตามวัน (หัวจดหมาย) + เส้นคาดเทากลาง + รายการงาน (label/value แยกกล่องแบบเดียวกับแถวเวลา
 // เพื่อให้ label เข้มขึ้นได้แบบชัวร์ว่า render ถูก แทนการลองใช้ span ผสมสไตล์ในบรรทัดเดียวที่ยังไม่ได้ทดสอบจริง)
-// + footer ชื่อหน่วยงาน
-function buildFlexBubble_(date, items) {
+// + หัวข้อผู้ลาวันนี้ (ถ้ามี) + footer ชื่อหน่วยงาน
+// items อาจว่างได้ในวันที่มีแต่ผู้ลา — โครงการ์ดยังเหมือนเดิม แค่ไม่มีกล่องรายการงาน
+function buildFlexBubble_(date, items, leaves) {
   const dateLabel = thaiDateLabel_(date);
   const theme = dayThemeFor_(date);
 
@@ -436,6 +452,49 @@ function buildFlexBubble_(date, items) {
     itemBoxes.push({ type: 'box', layout: 'vertical', margin: 'md', contents: itemContents });
   });
 
+  const bodyContents = [
+    // เส้นคาดบางๆ คั่นระหว่าง header กับเนื้อหา ใช้ filler เป็น content ของกล่อง (กล่องว่างเปล่าอาจไม่ผ่าน validation)
+    // เป็นเทากลาง ไม่ใช่สีทอง เพราะทองชนกับ header สีเหลือง(จันทร์)จนแทบมองไม่เห็นเส้น เทาเข้ากับ header ได้ทุกสี
+    { type: 'box', layout: 'vertical', height: '3px', backgroundColor: '#9AA6A1', contents: [{ type: 'filler' }] },
+  ];
+
+  if (itemBoxes.length) {
+    bodyContents.push({ type: 'box', layout: 'vertical', paddingAll: '16px', contents: itemBoxes });
+  }
+
+  if (leaves && leaves.length) {
+    const leaveRows = leaves.map(leave => ({
+      type: 'box',
+      layout: 'baseline',
+      margin: 'sm',
+      contents: [
+        { type: 'text', text: leave.fullName, size: 'xs', weight: 'bold', color: '#333333', flex: 3, wrap: true },
+        { type: 'text', text: leave.leaveType, size: 'xs', color: '#4A4A4A', flex: 2, wrap: true, margin: 'md' },
+        {
+          type: 'text',
+          text: leaveDateLabel_(leave.start, leave.end),
+          size: 'xs',
+          color: '#717875',
+          flex: 4,
+          wrap: true,
+          margin: 'md',
+          adjustMode: 'shrink-to-fit',
+        },
+      ],
+    }));
+
+    // เมื่อมีรายการงานอยู่ก่อน คั่นด้วย separator เต็มความกว้างการ์ด (แบบเดียวกับเส้นคาดใต้ header)
+    if (itemBoxes.length) bodyContents.push({ type: 'separator' });
+    bodyContents.push({
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '16px',
+      contents: [
+        { type: 'text', text: '🏖️ ผู้ลาวันนี้ (' + leaves.length + ' คน)', size: 'sm', weight: 'bold', color: '#0F6E56' },
+      ].concat(leaveRows),
+    });
+  }
+
   return {
     type: 'bubble',
     header: {
@@ -452,12 +511,7 @@ function buildFlexBubble_(date, items) {
       type: 'box',
       layout: 'vertical',
       paddingAll: '0px', // padding เป็น 0 ที่นี่ เพื่อให้เส้นคาดด้านล่างเต็มความกว้างการ์ดพอดี ไม่มีขอบขาว
-      contents: [
-        // เส้นคาดบางๆ คั่นระหว่าง header กับเนื้อหา ใช้ filler เป็น content ของกล่อง (กล่องว่างเปล่าอาจไม่ผ่าน validation)
-        // เป็นเทากลาง ไม่ใช่สีทอง เพราะทองชนกับ header สีเหลือง(จันทร์)จนแทบมองไม่เห็นเส้น เทาเข้ากับ header ได้ทุกสี
-        { type: 'box', layout: 'vertical', height: '3px', backgroundColor: '#9AA6A1', contents: [{ type: 'filler' }] },
-        { type: 'box', layout: 'vertical', paddingAll: '16px', contents: itemBoxes },
-      ],
+      contents: bodyContents,
     },
     footer: {
       type: 'box',
@@ -567,9 +621,82 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('ระบบแจ้งเตือนปฏิทิน')
     .addItem('ทดสอบส่งตอนนี้', 'testSendNow')
+    .addItem('ทดสอบการ์ดใบลา', 'testLeaveCardNow')
     .addItem('รัน Unit Tests', 'runUnitTests')
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
+    .addSeparator()
+    .addItem('เตรียมระบบลางาน', 'setupLeaveSystem')
     .addToUi();
+}
+
+// ---------- ระบบลางาน: เตรียมชีต/ตั้งค่าครั้งแรก ----------
+
+// สร้างชีต Staff พร้อมหัวตาราง (ถ้ายังไม่มี) + เติมแถว Settings ของระบบลา (ถ้ายังไม่มี)
+// รันซ้ำได้ปลอดภัย — ของที่มีอยู่แล้วไม่ถูกแตะ
+function setupLeaveSystem() {
+  const ss = SpreadsheetApp.getActive();
+  let staffSheet = ss.getSheetByName('Staff');
+  if (!staffSheet) staffSheet = ss.insertSheet('Staff');
+  if (String(staffSheet.getRange(2, 1).getDisplayValue()).trim() !== STAFF_SHEET_COLUMNS[0]) {
+    staffSheet.getRange(1, 1).setValue('ทำเนียบเจ้าหน้าที่ — ระบบลางาน');
+    STAFF_SHEET_COLUMNS.forEach((col, i) => staffSheet.getRange(2, i + 1).setValue(col));
+    staffSheet.setFrozenRows(2);
+  }
+
+  upsertSettingRow_('leave_database_id', 'your_leave_database_id');
+  upsertSettingRow_('leave_types_needing_director', 'ลาพักร้อน,ลาคลอด,ลาบวช');
+
+  SpreadsheetApp.getUi().alert(
+    'เตรียมระบบลางานเรียบร้อย\n\n' +
+    'สิ่งที่ต้องทำต่อ:\n' +
+    '1. กรอกทำเนียบในชีต Staff (ชื่อ-สกุลห้ามซ้ำ / กลุ่มงาน / ระดับ: เจ้าหน้าที่, หัวหน้ากลุ่มงาน หรือ ผอ.)\n' +
+    '2. สร้าง database "ใบลา" ใน Notion แล้ววาง ID ในแถว leave_database_id ของชีต Settings\n' +
+    '3. ทำตามขั้นตอนที่เหลือใน SETUP.md (หัวข้อระบบลางาน)'
+  );
+}
+
+// เติม key/value ลงชีต Settings ถ้ายังไม่มี key นั้น (มีอยู่แล้วไม่แตะค่าเดิม)
+function upsertSettingRow_(key, value) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('Settings');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 1).getValues() : [];
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim() === key) return;
+  }
+  sheet.appendRow([key, value]);
+}
+
+// ส่งการ์ดขออนุมัติใบลาตัวอย่างเข้ากลุ่มหลัก เพื่อเช็คหน้าตา/ปุ่มก่อนใช้จริง (ไม่แตะ Notion)
+function testLeaveCardNow() {
+  const settings = getSettings_();
+  if (!settings.line_group_id) {
+    SpreadsheetApp.getUi().alert('ยังไม่มี line_group_id ในชีต Settings');
+    return;
+  }
+  try {
+    const samplePage = {
+      pageId: 'sample-page-for-preview-only',
+      fullName: 'นายสมศักดิ์ ใจดี (ตัวอย่าง)',
+      groupName: 'กลุ่มงานคลังสินค้า',
+      leaveType: 'ลากิจ',
+      start: bangkokTodayStr_(),
+      end: bangkokTodayStr_(),
+      reason: 'ไปต่อด่านที่ว่าการอำเภอ (ข้อมูลตัวอย่าง)',
+      status: LEAVE_STATUS.pendingChief,
+      workDays: 1,
+    };
+    const bubble = buildLeaveApprovalBubble_(samplePage);
+    sendLineMessage_(settings.line_group_id, {
+      type: 'flex',
+      altText: '🧪 การ์ดขออนุมัติใบลา (ตัวอย่าง) — ' + samplePage.fullName,
+      contents: bubble,
+    });
+    logResult_(new Date(), 'success (manual test)', 'ส่งการ์ดใบลาตัวอย่างแล้ว');
+    SpreadsheetApp.getUi().alert('ส่งการ์ดตัวอย่างแล้ว ลองเช็คในกลุ่ม LINE (ปุ่มบนการ์ดตัวอย่างกดแล้วจะไม่มีผลกับข้อมูลจริง)');
+  } catch (err) {
+    logResult_(new Date(), 'error (manual test)', String(err));
+    SpreadsheetApp.getUi().alert('ส่งการ์ดตัวอย่างไม่สำเร็จ: ' + err);
+  }
 }
 
 function testSendNow() {
@@ -581,11 +708,12 @@ function testSendNow() {
   try {
     const now = new Date();
     const items = getNotionItemsForDay_(now, settings.notion_database_id);
-    // ปุ่มทดสอบนี้ส่งข้อความเสมอแม้วันนี้ไม่มีงาน เพื่อยืนยันว่าต่อ LINE สำเร็จจริง
-    // ต่างจากตอนรันจริงตอนเช้า ซึ่งถ้าไม่มีงานจะไม่ส่งข้อความเลย
-    const messageObj = items.length === 0
-      ? { type: 'text', text: '🧪 ข้อความทดสอบ — เชื่อมต่อ LINE และ Notion สำเร็จ\n\n(วันนี้ไม่มีงานใน Notion ถ้าเป็นการรันจริงตอนเช้า ระบบจะไม่ส่งข้อความในกรณีนี้)' }
-      : buildLineMessage_(now, items, settings.message_format);
+    const leaves = getApprovedLeavesForDay_(now, settings.leave_database_id);
+    // ปุ่มทดสอบนี้ส่งข้อความเสมอแม้วันนี้ไม่มีงาน/ผู้ลา เพื่อยืนยันว่าต่อ LINE สำเร็จจริง
+    // ต่างจากตอนรันจริงตอนเช้า ซึ่งถ้าไม่มีงานและไม่มีผู้ลาเลยจะไม่ส่งข้อความ
+    const messageObj = items.length === 0 && leaves.length === 0
+      ? { type: 'text', text: '🧪 ข้อความทดสอบ — เชื่อมต่อ LINE และ Notion สำเร็จ\n\n(วันนี้ไม่มีงานในระบบ ถ้าเป็นการรันจริงตอนเช้า ระบบจะไม่ส่งข้อความในกรณีนี้)' }
+      : buildLineMessage_(now, items, leaves, settings.message_format);
     sendLineMessage_(settings.line_group_id, messageObj);
     logResult_(now, 'success (manual test)', messagePreview_(messageObj).substring(0, 300));
     SpreadsheetApp.getUi().alert('ส่งข้อความทดสอบแล้ว ลองเช็คในกลุ่ม LINE');

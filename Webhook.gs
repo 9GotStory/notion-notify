@@ -1,48 +1,61 @@
 /**
- * รับ webhook จาก LINE ใช้ครั้งเดียวเพื่อดึง Group ID มาเติมในชีต Settings อัตโนมัติ
+ * จุดเข้าเดียวของ deployment นี้ รับ 2 อย่าง (แยกเส้นทางด้วยโครงสร้าง body):
+ * 1. Webhook จาก LINE — เดิมใช้แค่จับ Group ID ตอนติดตั้ง ตอนนี้เพิ่มรองรับปุ่มอนุมัติใบลา (postback)
+ *    ดังนั้น deployment นี้ต้องค้างไว้ถาวรแล้ว (ไม่ใช่จับ Group ID แล้วปิดตามคำแนะนำเดิม)
+ * 2. API ของหน้าฟอร์ม LIFF — body มีฟิลด์ apiAction (session/bind/submit/calendar)
+ *    เรียกจาก GitHub Pages ด้วย POST Content-Type: text/plain (เลี่ยง CORS preflight ที่ Apps Script
+ *    ตอบ OPTIONS ไม่ได้) — การตอบกลับเป็น JSON ที่ Apps Script ใส่ Access-Control-Allow-Origin: * ให้
  *
- * วิธีใช้:
+ * หมายเหตุด้านความปลอดภัย: endpoint นี้เป็น public URL และไม่สามารถตรวจ X-Line-Signature ได้
+ * (Apps Script เข้าถึง custom request header ไม่ได้โดยตรง) จึงใช้ชั้นป้องกันแทน 3 ชั้น:
+ *   - ทุก apiAction ต้องแนบ LINE access token ที่ระบบตรวจกับ api.line.me จริง (verifyLineToken_ ใน Leave.gs)
+ *   - ปุ่มอนุมัติตรวจว่า userId ของผู้กดตรงกับ "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion ของใบลานั้น
+ *     (ผู้ปลอมต้องรูทั้ง pageId และ userId ของผู้อนุมัติจริงจึงจะผ่านได้)
+ *   - dedup ด้วย webhookEventId กัน LINE ยิงซ้ำ (ตอบช้า) ทำให้ประมวลผลซ้ำสองรอบ
+ * ผลกระทบของคนนอกยิงเข้ามาเองจึงจำกัดอยู่ที่ "ได้รับข้อความปฏิเสธ" เท่านั้น
+ *
+ * วิธีติดตั้ง (ครั้งแรก/จับ Group ID):
  * 1. Deploy > New deployment > เลือกประเภท "Web app"
- *    - Execute as: Me
- *    - Who has access: Anyone
- *    กด Deploy แล้วคัดลอก Web app URL ที่ได้
- * 2. ไปที่ LINE Developers Console > channel ที่ใช้ (Messaging API tab)
- *    - วาง URL จากข้อ 1 ลงช่อง Webhook URL แล้วกด Verify
- *    - เปิด "Use webhook"
- *    - เปิด "Allow bot to join group chats" (ค่าเริ่มต้นปิดไว้ ถ้าไม่เปิดจะเชิญบอทเข้ากลุ่มไม่ได้)
- * 3. เชิญบอทเข้ากลุ่ม LINE ที่จะใช้แจ้งเตือน แล้วพิมพ์ข้อความอะไรก็ได้ 1 ข้อความในกลุ่มนั้น
- * 4. เปิดชีต Settings จะเห็นค่า line_group_id ถูกเติมให้อัตโนมัติ
- *
- * หมายเหตุด้านความปลอดภัย: endpoint นี้เป็น public URL และไม่ได้ตรวจสอบ signature จาก LINE
- * (Apps Script Web App เข้าถึง custom request header อย่าง X-Line-Signature ไม่ได้โดยตรง
- * จึงไม่สามารถ verify แบบที่ LINE แนะนำในเอกสารทางการได้)
- * ผลกระทบที่เป็นไปได้จำกัดอยู่แค่การเขียนทับค่า line_group_id 1 ช่องในชีต Settings เท่านั้น
- * แนะนำให้ลบ/ปิด deployment นี้หลังจับ Group ID เสร็จ แล้วค่อย deploy ใหม่หากต้องจับ Group ID รอบใหม่
- * (เช่น ย้ายกลุ่ม หรือบอทถูกเตะออกแล้วเชิญกลับเข้าไปใหม่)
- *
- * หมายเหตุอีกข้อ: ฟังก์ชันนี้เขียนทับ line_group_id ทุกครั้งที่มีข้อความจากกลุ่มใดๆ ก็ตามที่บอทอยู่
- * (ข้อความล่าสุดชนะเสมอ) ถ้าบอทอยู่มากกว่า 1 กลุ่มพร้อมกัน (เช่น ระหว่างทดสอบ) group_id อาจถูกสลับ
- * ไปมาโดยไม่ตั้งใจ — ให้บอทอยู่กลุ่มเป้าหมายกลุ่มเดียวตลอดเวลาที่ deployment นี้ยัง active อยู่
+ *    - Execute as: Me, Who has access: Anyone → กด Deploy แล้วคัดลอก Web app URL
+ * 2. LINE Developers Console > channel (Messaging API tab): วาง URL ลงช่อง Webhook URL กด Verify
+ *    เปิด "Use webhook" และ "Allow bot to join group chats"
+ * 3. เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความอะไรก็ได้ 1 ข้อความ — line_group_id จะถูกเติมในชีต Settings
+ * 4. หลังจากนั้นปล่อย deployment นี้ค้างไว้ถาวร (ปุ่มอนุมัติใบลาและ API ของ LIFF วิ่งผ่าน URL เดียวกันนี้)
+ *    ถ้าแก้โค้ดให้ Deploy > Manage deployments > Edit > New version เสมอ (URL ไม่เปลี่ยน)
  */
 
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    const events = body.events || [];
 
+    // API จากหน้า LIFF (สัญญา: มีฟิลด์ apiAction) — ตอบ JSON กลับไปให้ browser
+    if (body && body.apiAction) {
+      return jsonOutput_(handleApiRequest_(body));
+    }
+
+    // Webhook จาก LINE (สัญญา: มีฟิลด์ events)
+    const events = body.events || [];
+    const webhookEventId = body.webhookEventId || '';
     events.forEach(event => {
       const source = event.source || {};
       if (source.type === 'group' && source.groupId) {
         recordGroupId_(source.groupId);
       }
+      if (event.type === 'postback') {
+        handleLeavePostback_(event, webhookEventId);
+      }
     });
   } catch (err) {
-    // เก็บ error ไว้ดูใน Executions ของ Apps Script; ไม่ throw กลับไปหา LINE เพราะ LINE จะ retry รัวๆ ถ้าเห็น error
+    // เก็บ error ไว้ดูใน Executions/Logs; ไม่ throw กลับไปหา LINE เพราะ LINE จะ retry รัวๆ ถ้าเห็น error
     console.error(err);
   }
 
+  return jsonOutput_({ status: 'ok' });
+}
+
+function jsonOutput_(obj) {
   return ContentService
-    .createTextOutput(JSON.stringify({ status: 'ok' }))
+    .createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);
 }
 
