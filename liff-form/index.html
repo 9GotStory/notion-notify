@@ -14,7 +14,9 @@
   ตัวตนผู้ใช้ยืนยันด้วย LINE userId ทั้งหมด หน้านี้ไม่มี secret ใดๆ — ทุกคำขอส่ง access token
   ไปให้ GAS ตรวจกับ api.line.me ฝั่งเซิร์ฟเวอร์เท่านั้น
 -->
-<script charset="utf-8" src="https://static.line-scdn.net/liff/sdk/2.22.3/sdk.js"></script>
+<!-- CDN path ปัจจุบันของ LIFF SDK (ตามเอกสารทางการ) — path เดิม liff/sdk/2.x/sdk.js ถูกยกเลิก
+     แล้ว (ตอบ 403 ทำให้เกิด "liff is not defined") ส่วน edge/2 = อัปเดต patch ให้อัตโนมัติ -->
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -255,6 +257,10 @@
 
   async function boot() {
     show('loading');
+    if (typeof liff === 'undefined') {
+      showError('โหลด LINE SDK ไม่สำเร็จ — ตรวจอินเทอร์เน็ตแล้วปิดหน้านี้แล้วเปิดใหม่ หากยังไม่หายติดต่อผู้ดูแลระบบ');
+      return;
+    }
     try {
       await liff.init({ liffId: CONFIG.LIFF_ID });
       if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login(); return; }
