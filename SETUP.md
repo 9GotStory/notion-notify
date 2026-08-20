@@ -165,17 +165,24 @@
 2. เพิ่มไฟล์ `Leave.gs` ในโปรเจกต์ และอัปเดต `Code.gs` / `Webhook.gs` / `Tests.gs` ตามไฟล์ใน repository นี้
 3. **Deploy > Manage deployments > แก้ไข deployment เดิม (ไอคอนดินสอ) > Version: New version > Deploy** — URL เดิมไม่เปลี่ยน ค่า Webhook URL ที่ตั้งไว้ใน LINE ใช้ได้ตามเดิม **ห้ามลบ deployment นี้อีกต่อไป** เพราะทั้งปุ่มอนุมัติและ API ของหน้า LIFF วิ่งผ่าน URL นี้
 
-### 11.5 โฮสต์หน้าฟอร์มบน GitHub Pages
+### 11.5 โฮสต์หน้าฟอร์มบน GitHub Pages (ค่าตั้งค่าอยู่ใน GitHub Environment)
 
 **ห้ามโฮสต์หน้า LIFF บน Apps Script Web App** — exec URL จะ redirect ไป `*.googleusercontent.com` ทำให้ URL ไม่ตรงกับ endpoint ที่ลงทะเบียน และ `liff.init()` พังทุกครั้ง
 
-1. ถ้า repository นี้เป็น **private** ต้องเลือกก่อน: เปิดเป็น public (ไฟล์ใน repo ไม่มี secret ใดๆ — token ทั้งหมดอยู่ใน Script Properties เท่านั้น) หรือสร้าง repository สาธารณะใหม่แยกให้ฟอร์มโดยเฉพาะ
-2. GitHub repository > **Settings > Pages** > Source: **Deploy from a branch** > Branch: `main` / folder `(root)` > Save
-3. รอ 1-2 นาที หน้าฟอร์มจะอยู่ที่ `https://<username>.github.io/notion-notify/liff-form/`
-4. เปิดไฟล์ `liff-form/index.html` แก้ 2 ค่าบนหัวไฟล์:
+หน้าฟอร์มไม่ได้เก็บค่าตั้งค่าในไฟล์ — ใน `liff-form/index.html` มีแค่ placeholder `__LIFF_ID__` / `__API_URL__` และ GitHub Actions (`.github/workflows/deploy-liff-form.yml`) จะเอาค่าจริงจาก **Environment secrets** มาแทนที่ก่อน deploy ขึ้น Pages ทุกครั้งที่ push แก้ไฟล์ใน `liff-form/` — เปลี่ยนค่าได้โดยไม่ต้องแตะโค้ด และค่าถูก mask ใน log ทั้งหมด
+
+**ตั้งค่าครั้งเดียว ตามลำดับนี้:**
+
+1. ถ้า repository นี้เป็น **private** ต้องเลือกก่อน: เปิดเป็น public (ไฟล์ใน repo ไม่มี secret ใดๆ — token ทั้งหมดอยู่ใน Script Properties / Environment เท่านั้น) หรือสร้าง repository สาธารณะใหม่แยกให้ฟอร์มโดยเฉพาะ
+2. **Settings > Environments > New environment** ตั้งชื่อ `liff` แล้วเพิ่ม secrets 2 ตัว:
    - `LIFF_ID` = จากข้อ 11.3
-   - `API_URL` = Web app URL จากข้อ 11.4
-   แล้ว commit + push
+   - `API_URL` = Web app URL จากข้อ 11.4 (ลงท้ายด้วย `/exec`)
+3. **Settings > Pages > Source: "GitHub Actions"** (สำคัญ — ถ้ายังเป็น "Deploy from a branch" ให้เปลี่ยน ไม่งั้น workflow deploy ไม่ได้ และหน้าที่ถูกเสิร์ฟจะเป็นไฟล์ placeholder ที่ยังไม่ถูกแทนที่ ฟอร์มจะขึ้นว่า "ระบบยังไม่พร้อมใช้งาน")
+4. `git push` — Actions จะรันเอง (ดูได้ที่แท็บ Actions) หน้าฟอร์มอยู่ที่ URL เดิม `https://<username>.github.io/notion-notify/liff-form/` และเสิร์ฟเฉพาะหน้าฟอร์ม ไม่โฮสต์ไฟล์ .gs อื่นของ repo
+
+**แก้ค่าภายหลัง** (เช่น เปลี่ยน deployment ของ Apps Script): แก้ใน Settings > Environments > liff แล้วไปแท็บ Actions > Deploy LIFF form > Run workflow — ไม่ต้องแก้โค้ดและไม่ต้อง commit
+
+**ทดสอบในเครื่อง**: copy `liff-form/index.html` ไปไฟล์อื่น แทนที่ placeholder ด้วยค่าจริงแล้วเปิดผ่าน local server ก็ได้ (อย่า commit ไฟล์ที่ใส่ค่าจริงเด็ดขาด)
 
 ### 11.6 ปุ่ม "ยื่นลา" บน OA (Rich Menu)
 

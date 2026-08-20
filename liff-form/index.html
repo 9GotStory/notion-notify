@@ -294,6 +294,12 @@
       showError('โหลด LINE SDK ไม่สำเร็จ — ตรวจอินเทอร์เน็ตแล้วปิดหน้านี้แล้วเปิดใหม่ หากยังไม่หายติดต่อผู้ดูแลระบบ');
       return;
     }
+    // กันเคสหน้าถูกเสิร์ฟโดยไม่ผ่าน GitHub Actions (placeholder ยังไม่ถูกแทนที่)
+    if (!CONFIG.LIFF_ID || CONFIG.LIFF_ID.indexOf('__') === 0 ||
+        !CONFIG.API_URL || CONFIG.API_URL.indexOf('__') === 0) {
+      showError('ระบบยังไม่พร้อมใช้งาน (ค่าตั้งค่ายังไม่ถูกใส่) — ติดต่อผู้ดูแลระบบ');
+      return;
+    }
     try {
       await liff.init({ liffId: CONFIG.LIFF_ID });
       if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login(); return; }

@@ -1,0 +1,67 @@
+# Deploy หน้าฟอร์ม LIFF ขึ้น GitHub Pages โดยแทนที่ placeholder ด้วยค่าจาก Environment secrets
+#
+# ค่า LIFF_ID / API_URL ไม่ถูก commit ลง repo — เก็บไว้ใน GitHub Environment ชื่อ "liff"
+# (Settings > Environments > liff > Add secret: LIFF_ID และ API_URL)
+# workflow จะแทนที่ __LIFF_ID__ / __API_URL__ ใน liff-form/index.html ก่อนเสิร์ฟขึ้น Pages
+# (URL เดิม .../notion-notify/liff-form/) และเสิร์ฟเฉพาะหน้าฟอร์ม ไม่โฮสต์ไฟล์ .gs ทั้ง repo
+#
+# ต้องตั้งค่าครั้งเดียว: Settings > Pages > Source: "GitHub Actions"
+# (ถ้ายังเป็น "Deploy from a branch" workflow นี้จะ deploy ไม่ได้)
+#
+# หมายเหตุความปลอดภัย: สองค่านี้เป็น public-safe by design (ผู้ใช้เห็นอยู่แล้วผ่านลิงก์)
+# การเก็บใน Environment ช่วย mask ใน log / แยก config ออกจากโค้ด / กันพลาดชี้ไป endpoint ผิด
+
+name: Deploy LIFF form
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'liff-form/**'
+      - '.github/workflows/deploy-liff-form.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: liff
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      # ผ่านค่าผ่าน env แทนการแทนที่ตรงๆ ใน shell — กัน script injection จากค่า secret
+      - name: Build site (แทนที่ placeholder ด้วย Environment secrets)
+        env:
+          LIFF_ID: ${{ secrets.LIFF_ID }}
+          API_URL: ${{ secrets.API_URL }}
+        run: |
+          if [ -z "$LIFF_ID" ] || [ -z "$API_URL" ]; then
+            echo "::error::ยังไม่ได้ตั้งค่า secrets — ไปที่ Settings > Environments > liff แล้วเพิ่ม LIFF_ID และ API_URL"
+            exit 1
+          fi
+          mkdir -p site/liff-form
+          cp liff-form/index.html site/liff-form/index.html
+          sed -i "s|__LIFF_ID__|$LIFF_ID|g; s|__API_URL__|$API_URL|g" site/liff-form/index.html
+          if grep -q '__LIFF_ID__\|__API_URL__' site/liff-form/index.html; then
+            echo "::error::ยังมี placeholder ค้างในไฟล์"
+            exit 1
+          fi
+          echo "deploy หน้าฟอร์มพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
