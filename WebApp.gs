@@ -28,6 +28,18 @@ const SPREADSHEET_ID = '1c4SI6mF1B-qymkIPtdQNprR6cxa4PlWeL5fcjzH_0Kg'; // เอ
 
 function doGet(e) {
   const email = Session.getActiveUser().getEmail();
+  // กันช่องโหว่กรณีไฟล์นี้ไปปนในโปรเจกต์เดียวกับ webhook (ซึ่ง deploy แบบ "execute as: Me + Anyone"):
+  // ผู้เข้าชมแบบไม่ login จะได้อีเมลว่างเสมอ และถ้า ALLOWED_EDITORS ยังไม่ได้ตั้งค่า isAllowedEditor_
+  // จะปล่อยผ่านทุกคน (= ใครมี URL ก็แก้ Settings/ลบวันหยุดได้) จึงตัดทันทีที่ไม่มีอีเมล
+  // หน้าตั้งค่าใช้ได้เฉพาะจากโปรเจกต์แยกตาม SETUP.md ข้อ 10 (deploy แบบ execute as user เท่านั้น)
+  if (!email) {
+    return HtmlService.createHtmlOutput(
+      '<div style="font-family:sans-serif;padding:60px 24px;text-align:center;color:#B3261E">' +
+      '<p style="font-size:16px;font-weight:600">หน้าตั้งค่าไม่สามารถใช้จาก deployment นี้ได้</p>' +
+      '<p style="font-size:13px;color:#666">deployment นี้ใช้สำหรับ webhook ของ LINE และระบบลางานเท่านั้น — ' +
+      'แก้ไขการตั้งค่าได้ที่ Google Sheet โดยตรง หรือใช้หน้าเว็บตั้งค่าจากโปรเจกต์แยกตาม SETUP.md ข้อ 10</p></div>'
+    );
+  }
   if (!isAllowedEditor_(email)) {
     return HtmlService.createHtmlOutput(
       '<div style="font-family:sans-serif;padding:60px 24px;text-align:center;color:#B3261E">' +
