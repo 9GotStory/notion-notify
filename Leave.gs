@@ -11,7 +11,7 @@
  * การตรวจสิทธิ์คนกดปุ่มอ้างอิง "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion (ดู canApproveLeave_)
  * — เป็นชั้นป้องกันหลักแทนการตรวจ X-Line-Signature ที่ Apps Script เข้าถึง header นี้ไม่ได้
  *
- * โครงสร้างชีต Staff (สร้างอัตโนมัติด้วยเมนู "เตรียมระบบลางาน"):
+ * โครงสร้างชีต Staff (สร้างอัตโนมัติด้วยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" — setupSheet ใน Code.gs):
  *   แถว 1: ชื่อตาราง / แถว 2: หัวคอลัมน์ / เริ่มข้อมูลแถว 3 (ตามแบบชีต Settings/Holidays)
  *   ชื่อ-สกุล | กลุ่มงาน | ระดับ (เจ้าหน้าที่/หัวหน้ากลุ่มงาน/ผอ.) | คำนำหน้า (ผู้ใช้กรอก)
  *   | LINE User ID | ชื่อที่แสดงใน LINE | วันที่ลงทะเบียน
@@ -123,7 +123,7 @@ function verifyLineToken_(accessToken) {
 function readStaffRoster_() {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Staff');
   if (!sheet) {
-    throw new Error('ยังไม่ได้เตรียมระบบลางาน — ใช้เมนู "ระบบแจ้งเตือนปฏิทิน > เตรียมระบบลางาน" ก่อน');
+    throw new Error('ยังไม่ได้เตรียมระบบลางาน — ใช้เมนู "ระบบแจ้งเตือนปฏิทิน > เตรียม/ตรวจสอบชีตทั้งหมด" ก่อน');
   }
   const lastRow = sheet.getLastRow();
   const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, STAFF_SHEET_COLUMNS.length).getDisplayValues() : [];

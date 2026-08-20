@@ -625,45 +625,86 @@ function onOpen() {
     .addItem('รัน Unit Tests', 'runUnitTests')
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
     .addSeparator()
-    .addItem('เตรียมระบบลางาน', 'setupLeaveSystem')
+    .addItem('เตรียม/ตรวจสอบชีตทั้งหมด', 'setupSheet')
     .addToUi();
 }
 
-// ---------- ระบบลางาน: เตรียมชีต/ตั้งค่าครั้งแรก ----------
+// ---------- เตรียมสเปรดชีตทั้งหมด (รันครั้งแรก หรือรันซ้ำเพื่อเติมของที่ขาด) ----------
 
-// สร้างชีต Staff พร้อมหัวตาราง (ถ้ายังไม่มี) + เติมแถว Settings ของระบบลา (ถ้ายังไม่มี)
-// รันซ้ำได้ปลอดภัย — ของที่มีอยู่แล้วไม่ถูกแตะ
-function setupLeaveSystem() {
+// สร้าง/ตรวจสอบชีตทั้ง 4 (Settings/Holidays/Logs/Staff) ให้พร้อมใช้ — ทำให้ติดตั้งระบบบน
+// สเปรดชีตเปล่าได้โดยไม่ต้องใช้ไฟล์ template เลย และรันซ้ำกี่ครั้งก็ปลอดภัย:
+// ชีต/หัวตาราง/ค่า default เติมเฉพาะที่ยังไม่มี ค่าที่ผู้ใช้แก้ไว้แล้วไม่ถูกแตะทั้งสิ้น
+function setupSheet() {
   const ss = SpreadsheetApp.getActive();
-  let staffSheet = ss.getSheetByName('Staff');
-  if (!staffSheet) staffSheet = ss.insertSheet('Staff');
-  if (String(staffSheet.getRange(2, 1).getDisplayValue()).trim() !== STAFF_SHEET_COLUMNS[0]) {
-    staffSheet.getRange(1, 1).setValue('ทำเนียบเจ้าหน้าที่ — ระบบลางาน');
-    STAFF_SHEET_COLUMNS.forEach((col, i) => staffSheet.getRange(2, i + 1).setValue(col));
-    staffSheet.setFrozenRows(2);
-  }
+  const status = [];
 
-  upsertSettingRow_('leave_database_id', 'your_leave_database_id');
-  upsertSettingRow_('leave_types_needing_director', 'ลาพักร้อน,ลาคลอด,ลาบวช');
+  ensureSheet_(ss, 'Settings', 'การตั้งค่าระบบแจ้งเตือน + ระบบลางาน', ['คีย์', 'ค่า', 'คำอธิบาย'], status);
+  ensureSheet_(ss, 'Holidays', 'วันหยุดราชการ (ตรวจทานกับ soc.go.th ทุกต้นปี)', ['วันที่', 'ชื่อวันหยุด', 'ประเภท'], status);
+  ensureSheet_(ss, 'Logs', 'บันทึกการทำงานของระบบ (เขียนอัตโนมัติ ไม่ต้องแก้ไข)', ['เวลาที่บันทึก', 'วันที่', 'สถานะ', 'รายละเอียด'], status);
+  ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ — ระบบลางาน', STAFF_SHEET_COLUMNS, status);
 
-  SpreadsheetApp.getUi().alert(
-    'เตรียมระบบลางานเรียบร้อย\n\n' +
-    'สิ่งที่ต้องทำต่อ:\n' +
-    '1. กรอกทำเนียบในชีต Staff (ชื่อ-สกุลห้ามซ้ำ / กลุ่มงาน / ระดับ: เจ้าหน้าที่, หัวหน้ากลุ่มงาน หรือ ผอ.)\n' +
-    '2. สร้าง database "ใบลา" ใน Notion แล้ววาง ID ในแถว leave_database_id ของชีต Settings\n' +
-    '3. ทำตามขั้นตอนที่เหลือใน SETUP.md (หัวข้อระบบลางาน)'
-  );
+  // บังคับรูปแบบวันที่ให้แสดงเป็น yyyy-MM-dd — โค้ดอ่านค่าตามที่แสดงบนจอ (readHolidaySet_)
+  // ถ้าปล่อยให้ Sheet จัดรูปแบบภาษาไทย วันหยุดจะหลุดจากการนับวันทำการของใบลา
+  const holidays = ss.getSheetByName('Holidays');
+  holidays.getRange('A3:A').setNumberFormat('yyyy-MM-dd');
+  ss.getSheetByName('Staff').getRange('G3:G').setNumberFormat('yyyy-MM-dd');
+
+  // เติมค่าตั้งต้นของ Settings เฉพาะ key ที่ยังไม่มี (พร้อมคำอธิบายในคอลัมน์ C — โค้ดอ่านแค่ A/B)
+  const addedKeys = [];
+  [
+    ['enabled', 'TRUE', 'เปิด/ปิดระบบแจ้งเตือน (TRUE หรือ FALSE)'],
+    ['notify_time', '08:30', 'เวลาส่งข้อความเช้า (HH:mm) — แก้แล้วต้องกดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ" ทุกครั้ง'],
+    ['notion_database_id', 'your_notion_database_id', 'Database ID ของ "ปฏิทินการปฏิบัติงาน" ใน Notion'],
+    ['line_group_id', '', 'เติมอัตโนมัติเมื่อบอทเข้ากลุ่ม LINE และมีคนพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)'],
+    ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
+    ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
+    ['leave_types_needing_director', 'ลาพักร้อน,ลาคลอด,ลาบวช', 'ประเภทการลาที่ต้องอนุมัติโดย ผอ. ด้วย (คั่นด้วยจุลภาค)'],
+  ].forEach(row => {
+    if (upsertSettingRow_(row[0], row[1], row[2])) addedKeys.push(row[0]);
+  });
+
+  const summary =
+    'ผลการตรวจสอบชีต:\n' + status.join('\n') + '\n\n' +
+    (addedKeys.length
+      ? 'เติมค่าตั้งต้นใน Settings เพิ่ม: ' + addedKeys.join(', ') + '\n\n'
+      : 'ค่าใน Settings ครบอยู่แล้ว (ไม่แตะของเดิม)\n\n') +
+    'สิ่งที่ต้องทำต่อ (ครั้งแรกเท่านั้น):\n' +
+    '1. วาง Database ID ของ "ปฏิทินการปฏิบัติงาน" ในแถว notion_database_id\n' +
+    '2. สร้าง database "ใบลา" ใน Notion แล้ววาง ID ในแถว leave_database_id (สเปกใน SETUP.md ข้อ 11.2)\n' +
+    '3. กรอกทำเนียบชีต Staff (ชื่อ-สกุลห้ามซ้ำ / กลุ่มงาน / ระดับ: เจ้าหน้าที่, หัวหน้ากลุ่มงาน หรือ ผอ.)\n' +
+    '4. ใส่วันหยุดในชีต Holidays (ตรวจกับประกาศทางการ)\n' +
+    '5. ตั้งค่า Secret ใน Script Properties แล้ว deploy ตาม SETUP.md';
+  SpreadsheetApp.getUi().alert('เตรียมสเปรดชีตเรียบร้อย', summary, SpreadsheetApp.getUi().ButtonSet.OK);
 }
 
-// เติม key/value ลงชีต Settings ถ้ายังไม่มี key นั้น (มีอยู่แล้วไม่แตะค่าเดิม)
-function upsertSettingRow_(key, value) {
+// สร้างชีตถ้ายังไม่มี + ใส่หัวตารางถ้ายังไม่ใส่ (แถว 1 = ชื่อตาราง, แถว 2 = หัวคอลัมน์, ข้อมูลเริ่มแถว 3)
+// คืนสถานะสั้นๆ สำหรับสรุปให้ผู้ใช้เห็นว่าทำอะไรไปบ้าง
+function ensureSheet_(ss, name, title, headers, status) {
+  let sheet = ss.getSheetByName(name);
+  const isNew = !sheet;
+  if (isNew) sheet = ss.insertSheet(name);
+
+  if (String(sheet.getRange(2, 1).getDisplayValue()).trim() !== String(headers[0]).trim()) {
+    sheet.getRange(1, 1).setValue(title);
+    headers.forEach((header, i) => sheet.getRange(2, i + 1).setValue(header));
+    sheet.getRange(2, 1, 1, headers.length).setFontWeight('bold');
+    sheet.setFrozenRows(2);
+    status.push((isNew ? 'สร้างใหม่: ' : 'เติมหัวตาราง: ') + name);
+  } else {
+    status.push((isNew ? 'สร้างใหม่: ' : 'พร้อมอยู่แล้ว: ') + name);
+  }
+}
+
+// เติม key/value/description ลงชีต Settings ถ้ายังไม่มี key นั้น — คืน true ถ้าเพิ่ม, false ถ้ามีอยู่แล้ว
+function upsertSettingRow_(key, value, description) {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Settings');
   const lastRow = sheet.getLastRow();
   const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 1).getValues() : [];
   for (let i = 0; i < data.length; i++) {
-    if (String(data[i][0]).trim() === key) return;
+    if (String(data[i][0]).trim() === key) return false;
   }
-  sheet.appendRow([key, value]);
+  sheet.appendRow([key, value, description || '']);
+  return true;
 }
 
 // ส่งการ์ดขออนุมัติใบลาตัวอย่างเข้ากลุ่มหลัก เพื่อเช็คหน้าตา/ปุ่มก่อนใช้จริง (ไม่แตะ Notion)
