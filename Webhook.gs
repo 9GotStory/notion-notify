@@ -37,6 +37,8 @@ function doPost(e) {
     const events = body.events || [];
     const webhookEventId = body.webhookEventId || '';
     events.forEach(event => {
+      // เหตุการณ์ mode "standby" คือช่วง channel กำลังถูก migrate — เอกสาร LINE ให้เมินได้เลย
+      if (event.mode === 'standby') return;
       const source = event.source || {};
       if (source.type === 'group' && source.groupId) {
         recordGroupId_(source.groupId);

@@ -157,8 +157,9 @@ function findStaffByUserId_(roster, userId) {
 }
 
 // "ชื่อ สกุล" — key ที่ใช้อ้างอิงคนในชีต Approvers และ Settings (second_approvers)
+// ยุบช่องว่างซ้ำให้เหลือช่องเดียว เพื่อให้ "สมศักดิ์  ใจดี" (เว้น2ช่อง) จับคู่กับที่ผู้ดูแลพิมพ์ได้
 function staffKey_(staff) {
-  return staff ? (staff.firstName + ' ' + staff.lastName).trim() : '';
+  return staff ? (staff.firstName + ' ' + staff.lastName).trim().replace(/\s+/g, ' ') : '';
 }
 
 // ชื่อเต็มสำหรับแสดงผล = คำนำหน้า + ชื่อ + สกุล
@@ -186,11 +187,11 @@ function readApproversConfig_() {
     }));
 }
 
-// แยกรายชื่อ/ตัวเลือกที่คั่นด้วยจุลภาคจากชีต (pure)
+// แยกรายชื่อ/ตัวเลือกที่คั่นด้วยจุลภาคจากชีต (pure) — ยุบช่องว่างซ้ำให้ตรงกับ staffKey_
 function splitConfigNames_(value) {
   return String(value || '')
     .split(',')
-    .map(s => s.trim())
+    .map(s => s.trim().replace(/\s+/g, ' '))
     .filter(Boolean);
 }
 
@@ -401,6 +402,11 @@ function apiBind_(body) {
   if (!firstName || !lastName) throw new Error('กรุณากรอกชื่อและสกุล');
   if (!prefix) throw new Error('กรุณาเลือกคำนำหน้าชื่อ');
   if (!position) throw new Error('กรุณาเลือกตำแหน่ง');
+  // ชื่อ/สกุลเป็น key ที่นำไปเทียบกับ cell รายชื่อ (คั่นจุลภาค) ในชีต Approvers —
+  // มีจุลภาคปนมาจะทำให้การจับคู่ผู้อนุมัติพังทั้งสาย จึงบล็อกตั้งแต่ต้นทาง
+  if (firstName.indexOf(',') !== -1 || lastName.indexOf(',') !== -1) {
+    throw new Error('ชื่อและสกุลห้ามมีเครื่องหมายจุลภาค (,) กรุณาตรวจอีกครั้ง');
+  }
 
   const settings = getSettings_();
   const config = readApproversConfig_();
@@ -879,6 +885,10 @@ function handleLeavePostback_(event, webhookEventId) {
         pushPrivateMessage_(leavePage.submitterUserId, {
           type: 'text',
           text: '⏳ ผู้อนุมัติอนุมัติแล้ว รอ หัวหน้า สสอ. พิจารณาต่อ\n' + leaveSummaryText_(leavePage),
+        });
+        pushPrivateMessage_(tapperUserId, {
+          type: 'text',
+          text: 'บันทึกแล้ว: อนุมัติขั้นแรก — ส่งต่อให้ หัวหน้า สสอ. พิจารณาต่อแล้ว (ใบลาของ ' + leavePage.fullName + ')',
         });
         logResult_(new Date(), 'leave-approve', leavePage.fullName + ' ผ่านขั้นแรก รอ หัวหน้า สสอ.');
         return;

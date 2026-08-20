@@ -311,6 +311,8 @@ function testStaffDisplayName_() {
   assertEqual_(staffDisplayName_(roster[2]), 'สมชื่น ใจเย็น'); // ไม่ได้กรอกคำนำหน้า
   assertEqual_(staffKey_(roster[0]), 'สมศักดิ์ ใจดี'); // key ที่ใช้อ้างในชีต Approvers
   assertEqual_(staffDisplayName_(null), '');
+  // ช่องว่างซ้ำต้องยุบเป็นช่องเดียว เพื่อจับคู่กับชื่อที่ผู้ดูแลพิมพ์ในชีตได้
+  assertEqual_(staffKey_({ firstName: 'สมศักดิ์', lastName: 'ใจ  ดี' }), 'สมศักดิ์ ใจ ดี');
 }
 
 function testResolveApprovalChain_() {

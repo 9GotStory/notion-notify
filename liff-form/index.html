@@ -338,7 +338,9 @@
     fillSelect_($('regPrefix'), state.options.prefixes, '— เลือก —');
     fillSelect_($('regGroup'), state.options.groups, '— เลือกกลุ่มงาน —');
     fillSelect_($('regPosition'), state.options.positions, '— เลือกตำแหน่ง —');
-    $('regNoGroups').classList.toggle('hidden', state.options.groups.length > 0);
+    const hasGroups = state.options.groups.length > 0;
+    $('regNoGroups').classList.toggle('hidden', hasGroups);
+    $('btnRegNext').disabled = !hasGroups;
   }
 
   // ตัวเลือก "อื่นๆ" ใน dropdown เปิดช่องพิมพ์เองถัดจาก select (คำนำหน้าและตำแหน่ง)
