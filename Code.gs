@@ -674,7 +674,13 @@ function setupSheet() {
     '3. กรอกทำเนียบชีต Staff (ชื่อ-สกุลห้ามซ้ำ / กลุ่มงาน / ระดับ: เจ้าหน้าที่, หัวหน้ากลุ่มงาน หรือ ผอ.)\n' +
     '4. ใส่วันหยุดในชีต Holidays (ตรวจกับประกาศทางการ)\n' +
     '5. ตั้งค่า Secret ใน Script Properties แล้ว deploy ตาม SETUP.md';
-  SpreadsheetApp.getUi().alert('เตรียมสเปรดชีตเรียบร้อย', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  // ถ้ารันจากเมนูในชีต → เด้ง popup แต่ถ้ารันจากปุ่ม Run ใน editor (ไม่มี UI) → log แทน
+  // แบบเดียวกับ runUnitTests ใน Tests.gs (งานจริงทำเสร็จก่อนถึงตรงนี้เสมอ จึงไม่ใช่จุดพังของข้อมูล)
+  try {
+    SpreadsheetApp.getUi().alert('เตรียมสเปรดชีตเรียบร้อย', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (err) {
+    console.log(summary);
+  }
 }
 
 // สร้างชีตถ้ายังไม่มี + ใส่หัวตารางถ้ายังไม่ใส่ (แถว 1 = ชื่อตาราง, แถว 2 = หัวคอลัมน์, ข้อมูลเริ่มแถว 3)
