@@ -43,10 +43,10 @@
 
 <!--
   GitHub Environments ไม่สามารถถูกอ่านโดย static HTML ตอนผู้ใช้เปิดเว็บได้
-  ให้ GitHub Actions แทนที่ placeholders ด้านล่างก่อน deploy ด้วย Environment
-  Variables ชื่อ LIFF_ID และ API_URL (ไม่ใช่การใส่ secret ลงในหน้าเว็บ)
-  ค่านี้ไม่ใช่ความลับ เพราะจำเป็นต้องส่งไปยัง browser อยู่แล้ว
---> 
+  ให้ GitHub Actions แทนที่ placeholders ด้านล่างก่อน deploy ด้วยค่าจาก
+  Environment ชื่อ "liff" (secret หรือ variable ก็ได้ — workflow อ่าน secret ก่อน)
+  ค่าสองตัวนี้ไม่ใช่ความลับ เพราะจำเป็นต้องส่งไปยัง browser อยู่แล้ว
+-->
 <script>
   const CONFIG = {
     // GitHub Actions ต้องแทนที่ __LIFF_ID__ และ __API_URL__ ก่อน deploy

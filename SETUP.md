@@ -174,7 +174,7 @@
 **ตั้งค่าครั้งเดียว ตามลำดับนี้:**
 
 1. ถ้า repository นี้เป็น **private** ต้องเลือกก่อน: เปิดเป็น public (ไฟล์ใน repo ไม่มี secret ใดๆ — token ทั้งหมดอยู่ใน Script Properties / Environment เท่านั้น) หรือสร้าง repository สาธารณะใหม่แยกให้ฟอร์มโดยเฉพาะ
-2. **Settings > Environments > New environment** ตั้งชื่อ `liff` แล้วเพิ่ม secrets 2 ตัว:
+2. **Settings > Environments > New environment** ตั้งชื่อ `liff` แล้วเพิ่มค่า 2 ตัว — เป็น **secret** (ถูก mask ใน log แต่เปิดดูค่าซ้ำไม่ได้) หรือ **variable** (เปิดดู/แก้ได้ตลอด) ก็ได้ workflow อ่าน secret ก่อน ถ้าไม่มีค่อยอ่าน variable:
    - `LIFF_ID` = จากข้อ 11.3
    - `API_URL` = Web app URL จากข้อ 11.4 (ลงท้ายด้วย `/exec`)
 3. **Settings > Pages > Source: "GitHub Actions"** (สำคัญ — ถ้ายังเป็น "Deploy from a branch" ให้เปลี่ยน ไม่งั้น workflow deploy ไม่ได้ และหน้าที่ถูกเสิร์ฟจะเป็นไฟล์ placeholder ที่ยังไม่ถูกแทนที่ ฟอร์มจะขึ้นว่า "ระบบยังไม่พร้อมใช้งาน")
