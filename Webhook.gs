@@ -24,6 +24,23 @@
  *    ถ้าแก้โค้ดให้ Deploy > Manage deployments > Edit > New version เสมอ (URL ไม่เปลี่ยน)
  */
 
+// API จากหน้า LIFF ใช้ GET (query params) — เพราะบาง WebView ตาม redirect 302 ของ POST ไปไม่ได้
+// (browser ต้อง rewrite POST→GET ตาม spec ซึ่งเป็นจุดที่เพี้ยนได้ใน WebView รุ่นเก่า)
+// รองรับ JSONP ด้วยผ่าน ?callback=fn — เหลือกสำรองกรณี CORS ถูกบล็อกทั้งคู่
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  if (params.apiAction) {
+    const result = handleApiRequest_(params); // รูปทรงเดียวกับ body ของ POST จึงใช้ router เดิมได้เลย
+    if (params.callback && /^[A-Za-z0-9_.]{1,64}$/.test(params.callback)) {
+      return ContentService
+        .createTextOutput(params.callback + '(' + JSON.stringify(result) + ');')
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return jsonOutput_(result);
+  }
+  return jsonOutput_({ status: 'ok' });
+}
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);

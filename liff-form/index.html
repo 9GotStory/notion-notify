@@ -267,11 +267,11 @@
   async function api(action, extra) {
     const accessToken = liff.getAccessToken();
     if (!accessToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ — ปิดแล้วเปิดใหม่อีกครั้ง');
-    const res = await fetch(CONFIG.API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // เลี่ยง CORS preflight ที่ Apps Script ตอบไม่ได้
-      body: JSON.stringify(Object.assign({ apiAction: action, accessToken: accessToken }, extra || {})),
-    });
+    // ใช้ GET (query params) แทน POST — browser/WebView บางรุ่นตาม redirect 302 ของ Apps Script
+    // ไปได้เฉพาะเมื่อ method เป็น GET (POST ต้องถูก rewrite เป็น GET ตาม spec ซึ่งเพี้ยนได้)
+    const params = new URLSearchParams(
+      Object.assign({ apiAction: action, accessToken: accessToken }, extra || {}));
+    const res = await fetch(CONFIG.API_URL + '?' + params.toString(), { method: 'GET' });
     let data = null;
     try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
     if (!res.ok || !data || data.ok === false) {
