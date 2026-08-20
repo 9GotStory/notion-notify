@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ยื่นลา — สสอ.สอง แพร่</title>
+<title>ระบบยื่นใบลาออนไลน์ — สสอ.สอง แพร่</title>
 
 <!--
   หน้าฟอร์มยื่นใบลาผ่าน LIFF (เปิดจากปุ่ม Rich Menu ของ OA หรือลิงก์ในกลุ่ม)
@@ -41,13 +41,17 @@
   };
 </script>
 
-<!-- ============================================================
-     ตั้งค่า 2 ค่านี้ก่อน deploy (ดูขั้นตอนใน SETUP.md)
-     ============================================================ -->
+<!--
+  GitHub Environments ไม่สามารถถูกอ่านโดย static HTML ตอนผู้ใช้เปิดเว็บได้
+  ให้ GitHub Actions แทนที่ placeholders ด้านล่างก่อน deploy ด้วย Environment
+  Variables ชื่อ LIFF_ID และ API_URL (ไม่ใช่การใส่ secret ลงในหน้าเว็บ)
+  ค่านี้ไม่ใช่ความลับ เพราะจำเป็นต้องส่งไปยัง browser อยู่แล้ว
+--> 
 <script>
   const CONFIG = {
-    LIFF_ID: '2011183549-W3menotq',        // จาก LINE Developers Console > LINE Login channel > LIFF
-    API_URL: 'https://script.google.com/macros/s/AKfycbybCXO_I22rahuFOl8J-IJ_xluDagiDh6kouAMTv8hIB1M2b3mo3djrujP1TBpxgXeX/exec' // Web app URL ของโปรเจกต์ Apps Script หลัก (ตัวเดียวกับที่ใช้ทำ webhook)
+    // GitHub Actions ต้องแทนที่ __LIFF_ID__ และ __API_URL__ ก่อน deploy
+    LIFF_ID: '__LIFF_ID__',
+    API_URL: '__API_URL__',
   };
 </script>
 </head>
