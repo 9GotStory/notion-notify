@@ -1,0 +1,7 @@
+# หน้าฟอร์ม LIFF โฮสต์บน GitHub Pages ไม่ใช่ไฟล์ของ Apps Script — ห้าม push ขึ้นไป
+# (Apps Script ไม่รองรับโฟลเดอร์ ชื่อไฟล์ "liff-form/index.html" จะชนกับ Index.html หลัก)
+liff-form/**
+
+# เอกสาร/เทมเพลตไม่เกี่ยวกับสคริปต์ (clasp สนใจแค่ .gs/.html/appsscript.json อยู่แล้ว เขียนเก็บไว้เพื่อให้ชัด)
+SETUP.md
+notify-system-template.xlsx
