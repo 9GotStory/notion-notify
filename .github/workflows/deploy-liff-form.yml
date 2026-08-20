@@ -37,9 +37,9 @@ jobs:
     environment:
       name: liff
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       # ผ่านค่าผ่าน env แทนการแทนที่ตรงๆ ใน shell — กัน script injection จากค่า secret
       - name: Build site (แทนที่ placeholder ด้วยค่าจาก Environment)
@@ -60,9 +60,9 @@ jobs:
           fi
           echo "deploy หน้าฟอร์มพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
