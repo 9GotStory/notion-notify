@@ -362,6 +362,26 @@ function leaveDateLabel_(startStr, endStr) {
   return thaiShortDate_(startStr) + ' – ' + thaiShortDate_(endStr);
 }
 
+// ---------- สวิตช์เปิด/ปิดระบบลา ----------
+// leave_system_enabled ในชีต Settings: ใส่ FALSE เพื่อปิด — ค่าอื่นทั้งหมด (รวมถึงยังไม่มีแถว) = เปิด
+// ปิดแล้ว: ลงทะเบียน/ยื่นลาถูกปฏิเสธพร้อมข้อความ (แก้ข้อความได้ที่ leave_closed_message)
+// ยังทำงานต่อ: ปุ่มอนุมัติใบลาเดิมที่ค้างอยู่ + สรุปเช้า "ผู้ลาวันนี้" (ไม่ทิ้งงานที่ไหลอยู่กลางคัน)
+
+function isLeaveSystemEnabled_(settings) {
+  return String((settings && settings.leave_system_enabled) || '').trim().toUpperCase() !== 'FALSE';
+}
+
+function leaveClosedMessage_(settings) {
+  const custom = String((settings && settings.leave_closed_message) || '').trim();
+  return custom || 'ระบบลาปิดรับคำขอชั่วคราว — หากเร่งด่วนติดต่อผู้ดูแลระบบ';
+}
+
+function requireLeaveSystemEnabled_(settings) {
+  if (!isLeaveSystemEnabled_(settings)) {
+    throw new Error(leaveClosedMessage_(settings));
+  }
+}
+
 // ---------- API actions ----------
 
 // ตัวเลือก dropdown ทั้งหมดมาจากชีต — แก้ที่ Settings ได้เลยไม่ต้องแตะโค้ด
@@ -372,28 +392,34 @@ function optionList_(settingValue, fallback) {
 
 function apiSession_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
+  const settings = getSettings_();
+  const leaveStatus = {
+    leaveEnabled: isLeaveSystemEnabled_(settings),
+    leaveClosedMessage: isLeaveSystemEnabled_(settings) ? '' : leaveClosedMessage_(settings),
+  };
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
   if (staff) {
-    return {
+    return Object.assign({
       ok: true, registered: true,
       name: staffDisplayName_(staff), groupName: staff.groupName, position: staff.position,
-    };
+    }, leaveStatus);
   }
-  const settings = getSettings_();
   const config = readApproversConfig_();
-  return {
+  return Object.assign({
     ok: true, registered: false,
     options: {
       prefixes: optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ'),
       groups: config.map(c => c.groupName), // รายชื่อกลุ่มงาน = คอลัมน์แรกของชีต Approvers
       positions: optionList_(settings.position_options, 'อื่นๆ'),
     },
-  };
+  }, leaveStatus);
 }
 
 function apiBind_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
+  const settings = getSettings_();
+  requireLeaveSystemEnabled_(settings); // ปิดระบบ = หยุดรับลงทะเบียนใหม่ด้วย
   const prefix = String(body.prefix || '').trim().substring(0, 30);
   const firstName = String(body.firstName || '').trim().substring(0, 50);
   const lastName = String(body.lastName || '').trim().substring(0, 50);
@@ -408,7 +434,6 @@ function apiBind_(body) {
     throw new Error('ชื่อและสกุลห้ามมีเครื่องหมายจุลภาค (,) กรุณาตรวจอีกครั้ง');
   }
 
-  const settings = getSettings_();
   const config = readApproversConfig_();
   const prefixes = optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ');
   const positions = optionList_(settings.position_options, 'อื่นๆ');
@@ -482,6 +507,7 @@ function apiSubmit_(body) {
   const range = parseLeaveDateRange_(body.start, body.end, bangkokTodayStr_());
 
   const settings = getSettings_();
+  requireLeaveSystemEnabled_(settings); // ปิดระบบ = ปฏิเสธการยื่นลาใหม่ทั้งหมด
   const leaveDbId = String(settings.leave_database_id || '').trim();
   if (!leaveDbId || leaveDbId === 'your_leave_database_id') {
     throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');

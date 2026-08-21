@@ -23,6 +23,7 @@ function runUnitTests() {
     testStaffDisplayName_,
     testResolveApprovalChain_,
     testCanApproveLeave_,
+    testLeaveSystemSwitch_,
     testCountBusinessDays_,
     testLeaveRangeOverlap_,
     testLeaveDateLabel_,
@@ -381,6 +382,29 @@ function testCanApproveLeave_() {
 
   // ใบลาจบแล้ว (ไม่มีข้อมูลผู้อนุมัติปัจจุบัน)
   assertFalse_(canApproveLeave_(null, 'U_CHIEF'));
+}
+
+function testLeaveSystemSwitch_() {
+  // ยังไม่มีแถว / ค่าว่าง / ค่าอื่นใด = เปิด (default เป็น ON เพื่อไม่กระทบระบบที่ติดตั้งไว้ก่อนมีสวิตช์)
+  assertTrue_(isLeaveSystemEnabled_({}));
+  assertTrue_(isLeaveSystemEnabled_({ leave_system_enabled: '' }));
+  assertTrue_(isLeaveSystemEnabled_(null));
+  assertTrue_(isLeaveSystemEnabled_({ leave_system_enabled: 'TRUE' }));
+  assertTrue_(isLeaveSystemEnabled_({ leave_system_enabled: 'true' }));
+  assertTrue_(isLeaveSystemEnabled_({ leave_system_enabled: 'ยังไม่ตั้ง' })); // ค่าแปลกๆ ไม่ปิดระบบเงียบๆ
+  assertFalse_(isLeaveSystemEnabled_({ leave_system_enabled: 'FALSE' }));
+  assertFalse_(isLeaveSystemEnabled_({ leave_system_enabled: ' false ' }));
+
+  // ข้อความตอนปิด: มี custom ใช้ custom, ไม่มีใช้มาตรฐาน
+  assertContains_(leaveClosedMessage_({}), 'ปิดรับคำขอ');
+  assertEqual_(leaveClosedMessage_({ leave_closed_message: 'ปิด 15-20 ต.ค. ติดต่อ คุณเอ 0x-xxx-xxxx' }),
+    'ปิด 15-20 ต.ค. ติดต่อ คุณเอ 0x-xxx-xxxx');
+
+  // requireLeaveSystemEnabled_ ต้อง throw ด้วยข้อความเดียวกันเมื่อปิด
+  assertThrows_(
+    function () { requireLeaveSystemEnabled_({ leave_system_enabled: 'FALSE' }); },
+    'ปิดรับคำขอ'
+  );
 }
 
 function testCountBusinessDays_() {

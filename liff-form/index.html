@@ -57,6 +57,7 @@
       <h1 class="text-lg font-bold">ลงทะเบียนครั้งแรก</h1>
       <p class="text-sm text-slate-500 mt-1">กรอก 1 ครั้ง ระบบจะจำบัญชี LINE นี้กับข้อมูลดังกล่าวตลอดไป — กรอกให้ตรงตามข้อมูลจริงของท่าน</p>
     </header>
+    <p id="leaveOffReg" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
 
     <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
       <div>
@@ -117,6 +118,7 @@
 
   <!-- ===== ฟอร์มยื่นลา ===== -->
   <section id="view-form" class="hidden">
+    <p id="leaveOffForm" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
     <header class="flex items-center gap-3 mb-5">
       <div class="w-11 h-11 rounded-full bg-primary-light text-primary flex items-center justify-center text-lg font-bold flex-none" id="userInitial">ก</div>
       <div class="min-w-0">
@@ -196,6 +198,7 @@
     options: { prefixes: [], groups: [], positions: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
     holidays: new Set(), today: '', leaveType: '', user: null, sending: false,
+    leaveEnabled: true, leaveClosedMessage: '',
   };
 
   // ---------- เครื่องมือเล็กๆ ----------
@@ -289,6 +292,8 @@
       await liff.init({ liffId: CONFIG.LIFF_ID });
       if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login(); return; }
       const session = await api('session');
+      state.leaveEnabled = session.leaveEnabled !== false;
+      state.leaveClosedMessage = session.leaveClosedMessage || '';
       if (session.registered) {
         state.user = session;
         await loadCalendar();
@@ -335,7 +340,19 @@
     fillSelect_($('regPosition'), state.options.positions, '— เลือกตำแหน่ง —');
     const hasGroups = state.options.groups.length > 0;
     $('regNoGroups').classList.toggle('hidden', hasGroups);
-    $('btnRegNext').disabled = !hasGroups;
+    $('btnRegNext').disabled = !hasGroups || !state.leaveEnabled;
+  }
+
+  // แบนเนอร์ + ล็อกปุ่มเมื่อผู้ดูแลปิดระบบลา (ฝั่งเซิร์ฟเวอร์บล็อกซ้ำอีกชั้นเสมอ)
+  function refreshLeaveSwitch_() {
+    const off = state.leaveEnabled === false;
+    ['leaveOffReg', 'leaveOffForm'].forEach(id => {
+      const el = $(id);
+      el.classList.toggle('hidden', !off);
+      if (off) el.textContent = state.leaveClosedMessage || 'ระบบลาปิดรับคำขอชั่วคราว — หากเร่งด่วนติดต่อผู้ดูแลระบบ';
+    });
+    $('btnRegNext').disabled = off || state.options.groups.length === 0;
+    if (!state.sending) $('btnSubmit').disabled = off;
   }
 
   // ตัวเลือก "อื่นๆ" ใน dropdown เปิดช่องพิมพ์เองถัดจาก select (คำนำหน้าและตำแหน่ง)
@@ -414,6 +431,7 @@
     $('dateStart').value = state.today;
     $('dateEnd').value = state.today;
     refreshDayCount();
+    refreshLeaveSwitch_();
     show('form');
   }
 
@@ -509,6 +527,7 @@
     $('dateStart').value = state.today;
     $('dateEnd').value = state.today;
     refreshDayCount();
+    refreshLeaveSwitch_();
     show('form');
   });
 

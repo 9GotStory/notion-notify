@@ -626,6 +626,7 @@ function onOpen() {
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
     .addSeparator()
     .addItem('เตรียม/ตรวจสอบชีตทั้งหมด', 'setupSheet')
+    .addItem('เปิด/ปิดระบบลา', 'toggleLeaveSystem')
     .addToUi();
 }
 
@@ -659,6 +660,8 @@ function setupSheet() {
     ['line_group_id', '', 'เติมอัตโนมัติเมื่อบอทเข้ากลุ่ม LINE และมีคนพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)'],
     ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
+    ['leave_system_enabled', 'TRUE', 'สวิตช์ระบบลา: FALSE = ปิดรับลงทะเบียน/ยื่นลาใหม่ (ใช้เมนู "เปิด/ปิดระบบลา" สลับให้ได้) — ค่าอื่นใด/แถวหาย = เปิด'],
+    ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
     ['position_options', 'นักวิชาการสาธารณสุข,นักวิชาการอนามัย,นักวิชาการคอมพิวเตอร์,นักบริหารงานสาธารณสุข,พยาบาลวิชาชีพ,พยาบาลช่วยแพทย์,เจ้าพนักงานธุรการ,ลูกจ้างชั่วคราว,อื่นๆ', 'ตัวเลือกตำแหน่งในฟอร์มลงทะเบียน (แก้ให้ตรงหน่วยงานได้เลย คั่นด้วยจุลภาค)'],
@@ -711,6 +714,47 @@ function ensureSheet_(ss, name, title, headers, status) {
   } else {
     status.push((isNew ? 'สร้างใหม่: ' : 'พร้อมอยู่แล้ว: ') + name);
   }
+}
+
+// ---------- สวิตช์เปิด/ปิดระบบลา (สลับค่า leave_system_enabled ในชีต Settings) ----------
+
+// กดแล้วสลับสถานะ + log ทุกครั้ง — ปิดระบบ = หยุดรับลงทะเบียน/ยื่นลาใหม่
+// (ใบลาเดิมที่รออนุมัติยังกดปุ่มได้ตามปกติ และสรุปเช้ายังแสดงผู้ลาที่อนุมัติแล้ว)
+function toggleLeaveSystem() {
+  const settings = getSettings_();
+  const nowEnabled = !isLeaveSystemEnabled_(settings); // สลับจากสถานะปัจจุบัน
+  setSettingValue_('leave_system_enabled', nowEnabled ? 'TRUE' : 'FALSE');
+  logResult_(new Date(), 'leave',
+    'ผู้ดูแล' + (nowEnabled ? 'เปิด' : 'ปิด') + 'ระบบลา' + (nowEnabled ? '' : ' (ข้อความที่แสดง: ' + leaveClosedMessage_(settings) + ')'));
+
+  const summary =
+    'ระบบลา: ' + (nowEnabled ? '🟢 เปิดใช้งาน' : '🔴 ปิดใช้งาน') + '\n\n' +
+    (nowEnabled
+      ? 'เจ้าหน้าที่ลงทะเบียนและยื่นใบลาได้ตามปกติ'
+      : 'การลงทะเบียนและการยื่นใบลาใหม่ถูกปฏิเสธทันที\n' +
+        'ใบลาเดิมที่รออนุมัติอยู่ ยังกดปุ่มอนุมัติได้ตามปกติ\n' +
+        'สรุปเช้า "ผู้ลาวันนี้" ยังแสดงผลจากใบที่อนุมัติแล้ว\n\n' +
+        'ข้อความที่ผู้ยื่นเห็นตอนปิดอยู่นี้:\n"' + leaveClosedMessage_(settings) + '"\n' +
+        '(แก้ได้ที่คีย์ leave_closed_message ในชีต Settings)');
+  try {
+    SpreadsheetApp.getUi().alert('สถานะระบบลา', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (err) {
+    console.log(summary); // รันจาก editor ไม่มี UI
+  }
+}
+
+// เขียนทับค่าของ key ที่มีอยู่ (ต่างจาก upsertSettingRow_ ที่ไม่แตะของเดิม) — ไม่มีแถวก็เพิ่มใหม่
+function setSettingValue_(key, value) {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('Settings');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 1).getValues() : [];
+  for (let i = 0; i < data.length; i++) {
+    if (String(data[i][0]).trim() === key) {
+      sheet.getRange(3 + i, 2).setValue(value);
+      return;
+    }
+  }
+  sheet.appendRow([key, value, '']);
 }
 
 // เติม key/value/description ลงชีต Settings ถ้ายังไม่มี key นั้น — คืน true ถ้าเพิ่ม, false ถ้ามีอยู่แล้ว
