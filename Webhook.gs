@@ -38,7 +38,17 @@ function doGet(e) {
     }
     return jsonOutput_(result);
   }
-  return jsonOutput_({ status: 'ok' });
+  // คนเปิด URL นี้ด้วย browser เอง (ไม่ได้ส่ง apiAction) — อธิบายว่า endpoint นี้คืออะไร
+  return HtmlService.createHtmlOutput(
+    '<div style="font-family:sans-serif;padding:48px 24px;max-width:560px;margin:auto;color:#333;line-height:1.7">' +
+    '<h2 style="margin:0 0 12px;color:#0F6E56">ระบบแจ้งเตือนปฏิทิน + ระบบลางาน</h2>' +
+    '<p>URL นี้คือ <b>endpoint ของ webhook และ API</b> (ให้ LINE และหน้าฟอร์ม LIFF เรียกใช้) ' +
+    'ไม่ใช่หน้าเว็บสำหรับเปิดดูด้วยตนเอง — การตั้งค่าระบบทำที่ใดึ่งนี้แทน:</p>' +
+    '<ol style="padding-left:20px">' +
+    '<li><b>Google Sheet หลัก</b> — แก้ชีต Settings/Approvers/Holidays ได้ตรงๆ หรือใช้เมนู "ระบบแจ้งเตือนปฏิทิน"</li>' +
+    '<li><b>หน้าเว็บตั้งค่า (ถ้าต้องการ)</b> — deploy จากโปรเจกต์ Apps Script แยกตามคู่มือ SETUP.md ข้อ 10</li>' +
+    '</ol></div>'
+  ).setTitle('ระบบแจ้งเตือนปฏิทิน');
 }
 
 function doPost(e) {
