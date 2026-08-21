@@ -24,6 +24,7 @@ function runUnitTests() {
     testResolveApprovalChain_,
     testCanApproveLeave_,
     testLeaveSystemSwitch_,
+    testFindDuplicates_,
     testCountBusinessDays_,
     testLeaveRangeOverlap_,
     testLeaveDateLabel_,
@@ -405,6 +406,14 @@ function testLeaveSystemSwitch_() {
     function () { requireLeaveSystemEnabled_({ leave_system_enabled: 'FALSE' }); },
     'ปิดรับคำขอ'
   );
+}
+
+function testFindDuplicates_() {
+  assertEqual_(findDuplicates_(['a', 'b', 'a', 'c', 'b', 'a']).join(','), 'a,b');
+  assertEqual_(findDuplicates_(['a', 'b', 'c']).length, 0);
+  assertEqual_(findDuplicates_([]).length, 0);
+  assertEqual_(findDuplicates_(null).length, 0);
+  assertEqual_(findDuplicates_(['', '', 'x']).length, 0); // ค่าว่างไม่นับเป็นซ้ำ
 }
 
 function testCountBusinessDays_() {

@@ -650,6 +650,9 @@ function setupSheet() {
   const holidays = ss.getSheetByName('Holidays');
   holidays.getRange('A3:A').setNumberFormat('yyyy-MM-dd');
   ss.getSheetByName('Staff').getRange('H3:H').setNumberFormat('yyyy-MM-dd');
+  // คอลัมน์ที่มีข้อความยาว กำหนดความกว้างให้อ่านง่าย (แตะได้ทุกครั้ง ไม่กระทบข้อมูล)
+  ss.getSheetByName('Settings').setColumnWidth(3, 320); // คำอธิบาย
+  ss.getSheetByName('Approvers').setColumnWidth(2, 260); // รายชื่อผู้อนุมัติ
 
   // เติมค่าตั้งต้นของ Settings เฉพาะ key ที่ยังไม่มี (พร้อมคำอธิบายในคอลัมน์ C — โค้ดอ่านแค่ A/B)
   const addedKeys = [];
@@ -669,19 +672,21 @@ function setupSheet() {
     if (upsertSettingRow_(row[0], row[1], row[2])) addedKeys.push(row[0]);
   });
 
+  // ตรวจความพร้อมระบบทั้งสายหลังสร้าง/เติมชีต — ให้ผู้ดูแลเห็นว่าขาดอะไรในคลิกเดียว
+  const findings = collectSystemHealth_();
+
+  const warnings = findings.filter(f => f[0] === 'warn');
+  const infos = findings.filter(f => f[0] === 'info');
   const summary =
     'ผลการตรวจสอบชีต:\n' + status.join('\n') + '\n\n' +
     (addedKeys.length
       ? 'เติมค่าตั้งต้นใน Settings เพิ่ม: ' + addedKeys.join(', ') + '\n\n'
       : 'ค่าใน Settings ครบอยู่แล้ว (ไม่แตะของเดิม)\n\n') +
-    'สิ่งที่ต้องทำต่อ (ครั้งแรกเท่านั้น):\n' +
-    '1. วาง Database ID ของ "ปฏิทินการปฏิบัติงาน" ในแถว notion_database_id\n' +
-    '2. สร้าง database "ใบลา" ใน Notion แล้ววาง ID ในแถว leave_database_id (สเปกใน SETUP.md ข้อ 11.2)\n' +
-    '3. กรอกชีต Approvers: กลุ่มงาน | ผู้อนุมัติ (ชื่อ สกุล) | ส่งต่อให้ หัวหน้า สสอ. (TRUE ถ้าต้องส่งต่อ)\n' +
-    '4. ใส่รายชื่อ หัวหน้า สสอ. ในแถว second_approvers ของชีต Settings (ถ้ามีกลุ่มงานที่ส่งต่อ)\n' +
-    '5. ใส่วันหยุดในชีต Holidays (ตรวจกับประกาศทางการ)\n' +
-    '6. ตั้งค่า Secret ใน Script Properties แล้ว deploy ตาม SETUP.md\n' +
-    '(ชีต Staff ไม่ต้องกรอก — เพิ่มอัตโนมัติเมื่อเจ้าหน้าที่ลงทะเบียนผ่านฟอร์มเอง)';
+    'ความพร้อมของระบบ:\n' +
+    (warnings.length
+      ? warnings.map(f => '⚠ ' + f[1]).join('\n')
+      : '✅ ทุกอย่างพร้อมใช้งาน') +
+    (infos.length ? '\n' + infos.map(f => '• ' + f[1]).join('\n') : '');
   // ถ้ารันจากเมนูในชีต → เด้ง popup แต่ถ้ารันจากปุ่ม Run ใน editor (ไม่มี UI) → log แทน
   // แบบเดียวกับ runUnitTests ใน Tests.gs (งานจริงทำเสร็จก่อนถึงตรงนี้เสมอ จึงไม่ใช่จุดพังของข้อมูล)
   try {
@@ -689,6 +694,98 @@ function setupSheet() {
   } catch (err) {
     console.log(summary);
   }
+}
+
+// ตรวจทุนย่อยของระบบ — คืน [{ระดับ: 'warn'|'info', ข้อความ}] (ไม่ throw แม้ชีต/ค่ายังไม่ครบ เพราะจุดประสงค์คือรายงาน)
+function collectSystemHealth_() {
+  const findings = [];
+  const settings = getSettings_();
+
+  // Settings จำเป็น
+  if (!settings.notion_database_id || String(settings.notion_database_id).trim() === 'your_notion_database_id') {
+    findings.push(['warn', 'ยังไม่ใส่ notion_database_id — ข้อความสรุปเช้าจะไม่ออก']);
+  }
+  if (!settings.leave_database_id || String(settings.leave_database_id).trim() === 'your_leave_database_id') {
+    findings.push(['warn', 'ยังไม่ใส่ leave_database_id — ระบบลาใช้ไม่ได้จนกว่าจะวาง ID ของ database "ใบลา"']);
+  }
+  if (!String(settings.line_group_id || '').trim()) {
+    findings.push(['warn', 'ยังไม่มี line_group_id — เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)']);
+  }
+
+  // Secret ใน Script Properties
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty('LINE_CHANNEL_ACCESS_TOKEN')) {
+    findings.push(['warn', 'ยังไม่ตั้ง LINE_CHANNEL_ACCESS_TOKEN ใน Script Properties — ส่งข้อความเข้า LINE ไม่ได้']);
+  }
+  if (!props.getProperty('NOTION_TOKEN')) {
+    findings.push(['warn', 'ยังไม่ตั้ง NOTION_TOKEN ใน Script Properties — อ่าน/เขียน Notion ไม่ได้']);
+  }
+  if (!props.getProperty('LOGIN_CHANNEL_ID')) {
+    findings.push(['info', 'ยังไม่ตั้ง LOGIN_CHANNEL_ID (ไม่บังคับ — ตั้งแล้วเพิ่มความเข้มงวดการตรวจ token ของ LIFF)']);
+  }
+
+  // ชีต Approvers
+  let config = [];
+  try { config = readApproversConfig_(); } catch (err) { /* ยังไม่มีชีต/ยังไม่มีแถว */ }
+  if (!config.length) {
+    findings.push(['warn', 'ชีต Approvers ยังไม่มีแถว — ฟอร์มลงทะเบียนจะไม่มีกลุ่มงานให้เลือก']);
+  }
+  const secondNames = splitConfigNames_(settings.second_approvers);
+  config.forEach(c => {
+    if (c.forward && !secondNames.length) {
+      findings.push(['warn', 'กลุ่ม "' + c.groupName + '" ตั้งค่าส่งต่อ หัวหน้า สสอ. แต่ยังไม่ใส่รายชื่อใน second_approvers']);
+    }
+  });
+  const dupGroups = findDuplicates_(config.map(c => c.groupName));
+  if (dupGroups.length) findings.push(['warn', 'ชื่อกลุ่มงานซ้ำกันในชีต Approvers: ' + dupGroups.join(', ')]);
+
+  // ชีต Staff (ชื่อซ้ำ + สถานะการลงทะเบียน)
+  let roster = [];
+  try { roster = readStaffRoster_(); } catch (err) { /* ยังไม่มีชีต */ }
+  const dupNames = findDuplicates_(roster.map(s => staffKey_(s)));
+  if (dupNames.length) findings.push(['warn', 'ชื่อ-สกุลซ้ำกันในชีต Staff: ' + dupNames.join(', ')]);
+  if (roster.length) {
+    const registered = roster.filter(s => s.lineUserId).length;
+    findings.push(['info', 'ทำเนียบ Staff: ลงทะเบียนแล้ว ' + registered + '/' + roster.length + ' คน']);
+  }
+
+  // ผู้อนุมัติที่อ้างในคอนฟิกแต่ยังไม่มีชื่อนี้ใน Staff (ยังไม่ลงทะเบียน หรือพิมพ์ไม่ตรง)
+  const staffKeys = new Set(roster.map(s => staffKey_(s)));
+  const unknownApprovers = [];
+  config.forEach(c => c.approverNames.forEach(n => {
+    if (!staffKeys.has(n)) unknownApprovers.push(n + ' (กลุ่ม ' + c.groupName + ')');
+  }));
+  secondNames.forEach(n => {
+    if (!staffKeys.has(n)) unknownApprovers.push(n + ' (หัวหน้า สสอ.)');
+  });
+  if (unknownApprovers.length) {
+    findings.push(['info', 'ผู้อนุมัติที่ยังไม่มีชื่อนี้ในชีต Staff (ยังไม่ลงทะเบียน หรือสะกดไม่ตรงกัน): ' + unknownApprovers.join(', ')]);
+  }
+
+  // Trigger เวลาส่งเช้า
+  const hasTrigger = ScriptApp.getProjectTriggers().some(
+    t => t.getHandlerFunction() === 'checkAndSendNotification');
+  if (!hasTrigger) {
+    findings.push(['warn', 'ยังไม่ตั้งเวลาส่งอัตโนมัติ — กดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ"']);
+  }
+
+  // สถานะสวิตช์ระบบลา
+  if (!isLeaveSystemEnabled_(settings)) {
+    findings.push(['warn', 'ระบบลาถูกปิดอยู่ (leave_system_enabled = FALSE) — กดเมนู "เปิด/ปิดระบบลา" เพื่อเปิดกลับ']);
+  }
+
+  return findings;
+}
+
+// หาค่าที่ซ้ำในลิสต์ (pure — ใช้ตรวจชื่อกลุ่มงาน/ชื่อคนซ้ำ)
+function findDuplicates_(values) {
+  const seen = new Set();
+  const dup = new Set();
+  (values || []).forEach(v => {
+    if (v && seen.has(v)) dup.add(v);
+    seen.add(v);
+  });
+  return Array.from(dup);
 }
 
 // สร้างชีตถ้ายังไม่มี + ใส่หัวตารางถ้ายังไม่ใส่ (แถว 1 = ชื่อตาราง, แถว 2 = หัวคอลัมน์, ข้อมูลเริ่มแถว 3)
