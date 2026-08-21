@@ -53,6 +53,16 @@ jobs:
           fi
           mkdir -p site/liff-form
           cp liff-form/index.html site/liff-form/index.html
+          # คอมไพล์ Tailwind v4 เป็น CSS same-origin — หน้าเว็บไม่พึ่ง CDN ภายนอก
+          # (เครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อไป cdn.tailwindcss.com)
+          cd liff-form
+          npm ci --no-fund --no-audit
+          npx @tailwindcss/cli -i src/styles.css -o ../site/liff-form/styles.css --minify
+          cd ..
+          if [ ! -s site/liff-form/styles.css ]; then
+            echo "::error::คอมไพล์ CSS ไม่สำเร็จ"
+            exit 1
+          fi
           sed -i "s|__LIFF_ID__|$LIFF_ID|g; s|__API_URL__|$API_URL|g" site/liff-form/index.html
           if grep -q '__LIFF_ID__\|__API_URL__' site/liff-form/index.html; then
             echo "::error::ยังมี placeholder ค้างในไฟล์"

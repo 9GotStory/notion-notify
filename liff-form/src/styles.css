@@ -1,0 +1,13 @@
+/* ธีมของหน้าฟอร์ม — ประกาศแบบ Tailwind v4 (CSS-first ผ่าน @theme ไม่ใช่ custom CSS)
+   แก้สี/ฟอนต์ที่นี่ที่เดียว แล้ว push ให้ GitHub Actions คอมไพล์ให้อัตโนมัติ
+   (คอมไพล์ด้วย: npx @tailwindcss/cli@4 -i src/styles.css -o styles.css --minify รันจากในโฟลเดอร์ liff-form) */
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0F6E56;
+  --color-primary-dark: #0B5643;
+  --color-primary-light: #E6F2EF;
+  --color-canvas: #F6F8F7;
+
+  --font-sans: "IBM Plex Sans Thai", sans-serif;
+}

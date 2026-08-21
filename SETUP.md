@@ -184,11 +184,12 @@
 
 **ทดสอบในเครื่อง**: copy `liff-form/index.html` ไปไฟล์อื่น แทนที่ placeholder ด้วยค่าจริงแล้วเปิดผ่าน local server ก็ได้ (อย่า commit ไฟล์ที่ใส่ค่าจริงเด็ดขาด)
 
-**การแก้สไตล์หน้าฟอร์ม**: CSS ของหน้านี้ถูกคอมไพล์จาก Tailwind แล้วฝังในไฟล์เลย (ไม่พึ่ง `cdn.tailwindcss.com` เพราะเครือข่ายองค์กรบางแห่งบล็อก CDN นั้นจนหน้าเสียสไตล์) — ถ้าแก้คลาสหรือเพิ่ม element ใหม่ ต้องคอมไพล์ CSS ใหม่แล้ววางทับบล็อก `<style>` เดิม:
+**การแก้สไตล์หน้าฟอร์ม**: หน้าใช้ **Tailwind v4** — คลาสอยู่ใน `index.html` ตามปกติ ส่วนสี/ฟอนต์ของธีมประกาศที่ `liff-form/src/styles.css` ผ่าน `@theme` (ธรรมเนียม CSS-first ของ v4) **ไม่ต้อง build เองตอนแก้** — push แล้ว GitHub Actions คอมไพล์ CSS ให้อัตโนมัติทุกครั้ง (ผลลัพธ์เป็น `styles.css` same-origin กับหน้า ไม่พึ่ง CDN ภายนอก เพราะเครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อไป `cdn.tailwindcss.com`) ถ้าอยากดูผลในเครื่องก่อน:
 
 ```bash
-npx tailwindcss@3.4.17 -i input.css -o out.css --minify --content liff-form/index.html
-# (input.css บรรทัด @tailwind base/components/utilities ตามปกติ — ดูตัวอย่างใน git history หรือเอกสาร Tailwind v3)
+cd liff-form
+npm install        # ครั้งแรกเท่านั้น
+npm run build:css  # สร้าง styles.css สำหรับเปิดผ่าน local server (ไฟล์นี้ถูก gitignore)
 ```
 
 ### 11.6 ปุ่ม "ยื่นลา" บน OA (Rich Menu)

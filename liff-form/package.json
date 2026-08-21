@@ -1,0 +1,12 @@
+{
+  "name": "liff-leave-form",
+  "private": true,
+  "description": "หน้าฟอร์มยื่นใบลา LIFF — ใช้ GitHub Actions คอมไพล์ Tailwind v4 ตอน deploy (รันในเครื่อง: npm run build:css)",
+  "scripts": {
+    "build:css": "tailwindcss -i src/styles.css -o styles.css --minify"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  }
+}

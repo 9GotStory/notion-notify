@@ -1,0 +1,5 @@
+# dependencies ของหน้าฟอร์ม (ติดตั้งด้วย npm install — CI ทำ npm ci เอง)
+liff-form/node_modules/
+
+# CSS ที่คอมไพล์แล้วในเครื่อง (บน GitHub Pages ถูกสร้างโดย Actions ตอน deploy)
+liff-form/styles.css
