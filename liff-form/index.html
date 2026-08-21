@@ -289,8 +289,9 @@
       return;
     }
     try {
-      await liff.init({ liffId: CONFIG.LIFF_ID });
-      if (!liff.isInClient() && !liff.isLoggedIn()) { liff.login(); return; }
+      // withLoginOnExternalBrowser (ตามเอกสารทางการ) = browser ภายนอกที่ยังไม่ล็อกอิน LINE
+      // ให้ init เด้งหน้า login ให้เองแล้ววนกลับมาหน้านี้ ไม่ต้องเรียก liff.login() เอง
+      await liff.init({ liffId: CONFIG.LIFF_ID, withLoginOnExternalBrowser: true });
       const session = await api('session');
       state.leaveEnabled = session.leaveEnabled !== false;
       state.leaveClosedMessage = session.leaveClosedMessage || '';
@@ -515,7 +516,8 @@
       err.classList.remove('hidden');
     } finally {
       state.sending = false;
-      $('btnSubmit').disabled = false;
+      // คืนสถานะปุ่มตามสวิตช์ระบบลาปัจจุบัน (ไม่ใช่เปิดกลับเสมอไป)
+      $('btnSubmit').disabled = state.leaveEnabled === false;
       $('btnSubmit').textContent = 'ส่งใบลา';
     }
   });
