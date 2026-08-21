@@ -16,9 +16,11 @@
   ตัวตนผู้ใช้ยืนยันด้วย LINE userId ทั้งหมด หน้านี้ไม่มี secret ใดๆ — ทุกคำขอส่ง access token
   ไปให้ GAS ตรวจกับ api.line.me ฝั่งเซิร์ฟเวอร์เท่านั้น
 -->
-<!-- CDN path ปัจจุบันของ LIFF SDK (ตามเอกสารทางการ) — path เดิม liff/sdk/2.x/sdk.js ถูกยกเลิก
-     แล้ว (ตอบ 403 ทำให้เกิด "liff is not defined") ส่วน edge/2 = อัปเดต patch ให้อัตโนมัติ -->
-<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<!-- LIFF SDK เสิร์ฟแบบ same-origin (./sdk.js ถูกดาวน์โหลดจาก CDN ของ LINE โดย GitHub Actions ตอน deploy
+     ทุกครั้ง = ได้รุ่นล่าสุดเสมอ) — ไม่โหลดจาก static.line-scdn.net โดยตรง เพราะเครือข่ายองค์กรบางแห่ง
+     reset การเชื่อมต่อไป CDN นั้น (ERR_CONNECTION_RESET) ส่วน GitHub Pages เข้าถึงได้ปกติ
+     รันในเครื่อง: curl -o sdk.js https://static.line-scdn.net/liff/edge/2/sdk.js -->
+<script charset="utf-8" src="./sdk.js"></script>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">

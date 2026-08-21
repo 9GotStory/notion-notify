@@ -53,6 +53,14 @@ jobs:
           fi
           mkdir -p site/liff-form
           cp liff-form/index.html site/liff-form/index.html
+          # ดาวน์โหลด LIFF SDK มาเสิร์ฟ same-origin — เครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อ
+          # ไป static.line-scdn.net เหมือนที่เคยเจอกับ cdn.tailwindcss.com (ตัว runner ของ GitHub เข้าถึงได้ปกติ
+          # จึงดึงรุ่น edge/2 ล่าสุดให้ทุกครั้งที่ deploy ไม่มีปัญหาไฟล์ค้างรุ่นเก่า)
+          curl -fsSL "https://static.line-scdn.net/liff/edge/2/sdk.js" -o site/liff-form/sdk.js
+          if [ ! -s site/liff-form/sdk.js ]; then
+            echo "::error::ดาวน์โหลด LIFF SDK ไม่สำเร็จ"
+            exit 1
+          fi
           # คอมไพล์ Tailwind v4 เป็น CSS same-origin — หน้าเว็บไม่พึ่ง CDN ภายนอก
           # (เครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อไป cdn.tailwindcss.com)
           cd liff-form
