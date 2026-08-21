@@ -184,6 +184,13 @@
 
 **ทดสอบในเครื่อง**: copy `liff-form/index.html` ไปไฟล์อื่น แทนที่ placeholder ด้วยค่าจริงแล้วเปิดผ่าน local server ก็ได้ (อย่า commit ไฟล์ที่ใส่ค่าจริงเด็ดขาด)
 
+**การแก้สไตล์หน้าฟอร์ม**: CSS ของหน้านี้ถูกคอมไพล์จาก Tailwind แล้วฝังในไฟล์เลย (ไม่พึ่ง `cdn.tailwindcss.com` เพราะเครือข่ายองค์กรบางแห่งบล็อก CDN นั้นจนหน้าเสียสไตล์) — ถ้าแก้คลาสหรือเพิ่ม element ใหม่ ต้องคอมไพล์ CSS ใหม่แล้ววางทับบล็อก `<style>` เดิม:
+
+```bash
+npx tailwindcss@3.4.17 -i input.css -o out.css --minify --content liff-form/index.html
+# (input.css บรรทัด @tailwind base/components/utilities ตามปกติ — ดูตัวอย่างใน git history หรือเอกสาร Tailwind v3)
+```
+
 ### 11.6 ปุ่ม "ยื่นลา" บน OA (Rich Menu)
 
 ไปที่ [LINE Official Account Manager](https://manager.line.biz/) > channel ของ OA > **Rich Menu** สร้างเมนูใหม่: พื้นที่แตะเต็มความกว้าง 1 ปุ่ม ข้อความ "ยื่นลา 🗓️" Action เลือก **ลิงก์** แล้ววาง URL ของ LIFF (`https://liff.line.me/<LIFF_ID>`) จากนั้นตั้งเป็น default rich menu — ทำผ่านหน้าเว็บทั้งหมด ไม่ต้องเขียนโค้ด (จะแชร์ลิงก์ปักหมุดในกลุ่มแทนก็ได้ ใช้งานได้เหมือนกัน)
