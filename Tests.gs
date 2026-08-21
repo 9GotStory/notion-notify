@@ -25,6 +25,9 @@ function runUnitTests() {
     testCanApproveLeave_,
     testLeaveSystemSwitch_,
     testLeaveApprovalSwitch_,
+    testComputeWorkDays_,
+    testBuildLeaveWarnings_,
+    testBuildUsageSummary_,
     testBuildLeaveNoticeBubble_,
     testFindDuplicates_,
     testCountBusinessDays_,
@@ -434,6 +437,74 @@ function testBuildLeaveNoticeBubble_() {
   // เนื้อหาใบลายังครบเหมือนการ์ดขออนุมัติ (ชื่อเต็มอยู่ใน header, รายละเอียดอยู่ใน body)
   assertContains_(JSON.stringify(bubble), createTestLeave_().fullName);
   assertContains_(JSON.stringify(bubble.body), 'ลากิจ');
+}
+
+function testComputeWorkDays_() {
+  const holidays = new Set();
+  // เต็มวันหลายวัน: 20–24 ส.ค. 2569 (พฤ–จัน ข้ามเสาร์อาทิตย์) = 3 วันทำการ — ครึ่งวันไม่มีผลกับหลายวัน
+  assertEqual_(computeWorkDays_('2026-08-20', '2026-08-24', holidays, 'ครึ่งวันเช้า'), 3);
+  // ลา 1 วันเต็มวัน
+  assertEqual_(computeWorkDays_('2026-08-20', '2026-08-20', holidays, 'เต็มวัน'), 1);
+  // ลา 1 วันครึ่งวัน = 0.5 (ไม่สนวันหยุดเพราะครึ่งวันใช้ได้เฉพาะวันทำการอยู่แล้วโดยการเลือกของผู้ใช้)
+  assertEqual_(computeWorkDays_('2026-08-20', '2026-08-20', holidays, 'ครึ่งวันบ่าย'), 0.5);
+  assertEqual_(computeWorkDays_('2026-08-20', null, holidays, 'ครึ่งวันเช้า'), 0.5);
+
+  // ช่วงวันถูก normalize: ประเภทที่ลาครึ่งวันไม่ได้ / หลายวัน / ค่าไม่รู้จัก → เต็มวันเสมอ
+  assertEqual_(normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาป่วย', '2026-08-20', '2026-08-20'), 'ครึ่งวันเช้า');
+  assertEqual_(normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาคลอด', '2026-08-20', '2026-08-20'), 'เต็มวัน');
+  assertEqual_(normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาป่วย', '2026-08-20', '2026-08-22'), 'เต็มวัน');
+  assertEqual_(normalizeLeavePeriod_('ค่าแปลก', 'ลาป่วย', '2026-08-20', '2026-08-20'), 'เต็มวัน');
+  assertEqual_(normalizeLeavePeriod_('', 'ลากิจ', '2026-08-20', null), 'เต็มวัน');
+
+  // ป้ายวันทำการแบบครึ่งวัน
+  assertEqual_(workDaysLabel_(0.5), '½ วัน');
+  assertEqual_(workDaysLabel_(1), '1 วัน');
+  assertEqual_(workDaysLabel_(2.5), '2½ วัน');
+  assertEqual_(workDaysLabel_(3), '3 วัน');
+}
+
+function testBuildLeaveWarnings_() {
+  // เกินโควตาลากิจ (ใช้ 8 + ยื่น 3 = 11 > 10)
+  let w = buildLeaveWarnings_('ลากิจ', 3, { 'ลากิจ': 8 });
+  assertEqual_(w.length, 1);
+  assertContains_(w[0], 'เกินสิทธิ์');
+  assertContains_(w[0], '11');
+  // ครบสิทธิ์พอดี = แจ้งเตือนเตือนล่วงหน้า
+  w = buildLeaveWarnings_('ลากิจ', 2, { 'ลากิจ': 8 });
+  assertEqual_(w.length, 1);
+  assertContains_(w[0], 'ครบสิทธิ์');
+  // ยังไม่ถึง = เงียบ
+  w = buildLeaveWarnings_('ลากิจ', 1, { 'ลากิจ': 8 });
+  assertEqual_(w.length, 0);
+  // ไม่มีข้อมูล usage (อ่าน Notion ไม่ได้) = ไม่เตือนเรื่องสิทธิ์ แต่เตือนใบแพทย์ยังทำงาน
+  w = buildLeaveWarnings_('ลาป่วย', 5, null);
+  assertEqual_(w.length, 1);
+  assertContains_(w[0], 'ใบรับรองแพทย์');
+  // ลาป่วย 3 วันทำการพอดี = ไม่ต้องมีใบแพทย์ / เกิน = ต้องมี
+  assertEqual_(buildLeaveWarnings_('ลาป่วย', 3, null).length, 0);
+  assertContains_(buildLeaveWarnings_('ลาป่วย', 4, null)[0], 'ใบรับรองแพทย์');
+  // ลาป่วย ≥ 30 วันทำการ = กฎใบแพทย์ทุกครั้ง
+  w = buildLeaveWarnings_('ลาป่วย', 30, null);
+  assertEqual_(w.length, 1);
+  assertContains_(w[0], 'ทุกครั้ง');
+  // ลาพักผ่อน 11 วัน = เตือนพร้อมกัน 2 ข้อ: เกิน 10/ปี (ฐานสิทธิ์รายปี) + เกิน 10/ครั้ง (ต้องเป็นสะสม)
+  w = buildLeaveWarnings_('ลาพักร้อน', 11, { 'ลาพักร้อน': 0 });
+  assertEqual_(w.length, 2);
+  assertContains_(w.join(' '), 'สะสม');
+  assertContains_(w.join(' '), 'เกินสิทธิ์');
+  // ครึ่งวันรวมยอดทศนิยมได้ (ใช้ 9.5 + ยื่น 0.5 = 10 พอดี = ครบสิทธิ์)
+  w = buildLeaveWarnings_('ลากิจ', 0.5, { 'ลากิจ': 9.5 });
+  assertContains_(w[0], 'ครบสิทธิ์');
+}
+
+function testBuildUsageSummary_() {
+  const summary = buildUsageSummary_({ 'ลากิจ': 3.5, 'ลาป่วย': 2 });
+  assertEqual_(summary['ลากิจ'].used, 3.5);
+  assertEqual_(summary['ลากิจ'].quota, 10);
+  assertEqual_(summary['ลาป่วย'].quota, null); // ลาป่วยไม่จำกัด
+  assertEqual_(summary['ลาคลอด'].used, 0); // ประเภทมีโควตาแต่ยังไม่เคยใช้ก็แสดง
+  assertEqual_(summary['ลาคลอด'].quota, 90);
+  assertEqual_(buildUsageSummary_(null), null); // ไม่มีข้อมูล = null
 }
 
 function testFindDuplicates_() {

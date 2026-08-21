@@ -112,7 +112,7 @@
     <div id="confirmSummary" class="bg-white border border-slate-200 rounded-2xl p-5 text-sm divide-y divide-slate-100"></div>
     <div class="flex gap-2 mt-4">
       <button id="btnRegBack" type="button" class="flex-1 py-3.5 rounded-xl font-semibold text-primary bg-primary-light">แก้ไข</button>
-      <button id="btnBind" type="button" class="flex-[2] py-3.5 rounded-xl font-semibold text-white bg-primary">ยืนยันและเริ่มใช้งาน</button>
+      <button id="btnBind" type="button" class="flex-2 py-3.5 rounded-xl font-semibold text-white bg-primary">ยืนยันและเริ่มใช้งาน</button>
     </div>
   </section>
 
@@ -133,6 +133,7 @@
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
       <p class="text-sm font-semibold text-slate-600 mb-2.5">ประเภทการลา</p>
       <div id="typeGrid" class="grid grid-cols-2 gap-2"></div>
+      <p id="usageLine" class="hidden mt-3 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"></p>
     </div>
 
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
@@ -151,7 +152,16 @@
         <button type="button" id="quickToday" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">ลาวันนี้</button>
         <button type="button" id="quickTomorrow" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">ลาพรุ่งนี้</button>
       </div>
+      <div id="periodWrap" class="hidden mt-3">
+        <p class="text-xs text-slate-500 mb-1.5">ช่วงวัน (เลือกได้เมื่อลา 1 วัน — ครึ่งวันนับเป็น ½ วันทำการ)</p>
+        <div class="flex gap-2">
+          <button type="button" data-period="เต็มวัน" class="period-btn flex-1 py-2 rounded-lg border border-slate-200 text-xs font-medium">เต็มวัน</button>
+          <button type="button" data-period="ครึ่งวันเช้า" class="period-btn flex-1 py-2 rounded-lg border border-slate-200 text-xs font-medium">ครึ่งวันเช้า</button>
+          <button type="button" data-period="ครึ่งวันบ่าย" class="period-btn flex-1 py-2 rounded-lg border border-slate-200 text-xs font-medium">ครึ่งวันบ่าย</button>
+        </div>
+      </div>
       <p id="dayCount" class="hidden mt-3 p-3 rounded-xl bg-primary-light text-primary-dark text-sm font-medium"></p>
+      <p id="leaveWarn" class="hidden mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 whitespace-pre-line"></p>
       <p id="advanceWarning" class="hidden mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3"></p>
     </div>
 
@@ -189,18 +199,22 @@
 (function () {
   'use strict';
 
-  const LEAVE_TYPES = [
-    { name: 'ลาป่วย', desc: 'ไม่สบาย แจ้งได้ทันทีหรือย้อนหลัง' },
-    { name: 'ลากิจ', desc: 'ธุระจำเป็น ควรแจ้งล่วงหน้า 3 วันทำการ' },
-    { name: 'ลาพักร้อน', desc: 'พักผ่อนประจำปี' },
-    { name: 'ลาคลอด', desc: 'คลอดบุตร' },
-    { name: 'ลาบวช', desc: 'อุปสมบท/บวชเรียน' },
-  ];
+  // คำอธิบายประเภทลา (รายการประเภทจริงมาจาก Settings ผ่าน session — ที่นี่เก็บแค่คำอธิบายของชื่อที่รู้จัก)
+  const TYPE_DESCRIPTIONS = {
+    'ลาป่วย': 'ไม่สบาย แจ้งได้ทันที/ย้อนหลัง — เกิน 3 วันทำการต้องมีใบรับรองแพทย์',
+    'ลากิจ': 'ธุระจำเป็น 10 วันทำการ/ปี — ควรแจ้งล่วงหน้า 3 วันทำการ',
+    'ลาพักร้อน': 'พักผ่อนประจำปี 10 วัน/ปี (สะสมได้)',
+    'ลาคลอด': 'คลอดบุตร 90 วัน',
+    'ลาอุปสมบถ/ลาบวช': 'อุปสมบท/บวช 15 วัน',
+    'ลาช่วยเหลือภริยาคลอดบุตร': 'ช่วยเหลือภริยาคลอดบุตร 15 วัน',
+    'อื่นๆ': 'ระบุรายละเอียดในช่องเหตุผล',
+  };
 
   const state = {
-    options: { prefixes: [], groups: [], positions: [] },
+    options: { prefixes: [], groups: [], positions: [], leaveTypes: [], halfDayTypes: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
-    holidays: new Set(), today: '', leaveType: '', user: null, sending: false,
+    holidays: new Set(), today: '', leaveType: '', period: 'เต็มวัน',
+    user: null, sending: false, usage: null, leaveYear: '',
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
   };
 
@@ -299,6 +313,10 @@
       state.leaveEnabled = session.leaveEnabled !== false;
       state.leaveClosedMessage = session.leaveClosedMessage || '';
       state.approvalEnabled = session.approvalEnabled !== false;
+      state.options.leaveTypes = session.leaveTypes || (session.options && session.options.leaveTypes) || [];
+      state.options.halfDayTypes = session.halfDayTypes || (session.options && session.options.halfDayTypes) || [];
+      state.usage = session.usage || null; // ยอดใช้/สิทธิ์รายปี (มีเฉพาะผู้ที่ลงทะเบียนแล้ว)
+      state.leaveYear = session.leaveYear || '';
       if (session.registered) {
         state.user = session;
         await loadCalendar();
@@ -444,23 +462,41 @@
   function renderTypeGrid() {
     const grid = $('typeGrid');
     grid.innerHTML = '';
-    LEAVE_TYPES.forEach(t => {
+    (state.options.leaveTypes.length ? state.options.leaveTypes : Object.keys(TYPE_DESCRIPTIONS)).forEach(name => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'type-btn text-left p-3.5 rounded-xl border border-slate-200 hover:border-primary transition-colors motion-reduce:transition-none';
-      btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(t.name) + '</span>' +
-        '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' + escapeHtml(t.desc) + '</span>';
+      btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(name) + '</span>' +
+        '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' + escapeHtml(TYPE_DESCRIPTIONS[name] || '') + '</span>';
       btn.addEventListener('click', () => {
-        state.leaveType = t.name;
+        state.leaveType = name;
         document.querySelectorAll('.type-btn').forEach(b => {
           const active = b === btn;
           b.classList.toggle('bg-primary-light', active);
           b.classList.toggle('border-primary', active);
         });
+        refreshUsageLine_();
         refreshDayCount();
       });
       grid.appendChild(btn);
     });
+  }
+
+  // แถวยอดใช้/สิทธิ์ของประเภทที่เลือก (ยอดจริงมาจากใบลาใน Notion ผ่าน session)
+  function refreshUsageLine_() {
+    const el = $('usageLine');
+    const info = state.leaveType && state.usage ? state.usage[state.leaveType] : null;
+    if (!info) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.textContent = 'สิทธิ์ปี ' + (state.leaveYear || '') + ': ใช้ไปแล้ว ' + usedLabel_(info.used) +
+      (info.quota != null ? ' / สูงสุด ' + info.quota + ' วันทำการ' : ' วันทำการ (ไม่จำกัด)');
+  }
+
+  function usedLabel_(days) {
+    const whole = Math.floor(days);
+    const half = days - whole >= 0.5;
+    if (days === 0.5) return '½';
+    return (whole || '') + (half ? '½' : '');
   }
 
   function refreshDayCount() {
@@ -468,21 +504,67 @@
     const end = $('dateEnd').value || start;
     const box = $('dayCount');
     const warn = $('advanceWarning');
+    const warnBox = $('leaveWarn');
     warn.classList.add('hidden');
-    if (!start || !end || end < start) { box.classList.add('hidden'); return; }
+    warnBox.classList.add('hidden');
+    if (!start || !end || end < start) { box.classList.add('hidden'); $('periodWrap').classList.add('hidden'); return; }
+
+    // ช่วงวัน (ครึ่งวัน) เลือกได้เฉพาะลา 1 วัน + ประเภทที่ระเบียบอนุญาต
+    const singleDay = end === start;
+    const halfOk = singleDay && state.options.halfDayTypes.includes(state.leaveType);
+    $('periodWrap').classList.toggle('hidden', !halfOk);
+    if (!halfOk) {
+      state.period = 'เต็มวัน';
+      document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('bg-primary-light', 'border-primary'));
+    }
 
     const workDays = countBusinessDays(start, end);
+    const effective = workDays === 1 && state.period !== 'เต็มวัน' ? 0.5 : workDays;
     const total = daysBetween(start, end) + 1;
     box.classList.remove('hidden');
     box.textContent = thaiShort(start) + (end !== start ? ' – ' + thaiShort(end) : '') +
-      ' · ' + workDays + ' วันทำการ (รวม ' + total + ' วันปฏิทิน)';
+      (state.period !== 'เต็มวัน' ? ' (' + state.period + ')' : '') +
+      ' · ' + usedLabel_(effective) + ' วันทำการ' + (total > 1 ? ' (รวม ' + total + ' วันปฏิทิน)' : '');
 
     // คำเตือนนุ่มๆ ตามระเบียบ (ไม่บล็อก — ปล่อยให้ผู้อนุมัติตัดสิน เพราะลากิจฉุกเฉินยื่นวันเดียวกันได้จริง)
     if (state.leaveType === 'ลากิจ' && start <= addDays(state.today, 2)) {
       warn.classList.remove('hidden');
       warn.textContent = 'แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — ระบบจะยื่นให้ตามปกติ แต่ควรระบุเหตุผลความจำเป็นในช่องเหตุผลให้ชัดเจน';
     }
+
+    // คำเตือนสิทธิ์/ใบแพทย์ — mirror กติกาฝั่งเซิร์ฟเวอร์ (ฝั่งนั้นตรวจซ้ำและบันทึกลงใบลาให้ผู้อนุมัติเห็น)
+    const warnings = [];
+    const info = state.usage ? state.usage[state.leaveType] : null;
+    if (info && info.quota != null && info.used + effective > info.quota) {
+      warnings.push('⚠ เกินสิทธิ์ ' + info.quota + ' วันทำการ/ปี: ใช้ไปแล้ว ' + usedLabel_(info.used) +
+        ' + ใบนี้ ' + usedLabel_(effective) + ' — ยื่นได้แต่ผู้อนุมัติจะเห็นคำเตือนนี้');
+    }
+    if (state.leaveType === 'ลาป่วย' && effective > 3 && effective < 30) {
+      warnings.push('⚠ ลาป่วยเกิน 3 วันทำการ — ต้องมีใบรับรองแพทย์แนบประกอบใบลา');
+    }
+    if (state.leaveType === 'ลาป่วย' && effective >= 30) {
+      warnings.push('⚠ ลาป่วย ≥ 30 วันทำการ — ต้องมีใบรับรองแพทย์ทุกครั้ง และควรปรึกษาฝ่ายกำลังคน');
+    }
+    if (state.leaveType === 'ลาพักร้อน' && effective > 10) {
+      warnings.push('⚠ ลาพักผ่อนเกิน 10 วันทำการ/ครั้ง — ต้องเป็นการใช้สิทธิ์สะสม (ตรวจสอบกับผู้ดูแล)');
+    }
+    if (warnings.length) {
+      warnBox.classList.remove('hidden');
+      warnBox.textContent = warnings.join('\n');
+    }
   }
+
+  document.querySelectorAll('.period-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.period = btn.dataset.period;
+      document.querySelectorAll('.period-btn').forEach(b => {
+        const active = b === btn;
+        b.classList.toggle('bg-primary-light', active);
+        b.classList.toggle('border-primary', active);
+      });
+      refreshDayCount();
+    });
+  });
 
   ['dateStart', 'dateEnd'].forEach(id => $(id).addEventListener('change', () => {
     if ($('dateStart').value && $('dateEnd').value && $('dateEnd').value < $('dateStart').value) {
@@ -507,16 +589,21 @@
     $('btnSubmit').textContent = 'กำลังส่ง…';
     try {
       const result = await api('submit', {
-        leaveType: state.leaveType, start: start, end: end, reason: $('reason').value.trim(),
+        leaveType: state.leaveType, start: start, end: end,
+        period: state.period, reason: $('reason').value.trim(),
       });
+      const periodNote = result.period && result.period !== 'เต็มวัน' ? ' (' + result.period + ')' : '';
       $('successCard').innerHTML =
         '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(state.leaveType) + '</span></div>' +
-        '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end)) + '</span></div>' +
-        '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + result.workDays + ' วัน</span></div>' +
+        '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end) + periodNote) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + escapeHtml(result.workDaysLabel || (result.workDays + ' วัน')) + '</span></div>' +
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
         (result.autoApproved
           ? '<span class="block text-xs text-sky-700 mt-1">ระบบปิดการอนุมัติอยู่ — บันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลักแล้ว ไม่ต้องรอใครกดอนุมัติ</span>'
-          : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) + '</div>';
+          : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) +
+        (result.warnings && result.warnings.length
+          ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2 whitespace-pre-line">' + escapeHtml(result.warnings.join('\n')) + '</span>'
+          : '') + '</div>';
       show('success');
     } catch (submitErr) {
       err.textContent = submitErr.message;

@@ -27,8 +27,10 @@
  * โครงสร้าง Notion database "ใบลา" (ชื่อ property อ้างอิงผ่าน PROPS_LEAVE):
  *   ผู้ลา (title, เก็บชื่อเต็ม คำนำหน้า+ชื่อ-สกุล) / กลุ่มงาน (rich_text)
  *   / ผู้ยื่น (ระบบ) (rich_text, เก็บ LINE userId ของผู้ยื่น) / ประเภทการลา (select)
- *   / วันที่ลา (date) / เหตุผล (rich_text) / สถานะ (select) / ผู้อนุมัติปัจจุบัน (rich_text, JSON ภายใน)
- *   / บันทึกการอนุมัติ (rich_text, audit) / จำนวนวันทำการ (number)
+ *   / วันที่ลา (date) / ช่วงวัน (rich_text: เต็มวัน/ครึ่งวันเช้า/ครึ่งวันบ่าย — เพิ่มภายหลังได้)
+ *   / เหตุผล (rich_text) / สถานะ (select) / ผู้อนุมัติปัจจุบัน (rich_text, JSON ภายใน)
+ *   / บันทึกการอนุมัติ (rich_text, audit) / หมายเหตุระบบ (rich_text: ยอดสิทธิ์+คำเตือนตามระเบียบ)
+ *   / จำนวนวันทำการ (number, ครึ่งวัน = 0.5)
  */
 
 const PROPS_LEAVE = {
@@ -37,10 +39,12 @@ const PROPS_LEAVE = {
   submitter: 'ผู้ยื่น (ระบบ)',
   type: 'ประเภทการลา',
   date: 'วันที่ลา',
+  period: 'ช่วงวัน',
   reason: 'เหตุผล',
   status: 'สถานะ',
   currentApprover: 'ผู้อนุมัติปัจจุบัน',
   audit: 'บันทึกการอนุมัติ',
+  systemNote: 'หมายเหตุระบบ',
   workDays: 'จำนวนวันทำการ',
 };
 
@@ -52,7 +56,25 @@ const LEAVE_STATUS = {
   cancelled: 'ยกเลิก',
 };
 
-const LEAVE_TYPES = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'ลาคลอด', 'ลาบวช', 'อื่นๆ'];
+// ประเภทการลา default ตามระเบียบสำนักนายกฯ ว่าด้วยการลาฯ (แก้รายการได้ที่ Settings คีย์ leave_type_options)
+const LEAVE_TYPES_DEFAULT = [
+  'ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'ลาคลอด',
+  'ลาอุปสมบถ/ลาบวช', 'ลาช่วยเหลือภริยาคลอดบุตร', 'อื่นๆ',
+];
+
+// สิทธิ์สูงสุดต่อปีตามระเบียบฯ (นับเป็นวันทำการ) — ใช้ "เตือน" ไม่บล็อกการยื่น (ตัดสินใจโดยผู้อนุมัติ)
+// ลาพักร้อนตามระเบียบสะสมได้ไม่เกิน 2 ปี รวมต่อครั้งไม่เกิน 45 วันทำการ จึงเตือนเป็นรายกรณีแทนการล็อกตัวเลข
+const LEAVE_QUOTAS = {
+  'ลากิจ': 10,
+  'ลาพักร้อน': 10,
+  'ลาคลอด': 90,
+  'ลาอุปสมบถ/ลาบวช': 15,
+  'ลาช่วยเหลือภริยาคลอดบุตร': 15,
+};
+
+// ประเภทที่ลาครึ่งวัน (เช้า/บ่าย นับเป็น ½ วัน) ได้ตามระเบียบ
+const HALF_DAY_TYPES = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน'];
+const LEAVE_PERIODS = ['เต็มวัน', 'ครึ่งวันเช้า', 'ครึ่งวันบ่าย'];
 
 // การอนุมัติไม่ hardcode ในโค้ด — อ่านจากชีต Approvers (กลุ่มงาน → ผู้อนุมัติ → ส่งต่อ หัวหน้า สสอ. ไหม)
 // และ Settings คีย์ second_approvers (รายชื่อ หัวหน้า สสอ.) — แก้ที่ชีตได้เสมอไม่ต้องแตะโค้ด
@@ -329,6 +351,131 @@ function leaveRangeOverlap_(startStr, endStr, todayStr) {
   return startStr <= todayStr && effectiveEnd >= todayStr;
 }
 
+// ---------- การคำนวณวันลาตามระเบียบสำนักนายกฯ ว่าด้วยการลาฯ (pure — ทดสอบได้) ----------
+
+// ตรวจความถูกต้องของช่วงวัน + จับคู่กับประเภทที่ลาครึ่งวันได้ (ครึ่งวันใช้ได้เฉพาะลา 1 วัน)
+function normalizeLeavePeriod_(period, leaveType, startStr, endStr) {
+  const value = LEAVE_PERIODS.includes(period) ? period : 'เต็มวัน';
+  const singleDay = !endStr || endStr === startStr;
+  if (value !== 'เต็มวัน' && (!singleDay || !HALF_DAY_TYPES.includes(leaveType))) {
+    return 'เต็มวัน'; // ครึ่งวันใช้ไม่ได้กับประเภท/ช่วงหลายวัน → คืนเป็นเต็มวันเงียบๆ
+  }
+  return value;
+}
+
+// จำนวนวันทำการของใบลา (ฐานวันทำการตามระเบียบ + ครึ่งวัน = 0.5 เมื่อลา 1 วัน)
+function computeWorkDays_(startStr, endStr, holidaySet, period) {
+  const days = countBusinessDays_(startStr, endStr || startStr, holidaySet);
+  if (days === 1 && period !== 'เต็มวัน') return 0.5;
+  return days;
+}
+
+// แปลงเป็นข้อความ เช่น 0.5 → "½ วัน" / 1 → "1 วัน" / 2.5 → "2½ วัน"
+function workDaysLabel_(days) {
+  const whole = Math.floor(days);
+  const half = days - whole >= 0.5;
+  if (days === 0.5) return '½ วัน';
+  return (whole > 0 ? whole : '') + (half ? '½' : '') + ' วัน';
+}
+
+/**
+ * คำเตือนตามระเบียบฯ สำหรับใบลาที่กำลังยื่น (pure)
+ * usage = ยอดวันทำการที่ใช้ไปแล้วของปีนี้แยกตามประเภท (จาก getLeaveUsageForYear_) หรือ null ถ้าหาไม่ได้
+ * นโยบาย: "เตือนอย่างเดียว" — ไม่มีการบล็อก ให้ผู้อนุมัติใช้ดุลพินิจ (คำเตือนถูกเก็บลงใบลาและแสดงในการ์ด)
+ */
+function buildLeaveWarnings_(leaveType, workDays, usage) {
+  const warnings = [];
+  const used = usage ? (usage[leaveType] || 0) : 0;
+  const quota = LEAVE_QUOTAS[leaveType];
+
+  if (quota != null && usage) {
+    const total = used + workDays;
+    if (total > quota) {
+      warnings.push('⚠ เกินสิทธิ์ตามระเบียบ: ใช้ไปแล้ว ' + workDaysLabel_(used) + ' + ใบนี้ ' +
+        workDaysLabel_(workDays) + ' = ' + workDaysLabel_(total) + ' (สิทธิ์สูงสุด ' + quota + ' วันทำการ/ปี)');
+    } else if (total === quota) {
+      warnings.push('ℹ ใบนี้ทำให้ครบสิทธิ์ ' + quota + ' วันทำการ/ปี พอดี — ใบถัดไปจะเกินสิทธิ์');
+    }
+  }
+  if (leaveType === 'ลาพักร้อน' && workDays > 10) {
+    warnings.push('⚠ ลาพักผ่อนเกิน 10 วันทำการ/ครั้ง — ตามระเบียบต้องเป็นการใช้สิทธิ์สะสม (รวมต่อครั้งไม่เกิน 45 วันทำการ) โปรดตรวจสอบสิทธิ์สะสม');
+  }
+  if (leaveType === 'ลาป่วย' && workDays > 3 && workDays < 30) {
+    warnings.push('⚠ ลาป่วยเกิน 3 วันทำการ ตามระเบียบต้องมีใบรับรองแพทย์แนบประกอบใบลา');
+  }
+  if (leaveType === 'ลาป่วย' && workDays >= 30) {
+    warnings.push('⚠ ลาป่วยตั้งแต่ 30 วันทำการขึ้นไป ต้องมีใบรับรองแพทย์ทุกครั้ง และอาจเข้าเกณฑ์ทางการแพทย์ (โปรดปรึกษาฝ่ายกำลังคน)');
+  }
+  return warnings;
+}
+
+// สรุปยอดใช้/สิทธิ์สำหรับแสดงบนฟอร์ม (pure) — ครอบทุกประเภทมาตรฐานที่มีโควตา + ลาป่วย (ไม่จำกัด)
+function buildUsageSummary_(usage) {
+  if (!usage) return null;
+  const summary = {};
+  Object.keys(usage).forEach(type => {
+    summary[type] = { used: usage[type], quota: LEAVE_QUOTAS[type] != null ? LEAVE_QUOTAS[type] : null };
+  });
+  Object.keys(LEAVE_QUOTAS).forEach(type => {
+    if (!(type in summary)) summary[type] = { used: 0, quota: LEAVE_QUOTAS[type] };
+  });
+  return summary;
+}
+
+/**
+ * ยอดวันทำการที่ใช้ไปแล้วของปีปฏิทินปัจจุบัน แยกตามประเภท — อ่านจากใบลาจริงใน Notion ทั้งหมด
+ * นับใบสถานะ "อนุมัติ" และใบที่กำลังรออนุมัติ (กันยื่นพร้อมกันหลายใบแล้วทะลุโควตาโดยไม่รู้ตัว)
+ * คืน { 'ลากิจ': 3.5, ... } หรือ null ถ้ายังไม่ตั้งค่า/อ่านไม่สำเร็จ (ไม่ throw — การตรวจสิทธิ์ต้องไม่ทำให้ยื่นลาไม่ได้)
+ */
+function getLeaveUsageForYear_(leaveDbId, submitterUserId, now) {
+  const dbId = String(leaveDbId || '').trim();
+  if (!dbId || dbId === 'your_leave_database_id' || !submitterUserId) return null;
+  try {
+    const year = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy'));
+    const dataSourceId = resolveLeaveDataSourceId_(dbId);
+    const payload = {
+      filter: {
+        and: [
+          { property: PROPS_LEAVE.submitter, rich_text: { equals: submitterUserId } },
+          { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
+          { property: PROPS_LEAVE.date, date: { before: (year + 1) + '-01-01T00:00:00+07:00' } },
+          { or: [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice].map(s => ({
+            property: PROPS_LEAVE.status, select: { equals: s },
+          })) },
+        ],
+      },
+      page_size: 100,
+    };
+    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: notionHeaders_(),
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true,
+    });
+    if (response.getResponseCode() >= 300) {
+      logResult_(now, 'error', 'อ่านยอดวันลาสะสมไม่สำเร็จ (' + response.getResponseCode() + '): ' +
+        response.getContentText().substring(0, 200));
+      return null;
+    }
+    const data = JSON.parse(response.getContentText());
+    const usage = {};
+    (data.results || []).forEach(page => {
+      const leave = parseLeavePage_(page);
+      if (leave.leaveType) usage[leave.leaveType] = (usage[leave.leaveType] || 0) + (leave.workDays || 0);
+    });
+    return usage;
+  } catch (err) {
+    logResult_(now, 'error', 'อ่านยอดวันลาสะสมไม่สำเร็จ (ข้ามการตรวจสิทธิ์ใบนี้): ' + err);
+    return null;
+  }
+}
+
+// รายการประเภทการลา (แก้ได้ที่ Settings คีย์ leave_type_options)
+function leaveTypeList_(settings) {
+  return optionList_(settings && settings.leave_type_options, LEAVE_TYPES_DEFAULT.join(','));
+}
+
 function readHolidaySet_() {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Holidays');
   const lastRow = sheet.getLastRow();
@@ -407,20 +554,28 @@ function apiSession_(body) {
   };
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
+  // ข้อมูลที่ฟอร์มต้องใช้ทุกกรณี (ทั้งลงทะเบียนแล้ว/ยัง)
+  const common = {
+    leaveTypes: leaveTypeList_(settings), // รายการประเภทการลา (แก้ได้ที่ leave_type_options)
+    halfDayTypes: HALF_DAY_TYPES,
+  };
   if (staff) {
     return Object.assign({
       ok: true, registered: true,
       name: staffDisplayName_(staff), groupName: staff.groupName, position: staff.position,
-    }, leaveStatus);
+      // ยอดวันลาที่ใช้ไปแล้วของปีนี้ (จากใบลาจริงใน Notion) เพื่อแสดงบนฟอร์ม — null ถ้ายังไม่ตั้งค่า/อ่านไม่ได้
+      usage: buildUsageSummary_(getLeaveUsageForYear_(settings.leave_database_id, staff.lineUserId, new Date())),
+      leaveYear: String(Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')) + 543),
+    }, common, leaveStatus);
   }
   const config = readApproversConfig_();
   return Object.assign({
     ok: true, registered: false,
-    options: {
+    options: Object.assign({
       prefixes: optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ'),
       groups: config.map(c => c.groupName), // รายชื่อกลุ่มงาน = คอลัมน์แรกของชีต Approvers
       positions: optionList_(settings.position_options, 'อื่นๆ'),
-    },
+    }, common),
   }, leaveStatus);
 }
 
@@ -510,7 +665,6 @@ function apiSubmit_(body) {
   if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
 
   const leaveType = String(body.leaveType || '').trim();
-  if (!LEAVE_TYPES.includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
   const reason = String(body.reason || '').trim().substring(0, 500);
   const range = parseLeaveDateRange_(body.start, body.end, bangkokTodayStr_());
 
@@ -521,7 +675,18 @@ function apiSubmit_(body) {
     throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');
   }
 
-  const workDays = countBusinessDays_(range.start, range.end, readHolidaySet_());
+  // ประเภทการลามาจาก Settings (leave_type_options) + ช่วงวัน (ครึ่งวันใช้ได้เฉพาะบางประเภท/ลา 1 วัน)
+  if (!leaveTypeList_(settings).includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
+  const period = normalizeLeavePeriod_(body.period, leaveType, range.start, range.end);
+
+  // คำนวณตามระเบียบฯ: ฐานวันทำการ + ครึ่งวัน = 0.5 + คำเตือนจากยอดใช้จริงของปีนี้ (เตือนอย่างเดียว ไม่บล็อก)
+  const workDays = computeWorkDays_(range.start, range.end, readHolidaySet_(), period);
+  const usage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date());
+  const warnings = buildLeaveWarnings_(leaveType, workDays, usage);
+  const usedLabel = usage && LEAVE_QUOTAS[leaveType] != null
+    ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((usage[leaveType] || 0) + workDays) + ' / ' + LEAVE_QUOTAS[leaveType] + ' วันทำการ'
+    : '';
+  const systemNote = [usedLabel].concat(warnings).filter(Boolean).join('\n');
 
   // โหมดปิดการอนุมัติ ("แจ้งลาอัตโนมัติ"): บันทึกเป็น "อนุมัติ" ทันที ไม่ต้องตั้งค่าผู้อนุมัติ
   // แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก + แจ้งผู้ยื่นกลับ — ใบลาขึ้นสรุปเช้า "ผู้ลาวันนี้" ทันทีเพราะอนุมัติแล้ว
@@ -534,10 +699,12 @@ function apiSubmit_(body) {
       leaveType: leaveType,
       start: range.start,
       end: range.end,
+      period: period,
       reason: reason,
       workDays: workDays,
       initialStatus: LEAVE_STATUS.approved,
       currentApprover: '',
+      systemNote: systemNote,
     });
     const autoPage = parseLeavePage_(createNotionLeavePage_(autoPayload));
     try {
@@ -560,9 +727,12 @@ function apiSubmit_(body) {
     return {
       ok: true,
       workDays: workDays,
+      workDaysLabel: workDaysLabel_(workDays),
+      period: period,
       approverName: 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว',
       needsSecond: false,
       autoApproved: true,
+      warnings: warnings,
     };
   }
 
@@ -577,12 +747,14 @@ function apiSubmit_(body) {
     leaveType: leaveType,
     start: range.start,
     end: range.end,
+    period: period,
     reason: reason,
     workDays: workDays,
     initialStatus: chain.stage === 'second'
       ? LEAVE_STATUS.pendingChiefOffice
       : LEAVE_STATUS.pendingApprover,
     currentApprover: serializeApproverInfo_(chain.stage, chain.targets),
+    systemNote: systemNote,
   });
 
   const page = createNotionLeavePage_(payload);
@@ -617,8 +789,11 @@ function apiSubmit_(body) {
   return {
     ok: true,
     workDays: workDays,
+    workDaysLabel: workDaysLabel_(workDays),
+    period: period,
     approverName: approverLabel,
     needsSecond: chain.needsSecond && chain.stage === 'first',
+    warnings: warnings,
   };
 }
 
@@ -640,22 +815,28 @@ function richTextValue_(text) {
   return { rich_text: [{ text: { content: String(text == null ? '' : text) } }] };
 }
 
-/** สร้าง payload สร้างหน้าใบลา (pure — ทดสอบได้โดยไม่ยิง Notion) */
+/** สร้าง payload สร้างหน้าใบลา (pure — ทดสอบได้โดยไม่ยิง Notion)
+ *  "ช่วงวัน"/"หมายเหตุระบบ" ใส่เฉพาะเมื่อมีค่า เพื่อให้ database รุ่นเก่าที่ยังไม่มีสอง property นี้
+ *  ยังบันทึกใบเต็มวันได้ก่อน (เพิ่ม property ใน Notion แล้วของใหม่จะเข้าครบ) */
 function buildLeavePagePayload_(leave) {
-  return {
-    parent: { data_source_id: leave.dataSourceId },
-    properties: {
-      [PROPS_LEAVE.title]: { title: [{ text: { content: leave.fullName } }] },
-      [PROPS_LEAVE.groupName]: richTextValue_(leave.groupName),
-      [PROPS_LEAVE.submitter]: richTextValue_(leave.submitterUserId),
-      [PROPS_LEAVE.type]: { select: { name: leave.leaveType } },
-      [PROPS_LEAVE.date]: { date: { start: leave.start, end: leave.end } },
-      [PROPS_LEAVE.reason]: richTextValue_(leave.reason),
-      [PROPS_LEAVE.status]: { select: { name: leave.initialStatus } },
-      [PROPS_LEAVE.currentApprover]: richTextValue_(leave.currentApprover),
-      [PROPS_LEAVE.workDays]: { number: leave.workDays },
-    },
+  const properties = {
+    [PROPS_LEAVE.title]: { title: [{ text: { content: leave.fullName } }] },
+    [PROPS_LEAVE.groupName]: richTextValue_(leave.groupName),
+    [PROPS_LEAVE.submitter]: richTextValue_(leave.submitterUserId),
+    [PROPS_LEAVE.type]: { select: { name: leave.leaveType } },
+    [PROPS_LEAVE.date]: { date: { start: leave.start, end: leave.end } },
+    [PROPS_LEAVE.reason]: richTextValue_(leave.reason),
+    [PROPS_LEAVE.status]: { select: { name: leave.initialStatus } },
+    [PROPS_LEAVE.currentApprover]: richTextValue_(leave.currentApprover),
+    [PROPS_LEAVE.workDays]: { number: leave.workDays },
   };
+  if (leave.period && leave.period !== 'เต็มวัน') {
+    properties[PROPS_LEAVE.period] = richTextValue_(leave.period);
+  }
+  if (leave.systemNote) {
+    properties[PROPS_LEAVE.systemNote] = richTextValue_(leave.systemNote);
+  }
+  return { parent: { data_source_id: leave.dataSourceId }, properties: properties };
 }
 
 // "ผู้อนุมัติปัจจุบัน" เก็บในหน้าใบลาเป็น JSON {stage, userIds, names} —
@@ -730,10 +911,12 @@ function parseLeavePage_(page) {
     leaveType: ((props[PROPS_LEAVE.type] && props[PROPS_LEAVE.type].select) || {}).name || '',
     start: dateProp.start || '',
     end: dateProp.end || '',
+    period: plainText_(props[PROPS_LEAVE.period] && props[PROPS_LEAVE.period].rich_text) || 'เต็มวัน',
     reason: plainText_(props[PROPS_LEAVE.reason] && props[PROPS_LEAVE.reason].rich_text),
     status: ((props[PROPS_LEAVE.status] && props[PROPS_LEAVE.status].select) || {}).name || '',
     currentApprover: approverInfo,
     audit: plainText_(props[PROPS_LEAVE.audit] && props[PROPS_LEAVE.audit].rich_text),
+    systemNote: plainText_(props[PROPS_LEAVE.systemNote] && props[PROPS_LEAVE.systemNote].rich_text),
     workDays: (props[PROPS_LEAVE.workDays] && props[PROPS_LEAVE.workDays].number) || 0,
   };
 }
@@ -747,8 +930,10 @@ function buildLeaveApprovalBubble_(leavePage) {
     { label: 'กลุ่มงาน', value: leavePage.groupName },
     { label: 'ประเภท', value: leavePage.leaveType },
     { label: 'วันที่ลา', value: dateLabel },
-    { label: 'วันทำการ', value: String(leavePage.workDays) + ' วัน' },
+    { label: 'ช่วงวัน', value: leavePage.period && leavePage.period !== 'เต็มวัน' ? leavePage.period : '' },
+    { label: 'วันทำการ', value: workDaysLabel_(leavePage.workDays) },
     { label: 'เหตุผล', value: leavePage.reason || '—' },
+    { label: 'ตรวจสอบสิทธิ์', value: leavePage.systemNote || '' },
   ].filter(f => f.value);
 
   const fieldBoxes = fields.map(f => ({
@@ -879,9 +1064,10 @@ function formatAuditLine_(approverStaff, actionLabel) {
 }
 
 function leaveSummaryText_(leavePage) {
+  const periodSuffix = leavePage.period && leavePage.period !== 'เต็มวัน' ? ' (' + leavePage.period + ')' : '';
   return 'ประเภท: ' + leavePage.leaveType +
-    '\nวันที่: ' + leaveDateLabel_(leavePage.start, leavePage.end) +
-    (leavePage.workDays ? ' (' + leavePage.workDays + ' วันทำการ)' : '');
+    '\nวันที่: ' + leaveDateLabel_(leavePage.start, leavePage.end) + periodSuffix +
+    (leavePage.workDays ? ' (' + workDaysLabel_(leavePage.workDays) + 'ทำการ)' : '');
 }
 
 function handleLeavePostback_(event, webhookEventId) {
