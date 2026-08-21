@@ -382,6 +382,13 @@ function requireLeaveSystemEnabled_(settings) {
   }
 }
 
+// สวิตช์แยก: ปิดการอนุมัติ (leave_approval_enabled = FALSE) = โหมด "แจ้งลาอัตโนมัติ"
+// ยื่นแล้วบันทึกเป็น "อนุมัติ" ทันที ไม่ต้องเรียกตัวผู้อนุมัติ แต่ยังส่งการ์ดแจ้งเข้ากลุ่มหลัก
+// (ค่าอื่นใด/แถวหาย = เปิดการอนุมัติตามปกติ เพื่อไม่เปลี่ยนพฤติกรรมระบบที่ติดตั้งไว้แล้วโดยไม่ตั้งใจ)
+function isLeaveApprovalEnabled_(settings) {
+  return String((settings && settings.leave_approval_enabled) || '').trim().toUpperCase() !== 'FALSE';
+}
+
 // ---------- API actions ----------
 
 // ตัวเลือก dropdown ทั้งหมดมาจากชีต — แก้ที่ Settings ได้เลยไม่ต้องแตะโค้ด
@@ -396,6 +403,7 @@ function apiSession_(body) {
   const leaveStatus = {
     leaveEnabled: isLeaveSystemEnabled_(settings),
     leaveClosedMessage: isLeaveSystemEnabled_(settings) ? '' : leaveClosedMessage_(settings),
+    approvalEnabled: isLeaveApprovalEnabled_(settings),
   };
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
@@ -514,6 +522,50 @@ function apiSubmit_(body) {
   }
 
   const workDays = countBusinessDays_(range.start, range.end, readHolidaySet_());
+
+  // โหมดปิดการอนุมัติ ("แจ้งลาอัตโนมัติ"): บันทึกเป็น "อนุมัติ" ทันที ไม่ต้องตั้งค่าผู้อนุมัติ
+  // แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก + แจ้งผู้ยื่นกลับ — ใบลาขึ้นสรุปเช้า "ผู้ลาวันนี้" ทันทีเพราะอนุมัติแล้ว
+  if (!isLeaveApprovalEnabled_(settings)) {
+    const autoPayload = buildLeavePagePayload_({
+      dataSourceId: resolveLeaveDataSourceId_(leaveDbId),
+      fullName: staffDisplayName_(staff),
+      groupName: staff.groupName,
+      submitterUserId: staff.lineUserId,
+      leaveType: leaveType,
+      start: range.start,
+      end: range.end,
+      reason: reason,
+      workDays: workDays,
+      initialStatus: LEAVE_STATUS.approved,
+      currentApprover: '',
+    });
+    const autoPage = parseLeavePage_(createNotionLeavePage_(autoPayload));
+    try {
+      sendLineMessage_(settings.line_group_id, {
+        type: 'flex',
+        altText: '🏖️ แจ้งลาอัตโนมัติ: ' + autoPage.fullName + ' — ' + leaveType + ' ' +
+          leaveDateLabel_(range.start, range.end),
+        contents: buildLeaveNoticeBubble_(autoPage),
+      });
+    } catch (notifyErr) {
+      logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลาเข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
+    }
+    pushPrivateMessage_(staff.lineUserId, {
+      type: 'text',
+      text: '✅ บันทึกการลาแล้ว (ไม่ต้องรออนุมัติ — ระบบปิดการอนุมัติอยู่)\n' + leaveSummaryText_(autoPage),
+    });
+    logResult_(new Date(), 'leave',
+      autoPage.fullName + ' ยื่น' + leaveType + ' ' + leaveDateLabel_(range.start, range.end) +
+      ' (' + workDays + ' วันทำการ) — อัตโนมัติ ไม่ต้องอนุมัติ');
+    return {
+      ok: true,
+      workDays: workDays,
+      approverName: 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว',
+      needsSecond: false,
+      autoApproved: true,
+    };
+  }
+
   const config = readApproversConfig_();
   const chain = resolveApprovalChain_(config, settings, roster, staff); // throw ไทยสุภาพเมื่อคอนฟิกยังไม่พร้อม
 
@@ -754,6 +806,21 @@ function buildLeaveApprovalBubble_(leavePage) {
     },
     styles: { footer: { separator: true, separatorColor: '#DCE5E1' } },
   };
+}
+
+/** การ์ด "แจ้งลา" สำหรับโหมดปิดการอนุมัติ — เหมือนการ์ดขออนุมัติแต่ไม่มีปุ่ม (เป็นการแจ้งเพื่อทราบ) */
+function buildLeaveNoticeBubble_(leavePage) {
+  const bubble = buildLeaveApprovalBubble_(leavePage);
+  bubble.header.contents[0].text = 'แจ้งการลา (ไม่ต้องอนุมัติ)';
+  bubble.footer = {
+    type: 'box',
+    layout: 'vertical',
+    paddingAll: '12px',
+    contents: [
+      { type: 'text', text: 'ระบบปิดการอนุมัติอยู่ — บันทึกอัตโนมัติ ไม่ต้องกดอนุมัติ', size: 'xxs', color: '#6F7874', align: 'center', wrap: true },
+    ],
+  };
+  return bubble;
 }
 
 // ---------- ส่งข้อความ LINE ----------

@@ -24,6 +24,8 @@ function runUnitTests() {
     testResolveApprovalChain_,
     testCanApproveLeave_,
     testLeaveSystemSwitch_,
+    testLeaveApprovalSwitch_,
+    testBuildLeaveNoticeBubble_,
     testFindDuplicates_,
     testCountBusinessDays_,
     testLeaveRangeOverlap_,
@@ -406,6 +408,32 @@ function testLeaveSystemSwitch_() {
     function () { requireLeaveSystemEnabled_({ leave_system_enabled: 'FALSE' }); },
     'ปิดรับคำขอ'
   );
+}
+
+function testLeaveApprovalSwitch_() {
+  // default เป็น "เปิดการอนุมัติ" — ค่าว่าง/แถวหาย/ค่าแปลกๆ ไม่เปลี่ยนพฤติกรรมระบบเดิม
+  assertTrue_(isLeaveApprovalEnabled_({}));
+  assertTrue_(isLeaveApprovalEnabled_(null));
+  assertTrue_(isLeaveApprovalEnabled_({ leave_approval_enabled: '' }));
+  assertTrue_(isLeaveApprovalEnabled_({ leave_approval_enabled: 'TRUE' }));
+  assertFalse_(isLeaveApprovalEnabled_({ leave_approval_enabled: 'FALSE' }));
+  assertFalse_(isLeaveApprovalEnabled_({ leave_approval_enabled: ' false ' }));
+  // สองสวิตช์เป็นอิสระกัน
+  assertTrue_(isLeaveApprovalEnabled_({ leave_system_enabled: 'FALSE' }));
+}
+
+function testBuildLeaveNoticeBubble_() {
+  const bubble = buildLeaveNoticeBubble_(createTestLeave_());
+
+  // การ์ดแจ้งลาต้องไม่มีปุ่มกดใน footer และบอกชัดว่าบันทึกอัตโนมัติ
+  assertEqual_(bubble.header.contents[0].text, 'แจ้งการลา (ไม่ต้องอนุมัติ)');
+  const footerText = JSON.stringify(bubble.footer);
+  assertContains_(footerText, 'บันทึกอัตโนมัติ');
+  assertFalse_(footerText.indexOf('postback') !== -1);
+  assertFalse_(footerText.indexOf('"button"') !== -1);
+  // เนื้อหาใบลายังครบเหมือนการ์ดขออนุมัติ (ชื่อเต็มอยู่ใน header, รายละเอียดอยู่ใน body)
+  assertContains_(JSON.stringify(bubble), createTestLeave_().fullName);
+  assertContains_(JSON.stringify(bubble.body), 'ลากิจ');
 }
 
 function testFindDuplicates_() {

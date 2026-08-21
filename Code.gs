@@ -627,6 +627,7 @@ function onOpen() {
     .addSeparator()
     .addItem('เตรียม/ตรวจสอบชีตทั้งหมด', 'setupSheet')
     .addItem('เปิด/ปิดระบบลา', 'toggleLeaveSystem')
+    .addItem('เปิด/ปิดการอนุมัติใบลา', 'toggleLeaveApproval')
     .addToUi();
 }
 
@@ -664,6 +665,7 @@ function setupSheet() {
     ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
     ['leave_system_enabled', 'TRUE', 'สวิตช์ระบบลา: FALSE = ปิดรับลงทะเบียน/ยื่นลาใหม่ (ใช้เมนู "เปิด/ปิดระบบลา" สลับให้ได้) — ค่าอื่นใด/แถวหาย = เปิด'],
+    ['leave_approval_enabled', 'TRUE', 'โหมดการอนุมัติ: FALSE = แจ้งลาอัตโนมัติ (บันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก ไม่ต้องมีผู้อนุมัติ) — ใช้เมนู "เปิด/ปิดการอนุมัติใบลา" สลับได้'],
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
@@ -773,6 +775,9 @@ function collectSystemHealth_() {
   if (!isLeaveSystemEnabled_(settings)) {
     findings.push(['warn', 'ระบบลาถูกปิดอยู่ (leave_system_enabled = FALSE) — กดเมนู "เปิด/ปิดระบบลา" เพื่อเปิดกลับ']);
   }
+  if (isLeaveSystemEnabled_(settings) && !isLeaveApprovalEnabled_(settings)) {
+    findings.push(['info', 'โหมดแจ้งลาอัตโนมัติ: การอนุมัติถูกปิดอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก (ไม่ใช้ผู้อนุมัติในชีต Approvers)']);
+  }
 
   return findings;
 }
@@ -835,6 +840,29 @@ function toggleLeaveSystem() {
         '(แก้ได้ที่คีย์ leave_closed_message ในชีต Settings)');
   try {
     SpreadsheetApp.getUi().alert('สถานะระบบลา', summary, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (err) {
+    console.log(summary); // รันจาก editor ไม่มี UI
+  }
+}
+
+// สลับโหมดการอนุมัติ: เปิด = ใช้ผู้อนุมัติตามชีต Approvers ตามปกติ
+// ปิด = "แจ้งลาอัตโนมัติ" ยื่นแล้วบันทึกเป็นอนุมัติทันที แจ้งการ์ดเข้ากลุ่มหลัก ไม่ต้องเรียกผู้อนุมัติ
+function toggleLeaveApproval() {
+  const settings = getSettings_();
+  const nowEnabled = !isLeaveApprovalEnabled_(settings); // สลับจากสถานะปัจจุบัน
+  setSettingValue_('leave_approval_enabled', nowEnabled ? 'TRUE' : 'FALSE');
+  logResult_(new Date(), 'leave', 'ผู้ดูแล' + (nowEnabled ? 'เปิด' : 'ปิด') + 'การอนุมัติใบลา');
+
+  const summary =
+    'การอนุมัติใบลา: ' + (nowEnabled ? '🟢 เปิด (ใช้ผู้อนุมัติตามชีต Approvers)' : '🔵 ปิด — โหมดแจ้งลาอัตโนมัติ') + '\n\n' +
+    (nowEnabled
+      ? 'ใบลาใหม่จะส่งการ์ดให้ผู้อนุมัติตามปกติ'
+      : 'ใบลาใหม่จะบันทึกเป็น "อนุมัติ" ทันทีโดยไม่ต้องมีใครกดปุ่ม\n' +
+        'และแจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก + แจ้งผู้ยื่นกลับ\n' +
+        'ใบลาเดิมที่กำลังรออนุมัติอยู่ ยังกดปุ่มได้ตามปกติจนกว่าจะจบ\n' +
+        'ไม่ต้องมีคอนฟิกผู้อนุมัติในชีต Approvers ก็ยื่นลาได้ในโหมดนี้');
+  try {
+    SpreadsheetApp.getUi().alert('โหมดการอนุมัติใบลา', summary, SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (err) {
     console.log(summary); // รันจาก editor ไม่มี UI
   }

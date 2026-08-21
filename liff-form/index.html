@@ -119,6 +119,9 @@
   <!-- ===== ฟอร์มยื่นลา ===== -->
   <section id="view-form" class="hidden">
     <p id="leaveOffForm" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
+    <p id="approvalOffNote" class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4">
+      ℹ️ ระบบปิดการอนุมัติอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลัก ไม่ต้องรอใครกดอนุมัติ
+    </p>
     <header class="flex items-center gap-3 mb-5">
       <div class="w-11 h-11 rounded-full bg-primary-light text-primary flex items-center justify-center text-lg font-bold flex-none" id="userInitial">ก</div>
       <div class="min-w-0">
@@ -198,7 +201,7 @@
     options: { prefixes: [], groups: [], positions: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
     holidays: new Set(), today: '', leaveType: '', user: null, sending: false,
-    leaveEnabled: true, leaveClosedMessage: '',
+    leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
   };
 
   // ---------- เครื่องมือเล็กๆ ----------
@@ -295,6 +298,7 @@
       const session = await api('session');
       state.leaveEnabled = session.leaveEnabled !== false;
       state.leaveClosedMessage = session.leaveClosedMessage || '';
+      state.approvalEnabled = session.approvalEnabled !== false;
       if (session.registered) {
         state.user = session;
         await loadCalendar();
@@ -344,7 +348,7 @@
     $('btnRegNext').disabled = !hasGroups || !state.leaveEnabled;
   }
 
-  // แบนเนอร์ + ล็อกปุ่มเมื่อผู้ดูแลปิดระบบลา (ฝั่งเซิร์ฟเวอร์บล็อกซ้ำอีกชั้นเสมอ)
+  // แบนเนอร์ + ล็อกปุ่มเมื่อผู้ดูแลปิดระบบลา / ปิดการอนุมัติ (ฝั่งเซิร์ฟเวอร์บล็อกซ้ำอีกชั้นเสมอ)
   function refreshLeaveSwitch_() {
     const off = state.leaveEnabled === false;
     ['leaveOffReg', 'leaveOffForm'].forEach(id => {
@@ -352,6 +356,7 @@
       el.classList.toggle('hidden', !off);
       if (off) el.textContent = state.leaveClosedMessage || 'ระบบลาปิดรับคำขอชั่วคราว — หากเร่งด่วนติดต่อผู้ดูแลระบบ';
     });
+    $('approvalOffNote').classList.toggle('hidden', state.approvalEnabled !== false);
     $('btnRegNext').disabled = off || state.options.groups.length === 0;
     if (!state.sending) $('btnSubmit').disabled = off;
   }
@@ -509,7 +514,9 @@
         '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end)) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + result.workDays + ' วัน</span></div>' +
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
-        (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '') + '</div>';
+        (result.autoApproved
+          ? '<span class="block text-xs text-sky-700 mt-1">ระบบปิดการอนุมัติอยู่ — บันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลักแล้ว ไม่ต้องรอใครกดอนุมัติ</span>'
+          : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) + '</div>';
       show('success');
     } catch (submitErr) {
       err.textContent = submitErr.message;
