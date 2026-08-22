@@ -48,9 +48,14 @@
 <div class="max-w-lg mx-auto min-h-screen px-4 pt-6 pb-10">
 
   <!-- ===== กำลังโหลด ===== -->
-  <section id="view-loading" class="py-24 text-center text-slate-500">
-    <div class="w-8 h-8 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-    กำลังเปิดระบบลางาน…
+  <section id="view-loading" class="py-20 text-center">
+    <div class="w-16 h-16 rounded-full bg-primary text-white flex items-center justify-center mx-auto mb-4 shadow-sm">
+      <span class="text-sm font-bold tracking-wide">สสอ.</span>
+    </div>
+    <h1 class="text-lg font-bold">ระบบลางานออนไลน์</h1>
+    <p class="text-sm text-slate-500 mt-0.5">สำนักงานสาธารณสุขอำเภอสอง จังหวัดแพร่</p>
+    <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto mt-8"></div>
+    <p id="bootStatus" class="text-sm text-slate-500 mt-3">กำลังเชื่อมต่อ LINE…</p>
   </section>
 
   <!-- ===== ยังไม่ลงทะเบียน: กรอกข้อมูลตัวเอง ===== -->
@@ -235,6 +240,13 @@
     }, 30000);
   }
 
+  // อัปเดตข้อความสถานะในหน้า loading ตามขั้นตอนจริงของ boot — ช่วงที่โหลดนานที่สุดคือครั้งแรก
+  // ที่ต้องผ่านหน้า login ของ LINE การบอกว่ากำลังทำอะไรทำให้ผู้ใช้ไม่กังวลว่าหน้าค้าง
+  function setBootStatus_(text) {
+    const el = $('bootStatus');
+    if (el) el.textContent = text;
+  }
+
   function show(view) {
     ['loading', 'register', 'confirm', 'form', 'success', 'error'].forEach(v => {
       $('view-' + v).classList.toggle('hidden', v !== view);
@@ -357,9 +369,11 @@
     try {
       // withLoginOnExternalBrowser (ตามเอกสารทางการ) = browser ภายนอกที่ยังไม่ล็อกอิน LINE
       // ให้ init เด้งหน้า login ให้เองแล้ววนกลับมาหน้านี้ ไม่ต้องเรียก liff.login() เอง
+      setBootStatus_('กำลังเชื่อมต่อ LINE…');
       await liff.init({ liffId: CONFIG.LIFF_ID, withLoginOnExternalBrowser: true });
       // เปิดใช้หลังผ่านไปนาน (token ถูกเพิกถอนตั้งแต่ปิดหน้าครั้งก่อน) → ขอเซสชันใหม่เงียบๆ
       if (!liff.isLoggedIn()) { relogin_(); return; }
+      setBootStatus_('กำลังตรวจสอบการเข้าสู่ระบบ…');
       const session = await api('session');
       state.leaveEnabled = session.leaveEnabled !== false;
       state.leaveClosedMessage = session.leaveClosedMessage || '';
@@ -370,6 +384,7 @@
       state.leaveYear = session.leaveYear || '';
       if (session.registered) {
         state.user = session;
+        setBootStatus_('กำลังเปิดข้อมูลการลา…');
         await loadCalendar();
         showForm();
       } else {
