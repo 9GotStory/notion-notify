@@ -73,7 +73,7 @@
   <!-- สถานะกำลังโหลด/ผิดพลาด (ถูกย้ายเข้า viewList ตอน render) -->
   <div id="viewLoading" class="py-16 text-center text-slate-500">
     <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
-    กำลังเปิดตารางงาน…
+    กำลังโหลดตารางงาน…
   </div>
   <div id="viewError" class="hidden py-16 text-center">
     <div class="text-3xl mb-3">😟</div>
@@ -162,7 +162,18 @@
   function showStatus(which) {
     $('viewLoading').classList.toggle('hidden', which !== 'loading');
     $('viewError').classList.toggle('hidden', which !== 'error');
+    // ซ่อนรายการเดิมตอนโหลด/ผิดพลาด — กันเนื้อหาเดือนเก่าค้างปนกับสถานะใหม่ให้สับสน
+    $('viewList').classList.toggle('hidden', which !== 'none');
     if (which === 'none') $('viewList').innerHTML = '';
+  }
+
+  // สถานะปุ่มนำทาง: ปิดทุกปุ่มระหว่างโหลด (กันกดซ้อน) และปิดปุ่มที่ชนขอบเขตเดือนอยู่แล้ว
+  function updateNavState(loading) {
+    const atOldest = monthDiff(todayMonth(), state.month) <= MONTH_BACK;
+    const atNewest = monthDiff(todayMonth(), state.month) >= MONTH_FWD;
+    $('btnPrev').disabled = loading || atOldest;
+    $('btnNext').disabled = loading || atNewest;
+    $('btnToday').disabled = loading;
   }
 
   function itemCard(item) {
@@ -238,8 +249,7 @@
   async function loadMonth(month) {
     state.month = month;
     $('monthLabel').textContent = monthLabel(month);
-    $('btnPrev').disabled = monthDiff(todayMonth(), month) <= MONTH_BACK;
-    $('btnNext').disabled = monthDiff(todayMonth(), month) >= MONTH_FWD;
+    updateNavState(true); // ปุ่มทุกปุ่มหรี่ลงทันทีที่เริ่มโหลด — เห็นชัดว่าคำสั่งถูกรับแล้ว
     showStatus('loading');
     try {
       const data = await fetchMonth(month);
@@ -248,6 +258,8 @@
     } catch (err) {
       $('errorMessage').textContent = err.message || 'เกิดข้อผิดพลาด';
       showStatus('error');
+    } finally {
+      updateNavState(false);
     }
   }
 
@@ -274,6 +286,8 @@
   $('btnToday').addEventListener('click', function () { loadMonth(todayMonth()); });
   $('btnRetry').addEventListener('click', function () { location.replace(location.origin + location.pathname); });
   $('btnLogin').addEventListener('click', function () {
+    this.disabled = true;
+    this.textContent = 'กำลังเชื่อมต่อ LINE…';
     // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน
     if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
     if (liff.isLoggedIn()) liff.logout(); // token เก่าหมดอายุ → ล้างก่อนขอใหม่
