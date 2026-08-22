@@ -392,6 +392,14 @@ function itemSubFields_(item) {
   return fields;
 }
 
+// หัวข้อส่วนล่วงหน้า — เลือกคำตามระยะจริง: ถัดจากวันข้อความ 1 วันใช้ "วันพรุ่งนี้" (อ่านเข้าใจทันที)
+// ไกลกว่านั้นใช้ "ล่วงหน้า" เพราะ "วันพรุ่งนี้" จะผิดความหมายเมื่อ advance_notice_days ตั้งมากกว่า 1
+function advanceSectionTitle_(date, advanceDate) {
+  const nextDayStr = Utilities.formatDate(new Date(date.getTime() + 86400000), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const targetStr = Utilities.formatDate(advanceDate, 'Asia/Bangkok', 'yyyy-MM-dd');
+  return (nextDayStr === targetStr ? '🔭 วันพรุ่งนี้ · ' : '🔭 ล่วงหน้า · ') + thaiDateLabel_(advanceDate);
+}
+
 // แปลงงานหนึ่งรายการเป็นบล็อกบูลเล็ต (พร้อมฟิลด์ย่อยแบบย่อหน้า) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
 function textItemBlock_(item) {
   const lines = [`• ${itemTimeLabel_(item)} — ${item.title}`];
@@ -418,7 +426,7 @@ function buildTextMessage_(date, items, leaves, advance) {
       parts.push(`🏖️ ผู้ลา (${advance.leaves.length} คน)\n` +
         advance.leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
     }
-    sections.push(`🔭 ล่วงหน้า · ${thaiDateLabel_(advance.date)}\n\n${parts.join('\n\n')}`);
+    sections.push(advanceSectionTitle_(date, advance.date) + `\n\n${parts.join('\n\n')}`);
   }
 
   return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
@@ -531,7 +539,7 @@ function buildFlexBubble_(date, items, leaves, advance) {
   // (โครงย่อของเนื้อหาหลัก: หัวข้อหนาสีเขียว แล้วรายการงาน แล้วผู้ลาโดยใช้หัวข้อรองตัวเล็กกว่า)
   if (advance) {
     const advContents = [
-      { type: 'text', text: '🔭 ล่วงหน้า · ' + thaiDateLabel_(advance.date), size: 'sm', weight: 'bold', color: '#0F6E56' },
+      { type: 'text', text: advanceSectionTitle_(date, advance.date), size: 'sm', weight: 'bold', color: '#0F6E56' },
     ].concat(flexItemBoxes_(advance.items));
     if (advance.leaves.length) {
       if (advance.items.length) advContents.push({ type: 'separator', margin: 'lg' });
