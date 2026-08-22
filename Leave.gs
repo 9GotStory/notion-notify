@@ -1301,7 +1301,7 @@ function leaveFormalSuffix_(leave) {
   } else if (leave.workDays > 1) {
     parts.push(leave.workDays + ' วันทำการ');
   }
-  if (leave.returnLabel) parts.push('กลับทำการ ' + leave.returnLabel);
+  if (leave.returnLabel) parts.push('กลับทำงาน ' + leave.returnLabel);
   return parts.join(' ');
 }
 

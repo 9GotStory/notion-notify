@@ -529,8 +529,8 @@ function testLeaveDisplayEnrichment_() {
   assertEqual_(leaveFirstName_({ fullName: 'สมชาย ใจแข็ง' }, null), 'สมชาย');
   assertEqual_(leaveFirstName_({ fullName: 'นายสมศักดิ์ ใจดี' }, createTestRoster_()), 'สมศักดิ์');
   // ส่วนขยายท้ายแถว (ทางการแต่สั้น) + บรรทัดรายละเอียดเต็ม
-  assertEqual_(leaveFormalSuffix_(enriched), '3 วันทำการ กลับทำการ 25 ส.ค. 2569');
-  assertEqual_(leaveSummaryLabel_(enriched), 'ลาพักร้อน 3 วันทำการ กลับทำการ 25 ส.ค. 2569');
+  assertEqual_(leaveFormalSuffix_(enriched), '3 วันทำการ กลับทำงาน 25 ส.ค. 2569');
+  assertEqual_(leaveSummaryLabel_(enriched), 'ลาพักร้อน 3 วันทำการ กลับทำงาน 25 ส.ค. 2569');
 
   // ลาครึ่งวัน = ถ้อยคำทางการ "ครึ่งวันช่วงเช้า/บ่าย" ไม่มี dayNo/วันกลับ (จบในวันเดียว)
   const halfDay = enrichLeaveForDisplay_({
