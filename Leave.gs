@@ -996,13 +996,13 @@ function buildLeaveApprovalBubble_(leavePage) {
 /** การ์ด "แจ้งลา" สำหรับโหมดปิดการอนุมัติ — เหมือนการ์ดขออนุมัติแต่ไม่มีปุ่ม (เป็นการแจ้งเพื่อทราบ) */
 function buildLeaveNoticeBubble_(leavePage) {
   const bubble = buildLeaveApprovalBubble_(leavePage);
-  bubble.header.contents[0].text = 'แจ้งการลา (ไม่ต้องอนุมัติ)';
+  bubble.header.contents[0].text = 'แจ้งการลา';
   bubble.footer = {
     type: 'box',
     layout: 'vertical',
     paddingAll: '12px',
     contents: [
-      { type: 'text', text: 'ระบบปิดการอนุมัติอยู่ — บันทึกอัตโนมัติ ไม่ต้องกดอนุมัติ', size: 'xxs', color: '#6F7874', align: 'center', wrap: true },
+      { type: 'text', text: 'สำนักงานสาธารณสุขอำเภอสอง จังหวัดแพร่', size: 'xxs', color: '#6F7874', align: 'center', wrap: true },
     ],
   };
   return bubble;
@@ -1230,16 +1230,63 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
     throw new Error('ดึงใบลาจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' + response.getContentText());
   }
   const data = JSON.parse(response.getContentText());
+  const holidays = readHolidaySet_();
   return (data.results || [])
     .map(parseLeavePage_)
     // กรอง overlap ฝั่งโค้ดแทนฝาก semantics ของ date-range filter ไว้กับ Notion (ดูหมายเหตุใน getNotionItemsForDay_)
     .filter(leave => leave.start && leaveRangeOverlap_(leave.start, leave.end, todayStr))
-    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'th'));
+    // เก็บข้อมูลเชิงบริบทสำหรับสรุปเช้า: ลาครึ่งวัน / วันที่เท่าไหร่ของช่วง (นับวันทำการ) / กลับวันทำการถัดไป
+    .map(leave => enrichLeaveForDisplay_(leave, todayStr, holidays))
+    // เรียงตามกลุ่มงานก่อนชื่อ เพื่อให้คนหน่วยเดียวกันอยู่ใกล้กัน
+    .sort((a, b) => (a.groupName || '').localeCompare(b.groupName || '', 'th') ||
+      a.fullName.localeCompare(b.fullName, 'th'));
 }
 
-/** ป้ายแสดงผลในสรุปเช้า เช่น "นายสมศักดิ์ ใจดี (กลุ่มงานคลัง) — ลากิจ 20–22 ส.ค. 2569" */
+// หา "วันทำการถัดไป" ถัดจากวันที่กำหนด (ข้ามเสาร์-อาทิตย์และวันหยุด) — pure
+function nextWorkingDayStr_(afterStr, holidaySet) {
+  const holidays = holidaySet || new Set();
+  let cursor = new Date(afterStr + 'T00:00:00Z');
+  for (let i = 0; i < 30; i++) {
+    cursor = new Date(cursor.getTime() + 86400000);
+    const dateStr = Utilities.formatDate(cursor, 'UTC', 'yyyy-MM-dd');
+    if (!isWeekendDateStr_(dateStr) && !holidays.has(dateStr)) return dateStr;
+  }
+  return null; // กันเคสผิดปกติ (วันหยุดยาวเกิน 30 วันติดกัน) — ไม่แสดงวันกลับแทนการเดา
+}
+
+// เพิ่มข้อมูลเชิงบริบทให้ใบลาสำหรับแสดงในสรุปเช้า (mutate สำเนา ไม่แตะต้นทาง)
+function enrichLeaveForDisplay_(leave, todayStr, holidays) {
+  const enriched = Object.assign({}, leave);
+  if (enriched.workDays > 1) {
+    // นับวันทำการตั้งแต่วันเริ่มถึงวันนี้ (รวมวันนี้) = วันที่เท่าไหร่ของช่วง — เช้าส่งเฉพาะวันทำการ
+    // อยู่แล้ว จึงการันตีได้อย่างน้อย 1 เสมอ (clamp กันเคสข้อมูลเพี้ยน)
+    enriched.dayNo = Math.min(Math.max(countBusinessDays_(enriched.start, todayStr, holidays), 1), enriched.workDays);
+  }
+  if (enriched.end && enriched.end > todayStr) {
+    const returnStr = nextWorkingDayStr_(enriched.end, holidays);
+    if (returnStr) enriched.returnLabel = thaiShortDate_(returnStr);
+  }
+  return enriched;
+}
+
+/** ป้ายหลักของแถวผู้ลา เช่น "นายสมศักดิ์ ใจดี — ลากิจ (ครึ่งวันเช้า)" หรือ "— ลาพักร้อน (2/5)" */
 function leaveSummaryLabel_(leave) {
-  return leave.fullName +
-    (leave.groupName ? ' (' + leave.groupName + ')' : '') +
-    ' — ' + leave.leaveType + ' ' + leaveDateLabel_(leave.start, leave.end);
+  const badge = leaveBadge_(leave);
+  return leave.fullName + ' — ' + leave.leaveType + (badge ? ' (' + badge + ')' : '');
+}
+
+/** ป้ายย่อด้านขวา/ในวงเล็บ: ครึ่งวัน หรือ วันที่ x/y ของช่วง (เลือกอย่างเดียว ครึ่งวันมีอยู่แล้ว 1 วัน) */
+function leaveBadge_(leave) {
+  if (leave.period && leave.period !== 'เต็มวัน') return leave.period;
+  if (leave.dayNo && leave.workDays > 1) return leave.dayNo + '/' + leave.workDays;
+  return '';
+}
+
+/** บรรทัดรายละเอียดใต้ชื่อ: กลุ่มงาน · ช่วงวันที่ · กลับวันทำการถัดไป */
+function leaveDetailLabel_(leave) {
+  return [
+    leave.groupName,
+    leaveDateLabel_(leave.start, leave.end),
+    leave.returnLabel ? 'กลับ ' + leave.returnLabel : '',
+  ].filter(Boolean).join(' · ');
 }

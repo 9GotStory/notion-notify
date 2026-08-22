@@ -29,6 +29,7 @@ function runUnitTests() {
     testBuildLeaveWarnings_,
     testBuildUsageSummary_,
     testBuildLeaveNoticeBubble_,
+    testLeaveDisplayEnrichment_,
     testFindDuplicates_,
     testCountBusinessDays_,
     testLeaveRangeOverlap_,
@@ -428,10 +429,9 @@ function testLeaveApprovalSwitch_() {
 function testBuildLeaveNoticeBubble_() {
   const bubble = buildLeaveNoticeBubble_(createTestLeave_());
 
-  // การ์ดแจ้งลาต้องไม่มีปุ่มกดใน footer และบอกชัดว่าบันทึกอัตโนมัติ
-  assertEqual_(bubble.header.contents[0].text, 'แจ้งการลา (ไม่ต้องอนุมัติ)');
+  // การ์ดแจ้งลาต้องไม่มีปุ่มกดใดๆ (เป็นการแจ้งเพื่อทราบ)
+  assertEqual_(bubble.header.contents[0].text, 'แจ้งการลา');
   const footerText = JSON.stringify(bubble.footer);
-  assertContains_(footerText, 'บันทึกอัตโนมัติ');
   assertFalse_(footerText.indexOf('postback') !== -1);
   assertFalse_(footerText.indexOf('"button"') !== -1);
   // เนื้อหาใบลายังครบเหมือนการ์ดขออนุมัติ (ชื่อเต็มอยู่ใน header, รายละเอียดอยู่ใน body)
@@ -505,6 +505,41 @@ function testBuildUsageSummary_() {
   assertEqual_(summary['ลาคลอด'].used, 0); // ประเภทมีโควตาแต่ยังไม่เคยใช้ก็แสดง
   assertEqual_(summary['ลาคลอด'].quota, 90);
   assertEqual_(buildUsageSummary_(null), null); // ไม่มีข้อมูล = null
+}
+
+function testLeaveDisplayEnrichment_() {
+  // วันทำการถัดไป: จากศุกร์ 21 ส.ค. 2569 → ข้ามเสาร์-อาทิตย์ → จันทร์ 24 ส.ค.
+  assertEqual_(nextWorkingDayStr_('2026-08-21', new Set()), '2026-08-24');
+  // ข้ามวันหยุดราชการด้วย (จันทร์ 24 เป็นวันหยุด → อังคาร 25)
+  assertEqual_(nextWorkingDayStr_('2026-08-21', new Set(['2026-08-24'])), '2026-08-25');
+  // วันธรรมดาปกติ → วันถัดไปเลย
+  assertEqual_(nextWorkingDayStr_('2026-08-20', new Set()), '2026-08-21');
+
+  // enrich: ลาช่วง 20–24 ส.ค. (3 วันทำการ) วันนี้คือ 21 (ศุกร์ = วันทำการที่ 2) + กลับวันจันทร์
+  const enriched = enrichLeaveForDisplay_({
+    fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', leaveType: 'ลาพักร้อน',
+    start: '2026-08-20', end: '2026-08-24', period: 'เต็มวัน', workDays: 3,
+  }, '2026-08-21', new Set());
+  assertEqual_(enriched.dayNo, 2);
+  // ลาวันสุดท้ายคือจันทร์ 24 → กลับทำงานวันถัดไป อังคาร 25 ส.ค.
+  assertEqual_(enriched.returnLabel, '25 ส.ค. 2569');
+  assertEqual_(leaveBadge_(enriched), '2/3');
+  assertContains_(leaveDetailLabel_(enriched), 'กลับ 25 ส.ค. 2569');
+
+  // ลาครึ่งวัน = badge เป็นครึ่งวัน ไม่มี dayNo/วันกลับ (จบในวันเดียว)
+  const halfDay = enrichLeaveForDisplay_({
+    fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', leaveType: 'ลากิจ',
+    start: '2026-08-21', end: '2026-08-21', period: 'ครึ่งวันเช้า', workDays: 0.5,
+  }, '2026-08-21', new Set());
+  assertEqual_(leaveBadge_(halfDay), 'ครึ่งวันเช้า');
+  assertFalse_(halfDay.returnLabel ? true : false);
+
+  // วันสุดท้ายของช่วงลา (end == today) = ไม่แสดงวันกลับ
+  const lastDay = enrichLeaveForDisplay_({
+    start: '2026-08-20', end: '2026-08-21', workDays: 2, period: 'เต็มวัน',
+  }, '2026-08-21', new Set());
+  assertFalse_(lastDay.returnLabel ? true : false);
+  assertEqual_(leaveBadge_(lastDay), '2/2');
 }
 
 function testFindDuplicates_() {
@@ -657,11 +692,12 @@ function testTextMessageWithLeaves_() {
   const date = new Date('2026-08-20T08:00:00+07:00');
   const leave = createTestLeave_();
 
-  // มีทั้งงานและผู้ลา
+  // มีทั้งงานและผู้ลา (ฟอร์แมตใหม่: บรรทัดชื่อ+ป้าย แล้วตามด้วยบรรทัดรายละเอียดย่อหน้า 3 ช่องแบบเดียวกับงาน)
   const both = buildLineMessage_(date, [createTestItem_()], [leave], 'text');
   assertContains_(both.text, 'ประชุมทีม');
   assertContains_(both.text, 'ผู้ลาวันนี้ (1 คน)');
-  assertContains_(both.text, 'นายสมศักดิ์ ใจดี (กลุ่มงานคลังสินค้า) — ลากิจ 20–21 ส.ค. 2569');
+  assertContains_(both.text, 'นายสมศักดิ์ ใจดี — ลากิจ');
+  assertContains_(both.text, '   กลุ่มงานคลังสินค้า · 20–21 ส.ค. 2569');
 
   // ไม่มีงานเลยแต่มีผู้ลา → ยังส่งข้อความได้
   const leaveOnly = buildLineMessage_(date, [], [leave], 'text');
