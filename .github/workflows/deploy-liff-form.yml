@@ -53,6 +53,8 @@ jobs:
           fi
           mkdir -p site/liff-form
           cp liff-form/index.html site/liff-form/index.html
+          # ตราหน่วยงานสำหรับหน้า loading — คัดลอกเฉพาะเมื่อมีไฟล์ (ไม่มีก็ไม่พัง หน้าเว็บ fallback เป็นตรา "สสอ.")
+          if [ -f liff-form/logo.png ]; then cp liff-form/logo.png site/liff-form/logo.png; fi
           # ดาวน์โหลด LIFF SDK มาเสิร์ฟ same-origin — เครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อ
           # ไป static.line-scdn.net เหมือนที่เคยเจอกับ cdn.tailwindcss.com (ตัว runner ของ GitHub เข้าถึงได้ปกติ)
           # ปักเวอร์ชันเดียว (แทน edge/2 ล่าสุดอัตโนมัติ) เพื่อให้พฤติกรรม login/token นิ่งระยะยาว

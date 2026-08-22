@@ -49,7 +49,12 @@
 
   <!-- ===== กำลังโหลด ===== -->
   <section id="view-loading" class="py-20 text-center">
-    <div class="w-16 h-16 rounded-full bg-primary text-white flex items-center justify-center mx-auto mb-4 shadow-sm">
+    <!-- ตราหน่วยงาน: ใส่ไฟล์ liff-form/logo.png ได้เลย — ถ้ายังไม่มีไฟล์ วนกลับไปใช้ตรา "สสอ." อัตโนมัติ -->
+    <img src="./logo.png" alt="ตราสัญลักษณ์สำนักงานสาธารณสุขอำเภอสอง"
+         class="w-16 h-16 mx-auto mb-4 object-contain"
+         onerror="this.style.display='none'; document.getElementById('logoFallback').style.display='flex';">
+    <div id="logoFallback" style="display:none"
+         class="w-16 h-16 rounded-full bg-primary text-white items-center justify-center mx-auto mb-4 shadow-sm">
       <span class="text-sm font-bold tracking-wide">สสอ.</span>
     </div>
     <h1 class="text-lg font-bold">ระบบลางานออนไลน์</h1>
