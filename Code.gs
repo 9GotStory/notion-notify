@@ -172,15 +172,18 @@ function checkAndSendNotification() {
     const items = getNotionItemsForDay_(now, settings.notion_database_id);
     // ส่วนผู้ลาวันนี้ — ถ้ายังไม่ได้ตั้งค่าระบบลา จะคืน [] พร้อม log เอง ไม่กระทบการส่งเช้าหลัก
     const leaves = getApprovedLeavesForDay_(now, settings.leave_database_id);
+    // ส่วนล่วงหน้า (พรุ่งนี้ หรือ N วันถัดไปตาม advance_notice_days) — รวมอยู่ในข้อความเดียวกับของวันนี้
+    // เพราะโควตา LINE นับตามจำนวนผู้รับต่อข้อความ การรวมสองวันไว้ด้วยกันไม่เพิ่มโควตาแม้แต่ข้อความเดียว
+    const advance = collectAdvanceNotice_(now, settings);
 
-    if (items.length === 0 && leaves.length === 0) {
-      // ไม่มีงานและไม่มีผู้ลา -> ไม่ส่งข้อความเข้ากลุ่มเลย แต่ยังบันทึก log ไว้เป็นหลักฐานว่าเช็คแล้วจริง
-      logResult_(now, 'skip', 'ไม่มีงาน/ผู้ลาในระบบวันนี้ — ไม่ส่งข้อความ');
+    if (items.length === 0 && leaves.length === 0 && !advance) {
+      // ไม่มีงานและไม่มีผู้ลา ทั้งวันนี้และวันล่วงหน้า -> ไม่ส่งข้อความเข้ากลุ่มเลย แต่ยังบันทึก log ไว้เป็นหลักฐานว่าเช็คแล้วจริง
+      logResult_(now, 'skip', 'ไม่มีงาน/ผู้ลาในระบบทั้งวันนี้และวันล่วงหน้า — ไม่ส่งข้อความ');
       props.setProperty('LAST_CHECKED_DATE', todayStr);
       return;
     }
 
-    const messageObj = buildLineMessage_(now, items, leaves, settings.message_format);
+    const messageObj = buildLineMessage_(now, items, leaves, settings.message_format, advance);
     sendLineMessage_(settings.line_group_id, messageObj);
 
     props.setProperty('LAST_CHECKED_DATE', todayStr);
@@ -303,6 +306,18 @@ function getNotionItemsForDay_(date, databaseId) {
   // ในข้อมูลตอนตรวจสอบ ถ้าเจอว่างานหลายวันหายไปจากการแจ้งเตือนวันถัดๆ ไป ให้บอกแล้วจะปรับ filter เพิ่ม
 }
 
+// ดึงข้อมูลส่วน "ล่วงหน้า" ตามค่า advance_notice_days ใน Settings (1–7, เว้นว่าง/ค่าอื่น = ปิด)
+// คืน {date, items, leaves} เมื่อวันเป้าหมายมีงานหรือผู้ลาอย่างน้อยหนึ่งอย่าง ถ้าวันเป้าหมายว่างเปล่าคืน null
+// (กลายเป็น null เองในวันศุกร์ที่มองไปเสาร์-อาทิตย์ เพราะไม่มีงาน/ผู้ลาในวันหยุด)
+function collectAdvanceNotice_(now, settings) {
+  const n = parseInt(String(settings.advance_notice_days || '').trim(), 10);
+  if (!(n >= 1 && n <= 7)) return null;
+  const targetDate = new Date(now.getTime() + n * 86400000);
+  const items = getNotionItemsForDay_(targetDate, settings.notion_database_id);
+  const leaves = getApprovedLeavesForDay_(targetDate, settings.leave_database_id);
+  return items.length || leaves.length ? { date: targetDate, items: items, leaves: leaves } : null;
+}
+
 function parseNotionPage_(page) {
   const props = page.properties || {};
   const dateProp = (props[PROPS_NOTION.date] && props[PROPS_NOTION.date].date) || null;
@@ -347,21 +362,23 @@ function itemTimeLabel_(item) {
 
 // ---------- จัดข้อความ ----------
 
-// เรียกเมื่อ items.length > 0 หรือ leaves.length > 0 (อย่างน้อยหนึ่งด้าน — ผู้เรียกเป็นคนกรองกรณีว่างทั้งคู่ไปแล้ว)
+// เรียกเมื่อ items.length > 0 หรือ leaves.length > 0 หรือ advance ไม่เป็น null (ผู้เรียกเป็นคนกรองกรณีว่างทั้งหมดไปแล้ว)
 // message_format ในชีต Settings เลือกได้ 'text' (ค่าเริ่มต้นถ้าเว้นว่างหรือใส่ค่าอื่น) หรือ 'flex'
 // leaves คือใบลาที่อนุมัติแล้วและคร่อมวันนี้ (จาก getApprovedLeavesForDay_ ใน Leave.gs)
-function buildLineMessage_(date, items, leaves, format) {
+// advance (ไม่บังคับ) คือข้อมูลวันล่วงหน้าจาก collectAdvanceNotice_ — ส่งมาเมื่อไรจะต่อท้ายเป็นอีกส่วน
+function buildLineMessage_(date, items, leaves, format, advance) {
   if (String(format).trim().toLowerCase() === 'flex') {
     const dateLabel = thaiDateLabel_(date);
     let altText = `📅 ปฏิทินงานวันที่ ${dateLabel} (${items.length} รายการ)`;
     if (leaves.length) altText += ` — ผู้ลา ${leaves.length} คน`;
+    if (advance) altText += ` — ล่วงหน้า ${advance.items.length + advance.leaves.length} รายการ`;
     return {
       type: 'flex',
       altText: altText, // ข้อความสำรองตอนแจ้งเตือน/เครื่องที่ไม่รองรับ Flex
-      contents: buildFlexBubble_(date, items, leaves),
+      contents: buildFlexBubble_(date, items, leaves, advance),
     };
   }
-  return { type: 'text', text: buildTextMessage_(date, items, leaves) };
+  return { type: 'text', text: buildTextMessage_(date, items, leaves, advance) };
 }
 
 // รายละเอียดย่อย (ผู้รับผิดชอบ/สถานที่/รายละเอียด/หมายเหตุ) คืนเป็น {label, value} เฉพาะฟิลด์ที่มีค่าเท่านั้น
@@ -375,39 +392,43 @@ function itemSubFields_(item) {
   return fields;
 }
 
-function buildTextMessage_(date, items, leaves) {
+// แปลงงานหนึ่งรายการเป็นบล็อกบูลเล็ต (พร้อมฟิลด์ย่อยแบบย่อหน้า) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
+function textItemBlock_(item) {
+  const lines = [`• ${itemTimeLabel_(item)} — ${item.title}`];
+  itemSubFields_(item).forEach(f => lines.push(`   ${f.label}: ${f.value}`));
+  return lines.join('\n');
+}
+
+function buildTextMessage_(date, items, leaves, advance) {
   const dateLabel = thaiDateLabel_(date);
   const sections = [];
 
-  if (items.length) {
-    const blocks = items.map(item => {
-      const lines = [`• ${itemTimeLabel_(item)} — ${item.title}`];
-      itemSubFields_(item).forEach(f => lines.push(`   ${f.label}: ${f.value}`));
-      return lines.join('\n');
-    });
-    sections.push(blocks.join('\n\n'));
-  }
+  if (items.length) sections.push(items.map(textItemBlock_).join('\n\n'));
 
   if (leaves && leaves.length) {
     sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` +
       leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
   }
 
+  // ส่วนล่วงหน้า: งาน+ผู้ลาของอีก N วันถัดไป — มีหัวข้อกำกับวันเป้าหมายชัดๆ กันสับสนกับของวันนี้
+  if (advance) {
+    const parts = [];
+    if (advance.items.length) parts.push(advance.items.map(textItemBlock_).join('\n\n'));
+    if (advance.leaves.length) {
+      parts.push(`🏖️ ผู้ลา (${advance.leaves.length} คน)\n` +
+        advance.leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
+    }
+    sections.push(`🔭 ล่วงหน้า · ${thaiDateLabel_(advance.date)}\n\n${parts.join('\n\n')}`);
+  }
+
   return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
 }
 
-// โครงสร้าง Flex Message ("bubble") ตามสเปกของ LINE Messaging API
-// สไตล์ทางการ: header สีตามวัน (หัวจดหมาย) + เส้นคาดเทากลาง + รายการงาน (label/value แยกกล่องแบบเดียวกับแถวเวลา
-// เพื่อให้ label เข้มขึ้นได้แบบชัวร์ว่า render ถูก แทนการลองใช้ span ผสมสไตล์ในบรรทัดเดียวที่ยังไม่ได้ทดสอบจริง)
-// + หัวข้อผู้ลาวันนี้ (ถ้ามี) + footer ชื่อหน่วยงาน
-// items อาจว่างได้ในวันที่มีแต่ผู้ลา — โครงการ์ดยังเหมือนเดิม แค่ไม่มีกล่องรายการงาน
-function buildFlexBubble_(date, items, leaves) {
-  const dateLabel = thaiDateLabel_(date);
-  const theme = dayThemeFor_(date);
-
-  const itemBoxes = [];
+// กล่องรายการงาน (เวลาสีเขียวหนา + ชื่องาน + ฟิลด์ย่อย) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
+function flexItemBoxes_(items) {
+  const boxes = [];
   items.forEach((item, i) => {
-    if (i > 0) itemBoxes.push({ type: 'separator', margin: 'lg' });
+    if (i > 0) boxes.push({ type: 'separator', margin: 'lg' });
 
     const itemContents = [
       {
@@ -449,8 +470,39 @@ function buildFlexBubble_(date, items, leaves) {
       });
     });
 
-    itemBoxes.push({ type: 'box', layout: 'vertical', margin: 'md', contents: itemContents });
+    boxes.push({ type: 'box', layout: 'vertical', margin: 'md', contents: itemContents });
   });
+  return boxes;
+}
+
+// แถวผู้ลา: ชื่อเฉพาะ (หนา) แล้วตามด้วยบรรทัดรายละเอียดถ้อยคำทางการ — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
+function flexLeaveRows_(leaves) {
+  const rows = [];
+  leaves.forEach((leave, i) => {
+    if (i > 0) rows.push({ type: 'separator', margin: 'sm' });
+    rows.push({
+      type: 'box',
+      layout: 'vertical',
+      margin: 'md',
+      contents: [
+        { type: 'text', text: leave.firstName || leave.fullName, size: 'sm', weight: 'bold', color: '#333333', wrap: true },
+        { type: 'text', text: leaveSummaryLabel_(leave), size: 'xs', color: '#717875', wrap: true, margin: 'xs' },
+      ],
+    });
+  });
+  return rows;
+}
+
+// โครงสร้าง Flex Message ("bubble") ตามสเปกของ LINE Messaging API
+// สไตล์ทางการ: header สีตามวัน (หัวจดหมาย) + เส้นคาดเทากลาง + รายการงาน (label/value แยกกล่องแบบเดียวกับแถวเวลา
+// เพื่อให้ label เข้มขึ้นได้แบบชัวร์ว่า render ถูก แทนการลองใช้ span ผสมสไตล์ในบรรทัดเดียวที่ยังไม่ได้ทดสอบจริง)
+// + หัวข้อผู้ลาวันนี้ (ถ้ามี) + footer ชื่อหน่วยงาน
+// items อาจว่างได้ในวันที่มีแต่ผู้ลา — โครงการ์ดยังเหมือนเดิม แค่ไม่มีกล่องรายการงาน
+function buildFlexBubble_(date, items, leaves, advance) {
+  const dateLabel = thaiDateLabel_(date);
+  const theme = dayThemeFor_(date);
+
+  const itemBoxes = flexItemBoxes_(items);
 
   const bodyContents = [
     // เส้นคาดบางๆ คั่นระหว่าง header กับเนื้อหา ใช้ filler เป็น content ของกล่อง (กล่องว่างเปล่าอาจไม่ผ่าน validation)
@@ -463,22 +515,6 @@ function buildFlexBubble_(date, items, leaves) {
   }
 
   if (leaves && leaves.length) {
-    // แถวผู้ลา: ชื่อเฉพาะ (หนา) แล้วตามด้วยบรรทัดรายละเอียดถ้อยคำทางการ (ประเภท + วันที่/ครึ่งวัน + กลับทำการ)
-    // ให้รายละเอียด wrap ใน element ของตัวเอง ไม่ปนกับชื่อ — อ่านเป็นระเบียบแม่ข้อความยาว
-    const leaveRows = [];
-    leaves.forEach((leave, i) => {
-      if (i > 0) leaveRows.push({ type: 'separator', margin: 'sm' });
-      leaveRows.push({
-        type: 'box',
-        layout: 'vertical',
-        margin: 'md',
-        contents: [
-          { type: 'text', text: leave.firstName || leave.fullName, size: 'sm', weight: 'bold', color: '#333333', wrap: true },
-          { type: 'text', text: leaveSummaryLabel_(leave), size: 'xs', color: '#717875', wrap: true, margin: 'xs' },
-        ],
-      });
-    });
-
     // เมื่อมีรายการงานอยู่ก่อน คั่นด้วย separator เต็มความกว้างการ์ด (แบบเดียวกับเส้นคาดใต้ header)
     if (itemBoxes.length) bodyContents.push({ type: 'separator' });
     bodyContents.push({
@@ -487,8 +523,23 @@ function buildFlexBubble_(date, items, leaves) {
       paddingAll: '16px',
       contents: [
         { type: 'text', text: '🏖️ ผู้ลาวันนี้ (' + leaves.length + ' คน)', size: 'sm', weight: 'bold', color: '#0F6E56' },
-      ].concat(leaveRows),
+      ].concat(flexLeaveRows_(leaves)),
     });
+  }
+
+  // ส่วนล่วงหน้า: งาน+ผู้ลาของอีก N วันถัดไป อยู่ท้ายการ์ด — หัวข้อกำกับวันเป้าหมายชัดๆ กันสับสนกับของวันนี้
+  // (โครงย่อของเนื้อหาหลัก: หัวข้อหนาสีเขียว แล้วรายการงาน แล้วผู้ลาโดยใช้หัวข้อรองตัวเล็กกว่า)
+  if (advance) {
+    const advContents = [
+      { type: 'text', text: '🔭 ล่วงหน้า · ' + thaiDateLabel_(advance.date), size: 'sm', weight: 'bold', color: '#0F6E56' },
+    ].concat(flexItemBoxes_(advance.items));
+    if (advance.leaves.length) {
+      if (advance.items.length) advContents.push({ type: 'separator', margin: 'lg' });
+      advContents.push({ type: 'text', text: '🏖️ ผู้ลา (' + advance.leaves.length + ' คน)', size: 'xs', weight: 'bold', color: '#717875', margin: 'md' });
+      flexLeaveRows_(advance.leaves).forEach(row => advContents.push(row));
+    }
+    bodyContents.push({ type: 'separator' });
+    bodyContents.push({ type: 'box', layout: 'vertical', paddingAll: '16px', contents: advContents });
   }
 
   return {
@@ -659,6 +710,7 @@ function setupSheet() {
     ['notion_database_id', 'your_notion_database_id', 'Database ID ของ "ปฏิทินการปฏิบัติงาน" ใน Notion'],
     ['line_group_id', '', 'เติมอัตโนมัติเมื่อบอทเข้ากลุ่ม LINE และมีคนพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)'],
     ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
+    ['advance_notice_days', '1', 'แสดงส่วน "ล่วงหน้า" (งาน+ผู้ลาของ N วันถัดไป) ต่อท้ายข้อความเช้า: ใส่ 1-7 (เว้นว่าง = ปิด) — รวมในข้อความเดียวกับของวันนี้ จึงไม่เพิ่มโควตาข้อความ LINE'],
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
     ['leave_system_enabled', 'TRUE', 'สวิตช์ระบบลา: FALSE = ปิดรับลงทะเบียน/ยื่นลาใหม่ (ใช้เมนู "เปิด/ปิดระบบลา" สลับให้ได้) — ค่าอื่นใด/แถวหาย = เปิด'],
     ['leave_approval_enabled', 'TRUE', 'โหมดการอนุมัติ: FALSE = แจ้งลาอัตโนมัติ (บันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก ไม่ต้องมีผู้อนุมัติ) — ใช้เมนู "เปิด/ปิดการอนุมัติใบลา" สลับได้'],
@@ -934,11 +986,12 @@ function testSendNow() {
     const now = new Date();
     const items = getNotionItemsForDay_(now, settings.notion_database_id);
     const leaves = getApprovedLeavesForDay_(now, settings.leave_database_id);
+    const advance = collectAdvanceNotice_(now, settings);
     // ปุ่มทดสอบนี้ส่งข้อความเสมอแม้วันนี้ไม่มีงาน/ผู้ลา เพื่อยืนยันว่าต่อ LINE สำเร็จจริง
-    // ต่างจากตอนรันจริงตอนเช้า ซึ่งถ้าไม่มีงานและไม่มีผู้ลาเลยจะไม่ส่งข้อความ
-    const messageObj = items.length === 0 && leaves.length === 0
+    // ต่างจากตอนรันจริงตอนเช้า ซึ่งถ้าไม่มีงาน ไม่มีผู้ลา และไม่มีส่วนล่วงหน้าเลยจะไม่ส่งข้อความ
+    const messageObj = items.length === 0 && leaves.length === 0 && !advance
       ? { type: 'text', text: '🧪 ข้อความทดสอบ — เชื่อมต่อ LINE และ Notion สำเร็จ\n\n(วันนี้ไม่มีงานในระบบ ถ้าเป็นการรันจริงตอนเช้า ระบบจะไม่ส่งข้อความในกรณีนี้)' }
-      : buildLineMessage_(now, items, leaves, settings.message_format);
+      : buildLineMessage_(now, items, leaves, settings.message_format, advance);
     sendLineMessage_(settings.line_group_id, messageObj);
     logResult_(now, 'success (manual test)', messagePreview_(messageObj).substring(0, 300));
     SpreadsheetApp.getUi().alert('ส่งข้อความทดสอบแล้ว ลองเช็คในกลุ่ม LINE');

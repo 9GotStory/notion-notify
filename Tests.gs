@@ -40,6 +40,7 @@ function runUnitTests() {
     testBuildLeaveApprovalBubble_,
     testTextMessageWithLeaves_,
     testFlexMessageWithLeaves_,
+    testAdvanceNoticeSection_,
   ];
 
   const failures = [];
@@ -735,6 +736,48 @@ function testFlexMessageWithLeaves_() {
   const bothBody = both.contents.body.contents;
   assertEqual_(bothBody.length, 4); // [เส้นคาด, กล่องงาน, separator, กล่องผู้ลา]
   assertEqual_(bothBody[2].type, 'separator');
+}
+
+// ส่วน "ล่วงหน้า" ที่ต่อท้ายข้อความเช้า (advance_notice_days ใน Settings)
+function testAdvanceNoticeSection_() {
+  const date = new Date('2026-08-20T08:00:00+07:00'); // พฤหัสบดี 20 ส.ค. 2569
+  const leave = enrichLeaveForDisplay_(createTestLeave_(), '2026-08-20', new Set());
+  const advance = {
+    date: new Date('2026-08-21T08:00:00+07:00'), // ศุกร์ 21 ส.ค. 2569
+    items: [createTestItem_()],
+    leaves: [enrichLeaveForDisplay_(createTestLeave_(), '2026-08-21', new Set())],
+  };
+
+  // text: ส่วนของวันนี้ครบตามเดิม + ส่วนล่วงหน้าแยกหัวข้อ มีวันเป้าหมายกำกับชัดเจน
+  const both = buildLineMessage_(date, [createTestItem_()], [leave], 'text', advance);
+  assertContains_(both.text, 'ผู้ลาวันนี้ (1 คน)');
+  assertContains_(both.text, '🔭 ล่วงหน้า · ศุกร์ 21 สิงหาคม 2569');
+  assertContains_(both.text, 'ผู้ลา (1 คน)');
+  assertEqual_(both.text.split('ประชุมทีม').length - 1, 2); // งานเดียวกันโผล่ทั้งวันนี้และล่วงหน้า
+
+  // text: วันนี้ว่างเปล่าแต่วันล่วงหน้ามีข้อมูล → ยังส่งได้ มีแค่ส่วนล่วงหน้า
+  const advOnly = buildLineMessage_(date, [], [], 'text', advance);
+  assertContains_(advOnly.text, '🔭 ล่วงหน้า · ศุกร์ 21 สิงหาคม 2569');
+  assertFalse_(advOnly.text.indexOf('ผู้ลาวันนี้') !== -1);
+
+  // ไม่ส่ง advance มา → ไม่มีส่วนล่วงหน้า (พฤติกรรมเดิมก่อนมีฟีเจอร์นี้)
+  const noAdvance = buildLineMessage_(date, [createTestItem_()], [], 'text');
+  assertFalse_(noAdvance.text.indexOf('ล่วงหน้า') !== -1);
+
+  // flex: ส่วนล่วงหน้าอยู่ท้ายการ์ด [เส้นคาด, กล่องงาน, separator, กล่องผู้ลา, separator, กล่องล่วงหน้า]
+  const flex = buildLineMessage_(date, [createTestItem_()], [leave], 'flex', advance);
+  assertContains_(flex.altText, 'ล่วงหน้า 2 รายการ');
+  const body = flex.contents.body.contents;
+  assertEqual_(body.length, 6);
+  assertContains_(JSON.stringify(body[5]), '🔭 ล่วงหน้า · ศุกร์ 21 สิงหาคม 2569');
+  assertContains_(JSON.stringify(body[5]), 'ประชุมทีม');
+  assertContains_(JSON.stringify(body[5]), 'ลากิจ');
+
+  // ค่า advance_notice_days นอกช่วง 1-7 (รวมเว้นว่าง) → collectAdvanceNotice_ คืน null โดยไม่ต้องยิง Notion
+  const now = new Date();
+  [undefined, '', '0', '8', 'abc'].forEach(v => {
+    assertEqual_(collectAdvanceNotice_(now, { advance_notice_days: v }), null, 'ค่า ' + v + ' ต้องปิดส่วนล่วงหน้า');
+  });
 }
 
 function assertTrue_(condition, message) {
