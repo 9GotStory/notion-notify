@@ -1231,14 +1231,16 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
   }
   const data = JSON.parse(response.getContentText());
   const holidays = readHolidaySet_();
+  let roster = null;
+  try { roster = readStaffRoster_(); } catch (err) { /* ไม่มีชีต Staff → ตัดชื่อจากชื่อเต็มแทน */ }
   return (data.results || [])
     .map(parseLeavePage_)
     // กรอง overlap ฝั่งโค้ดแทนฝาก semantics ของ date-range filter ไว้กับ Notion (ดูหมายเหตุใน getNotionItemsForDay_)
     .filter(leave => leave.start && leaveRangeOverlap_(leave.start, leave.end, todayStr))
-    // เก็บข้อมูลเชิงบริบทสำหรับสรุปเช้า: ลาครึ่งวัน / วันที่เท่าไหร่ของช่วง (นับวันทำการ) / กลับวันทำการถัดไป
-    .map(leave => enrichLeaveForDisplay_(leave, todayStr, holidays))
+    // เก็บข้อมูลเชิงบริบทสำหรับสรุปเช้า: ชื่อเฉพาะ / ครึ่งวัน / วันที่เท่าไหร่ของช่วง / กลับวันทำการถัดไป
+    .map(leave => enrichLeaveForDisplay_(leave, todayStr, holidays, roster))
     // เรียงตามชื่อ (ส่วนแสดงผลเป็นบรรทัดเดียวต่อคน ไม่มีกลุ่มงาน จึงเรียงชื่อให้อ่านไล่ง่าย)
-    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'th'));
+    .sort((a, b) => (a.firstName || a.fullName).localeCompare(b.firstName || b.fullName, 'th'));
 }
 
 // หา "วันทำการถัดไป" ถัดจากวันที่กำหนด (ข้ามเสาร์-อาทิตย์และวันหยุด) — pure
@@ -1254,8 +1256,9 @@ function nextWorkingDayStr_(afterStr, holidaySet) {
 }
 
 // เพิ่มข้อมูลเชิงบริบทให้ใบลาสำหรับแสดงในสรุปเช้า (mutate สำเนา ไม่แตะต้นทาง)
-function enrichLeaveForDisplay_(leave, todayStr, holidays) {
+function enrichLeaveForDisplay_(leave, todayStr, holidays, roster) {
   const enriched = Object.assign({}, leave);
+  enriched.firstName = leaveFirstName_(leave, roster);
   if (enriched.workDays > 1) {
     // นับวันทำการตั้งแต่วันเริ่มถึงวันนี้ (รวมวันนี้) = วันที่เท่าไหร่ของช่วง — เช้าส่งเฉพาะวันทำการ
     // อยู่แล้ว จึงการันตีได้อย่างน้อย 1 เสมอ (clamp กันเคสข้อมูลเพี้ยน)
@@ -1263,8 +1266,7 @@ function enrichLeaveForDisplay_(leave, todayStr, holidays) {
   }
   if (enriched.end && enriched.end > todayStr) {
     const returnStr = nextWorkingDayStr_(enriched.end, holidays);
-    // แบบสั้นไม่รวมปี เพื่อให้แถวผู้ลาเป็นบรรทัดเดียวสั้นๆ ไม่ต้อง wrap
-    if (returnStr) enriched.returnLabel = thaiShortDateNoYear_(returnStr);
+    if (returnStr) enriched.returnLabel = thaiShortDate_(returnStr); // แบบเต็มพร้อมปี พ.ศ. — ถ้อยคำทางการ
   }
   return enriched;
 }
@@ -1275,22 +1277,41 @@ function thaiShortDateNoYear_(dateStr) {
   return parts[2] + ' ' + THAI_MONTH_SHORT[parts[1] - 1];
 }
 
-/** แถวผู้ลาแบบกระชับบรรทัดเดียว เช่น
- *  "นายสมศักดิ์ ใจดี — ลาพักร้อน (2/5 · กลับ 27 ส.ค.)"
- *  "นางสาวสมหญิง ใจงาม — ลากิจ (ครึ่งวันบ่าย)" */
-function leaveSummaryLabel_(leave) {
-  const paren = leaveParenLabel_(leave);
-  return leave.fullName + ' — ' + leave.leaveType + (paren ? ' (' + paren + ')' : '');
+/** ชื่อเฉพาะสำหรับสรุปเช้า (ไม่มีคำนำหน้า/นามสกุล) — ดึงจากชีต Staff ด้วย userId ให้แม่น
+ *  ถ้าหาไม่ได้ (ไม่มี roster/ไม่ผูกบัญชี) ตัดจากชื่อเต็มแบบทนต่อคำนำหน้าทั่วไป */
+function leaveFirstName_(leave, roster) {
+  const staff = roster ? findStaffByUserId_(roster, leave.submitterUserId) : null;
+  if (staff && staff.firstName) return staff.firstName;
+  // Fallback ตัดจากชื่อเต็ม: ภาษาไทยนิยมเขียนคำนำหน้าติดกับชื่อ ("นายสมศักดิ์" คำเดียว)
+  // จึงต้องตัดด้วย startsWith เรียงคำยาวก่อนกันสับสน (นางสาว ก่อน นาง) — ใช้เฉพาะกรณี
+  // ใบลาเก่าที่ไม่มี userId ผูกกับชีต Staff เท่านั้น เพราะเส้นทางหลักอ่านชื่อจาก Staff ตรงๆ
+  const tokens = String(leave.fullName || '').trim().split(/\s+/);
+  const prefixes = ['แพทย์หญิง', 'นางสาว', 'นาย', 'นาง', 'ดร.', 'พญ.', 'หมอ'];
+  let first = tokens[0] || '';
+  for (let i = 0; i < prefixes.length; i++) {
+    const p = prefixes[i];
+    if (first === p) return tokens[1] || first; // คำนำหน้าคั่นวรรคแยก ("นาย สมศักดิ์")
+    if (first.length > p.length && first.indexOf(p) === 0) {
+      return first.substring(p.length); // คำนำหน้าเกาะชื่อ ("นายสมศักดิ์")
+    }
+  }
+  return first;
 }
 
-/** ป้ายในวงเล็บ (รวมทุกอย่างที่มีเป็นชิ้นเดียวสั้นๆ): ครึ่งวัน หรือ วันที่ x/y ของช่วง + กลับวันทำการถัดไป */
-function leaveParenLabel_(leave) {
+/** ส่วนขยายทางการท้ายแถว: "วันที่ 2 จาก 5 วันทำการ" / "ครึ่งวันช่วงบ่าย" / "กลับทำการ 27 ส.ค. 2569" */
+function leaveFormalSuffix_(leave) {
   const parts = [];
-  if (leave.period && leave.period !== 'เต็มวัน') {
-    parts.push(leave.period);
+  if (leave.period === 'ครึ่งวันเช้า' || leave.period === 'ครึ่งวันบ่าย') {
+    parts.push('ครึ่งวันช่วง' + (leave.period === 'ครึ่งวันเช้า' ? 'เช้า' : 'บ่าย'));
   } else if (leave.dayNo && leave.workDays > 1) {
-    parts.push(leave.dayNo + '/' + leave.workDays);
+    parts.push('วันที่ ' + leave.dayNo + ' จาก ' + leave.workDays + ' วันทำการ');
   }
-  if (leave.returnLabel) parts.push('กลับ ' + leave.returnLabel);
-  return parts.join(' · ');
+  if (leave.returnLabel) parts.push('กลับทำการ ' + leave.returnLabel);
+  return parts.join(' ');
+}
+
+/** บรรทัดรายละเอียดของผู้ลา = ประเภท + ส่วนขยายทางการ เช่น "ลาพักร้อน วันที่ 2 จาก 5 วันทำการ กลับทำการ 27 ส.ค. 2569" */
+function leaveSummaryLabel_(leave) {
+  const suffix = leaveFormalSuffix_(leave);
+  return leave.leaveType + (suffix ? ' ' + suffix : '');
 }

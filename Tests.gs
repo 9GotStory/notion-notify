@@ -515,31 +515,38 @@ function testLeaveDisplayEnrichment_() {
   // วันธรรมดาปกติ → วันถัดไปเลย
   assertEqual_(nextWorkingDayStr_('2026-08-20', new Set()), '2026-08-21');
 
-  // enrich: ลาช่วง 20–24 ส.ค. (3 วันทำการ) วันนี้คือ 21 (ศุกร์ = วันทำการที่ 2) + กลับวันจันทร์
+  // enrich: ลาช่วง 20–24 ส.ค. (3 วันทำการ) วันนี้คือ 21 (ศุกร์ = วันทำการที่ 2) + กลับวันอังคาร
   const enriched = enrichLeaveForDisplay_({
     fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', leaveType: 'ลาพักร้อน',
-    start: '2026-08-20', end: '2026-08-24', period: 'เต็มวัน', workDays: 3,
+    submitterUserId: 'U_SUBMITTER', start: '2026-08-20', end: '2026-08-24', period: 'เต็มวัน', workDays: 3,
   }, '2026-08-21', new Set());
   assertEqual_(enriched.dayNo, 2);
-  // ลาวันสุดท้ายคือจันทร์ 24 → กลับทำงานวันถัดไป อังคาร 25 ส.ค. (แบบสั้นไม่มีปี)
-  assertEqual_(enriched.returnLabel, '25 ส.ค.');
-  assertEqual_(leaveParenLabel_(enriched), '2/3 · กลับ 25 ส.ค.');
-  assertContains_(leaveSummaryLabel_(enriched), 'ลาพักร้อน (2/3 · กลับ 25 ส.ค.)');
+  // ลาวันสุดท้ายคือจันทร์ 24 → กลับทำการวันถัดไป อังคาร 25 ส.ค. 2569 (ถ้อยคำทางการพร้อมปี)
+  assertEqual_(enriched.returnLabel, '25 ส.ค. 2569');
+  // ชื่อเฉพาะ: จาก roster ถ้ามี userId ตรง ไม่มี roster ก็ตัดจากชื่อเต็ม (ทนต่อคำนำหน้าทั่วไป)
+  assertEqual_(enriched.firstName, 'สมศักดิ์');
+  assertEqual_(leaveFirstName_({ fullName: 'นางสาวสมหญิง ใจงาม' }, null), 'สมหญิง');
+  assertEqual_(leaveFirstName_({ fullName: 'แพทย์หญิงสมพร ดี' }, null), 'สมพร');
+  assertEqual_(leaveFirstName_({ fullName: 'สมชาย ใจแข็ง' }, null), 'สมชาย');
+  assertEqual_(leaveFirstName_({ fullName: 'นายสมศักดิ์ ใจดี' }, createTestRoster_()), 'สมศักดิ์');
+  // ส่วนขยายทางการ + บรรทัดรายละเอียดเต็ม
+  assertEqual_(leaveFormalSuffix_(enriched), 'วันที่ 2 จาก 3 วันทำการ กลับทำการ 25 ส.ค. 2569');
+  assertEqual_(leaveSummaryLabel_(enriched), 'ลาพักร้อน วันที่ 2 จาก 3 วันทำการ กลับทำการ 25 ส.ค. 2569');
 
-  // ลาครึ่งวัน = badge เป็นครึ่งวัน ไม่มี dayNo/วันกลับ (จบในวันเดียว)
+  // ลาครึ่งวัน = ถ้อยคำทางการ "ครึ่งวันช่วงเช้า/บ่าย" ไม่มี dayNo/วันกลับ (จบในวันเดียว)
   const halfDay = enrichLeaveForDisplay_({
     fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', leaveType: 'ลากิจ',
     start: '2026-08-21', end: '2026-08-21', period: 'ครึ่งวันเช้า', workDays: 0.5,
   }, '2026-08-21', new Set());
-  assertEqual_(leaveParenLabel_(halfDay), 'ครึ่งวันเช้า');
+  assertEqual_(leaveFormalSuffix_(halfDay), 'ครึ่งวันช่วงเช้า');
   assertFalse_(halfDay.returnLabel ? true : false);
 
-  // วันสุดท้ายของช่วงลา (end == today) = ไม่แสดงวันกลับ
+  // วันสุดท้ายของช่วงลา (end == today) = ไม่แสดงวันกลับ เหลือแค่ "วันที่ 2 จาก 2 วันทำการ"
   const lastDay = enrichLeaveForDisplay_({
-    start: '2026-08-20', end: '2026-08-21', workDays: 2, period: 'เต็มวัน',
+    fullName: 'นายสมศักดิ์ ใจดี', start: '2026-08-20', end: '2026-08-21', workDays: 2, period: 'เต็มวัน',
   }, '2026-08-21', new Set());
   assertFalse_(lastDay.returnLabel ? true : false);
-  assertEqual_(leaveParenLabel_(lastDay), '2/2');
+  assertEqual_(leaveFormalSuffix_(lastDay), 'วันที่ 2 จาก 2 วันทำการ');
 }
 
 function testFindDuplicates_() {
@@ -690,13 +697,15 @@ function testBuildLeaveApprovalBubble_() {
 
 function testTextMessageWithLeaves_() {
   const date = new Date('2026-08-20T08:00:00+07:00');
-  const leave = createTestLeave_();
+  // ผ่าน enrich ก่อนเหมือนเส้นทางจริง (getApprovedLeavesForDay_) เพื่อให้ได้ชื่อเฉพาะ/ป้ายทางการ
+  const leave = enrichLeaveForDisplay_(createTestLeave_(), '2026-08-20', new Set());
 
-  // มีทั้งงานและผู้ลา — ผู้ลาเป็นบรรทัดเดียวกระชับ ไม่มีกลุ่มงาน (กันบรรทัดยาว wrap ไม่เป็นระเบียบ)
+  // มีทั้งงานและผู้ลา — แถวผู้ลาเป็น "ชื่อเฉพาะ + ประเภท + ถ้อยคำทางการ" ไม่มีกลุ่มงาน/คำนำหน้า/นามสกุล
   const both = buildLineMessage_(date, [createTestItem_()], [leave], 'text');
   assertContains_(both.text, 'ประชุมทีม');
   assertContains_(both.text, 'ผู้ลาวันนี้ (1 คน)');
-  assertContains_(both.text, 'นายสมศักดิ์ ใจดี — ลากิจ');
+  assertContains_(both.text, '• สมศักดิ์ ลากิจ');
+  assertFalse_(both.text.indexOf('นายสมศักดิ์ ใจดี') !== -1);
   assertFalse_(both.text.indexOf('กลุ่มงานคลังสินค้า') !== -1);
 
   // ไม่มีงานเลยแต่มีผู้ลา → ยังส่งข้อความได้
@@ -707,7 +716,7 @@ function testTextMessageWithLeaves_() {
 
 function testFlexMessageWithLeaves_() {
   const date = new Date('2026-08-20T08:00:00+07:00');
-  const leave = createTestLeave_();
+  const leave = enrichLeaveForDisplay_(createTestLeave_(), '2026-08-20', new Set());
 
   const leaveOnly = buildLineMessage_(date, [], [leave], 'flex');
   assertEqual_(leaveOnly.type, 'flex');
@@ -718,7 +727,9 @@ function testFlexMessageWithLeaves_() {
   assertEqual_(body.length, 2);
   const leaveBox = body[1];
   assertEqual_(leaveBox.contents[0].text, '🏖️ ผู้ลาวันนี้ (1 คน)');
-  assertContains_(JSON.stringify(leaveBox), 'นายสมศักดิ์ ใจดี');
+  // แถวผู้ลา: บรรทัดชื่อเฉพาะ (หนา) + บรรทัดรายละเอียด (ประเภท + ถ้อยคำทางการ)
+  assertContains_(JSON.stringify(leaveBox), 'สมศักดิ์');
+  assertContains_(JSON.stringify(leaveBox), 'ลากิจ');
 
   // มีงาน + ผู้ลา → มี separator เต็มความกว้างคั่นกลาง
   const both = buildLineMessage_(date, [createTestItem_()], [leave], 'flex');

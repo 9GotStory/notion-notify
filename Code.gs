@@ -390,7 +390,7 @@ function buildTextMessage_(date, items, leaves) {
 
   if (leaves && leaves.length) {
     sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` +
-      leaves.map(leave => '• ' + leaveSummaryLabel_(leave)).join('\n'));
+      leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
   }
 
   return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
@@ -463,42 +463,20 @@ function buildFlexBubble_(date, items, leaves) {
   }
 
   if (leaves && leaves.length) {
-    // แถวผู้ลาแบบกระชับบรรทัดเดียวต่อคน (เดียวกับรูปแบบ text): ชื่อ(หนา) + ประเภท + ป้ายในวงเล็บสีเขียว
-    // ทุกชิ้นสั้นพอจะไม่ wrap — ป้ายใช้ shrink-to-fit กันดันชื่อขึ้นบรรทัดใหม่
+    // แถวผู้ลา: ชื่อเฉพาะ (หนา) แล้วตามด้วยบรรทัดรายละเอียดถ้อยคำทางการ (ประเภท + วันที่/ครึ่งวัน + กลับทำการ)
+    // ให้รายละเอียด wrap ใน element ของตัวเอง ไม่ปนกับชื่อ — อ่านเป็นระเบียบแม่ข้อความยาว
     const leaveRows = [];
     leaves.forEach((leave, i) => {
       if (i > 0) leaveRows.push({ type: 'separator', margin: 'sm' });
-      const contents = [{
-        type: 'text',
-        text: leave.fullName,
-        size: 'sm',
-        weight: 'bold',
-        color: '#333333',
-        flex: 1,
-        wrap: true,
-      }, {
-        type: 'text',
-        text: leave.leaveType,
-        size: 'xs',
-        color: '#4A4A4A',
-        flex: 0,
+      leaveRows.push({
+        type: 'box',
+        layout: 'vertical',
         margin: 'md',
-        adjustMode: 'shrink-to-fit',
-      }];
-      const paren = leaveParenLabel_(leave);
-      if (paren) {
-        contents.push({
-          type: 'text',
-          text: '(' + paren + ')',
-          size: 'xs',
-          weight: 'bold',
-          color: '#0F6E56',
-          flex: 0,
-          margin: 'md',
-          adjustMode: 'shrink-to-fit',
-        });
-      }
-      leaveRows.push({ type: 'box', layout: 'baseline', margin: 'md', contents: contents });
+        contents: [
+          { type: 'text', text: leave.firstName || leave.fullName, size: 'sm', weight: 'bold', color: '#333333', wrap: true },
+          { type: 'text', text: leaveSummaryLabel_(leave), size: 'xs', color: '#717875', wrap: true, margin: 'xs' },
+        ],
+      });
     });
 
     // เมื่อมีรายการงานอยู่ก่อน คั่นด้วย separator เต็มความกว้างการ์ด (แบบเดียวกับเส้นคาดใต้ header)
