@@ -48,13 +48,13 @@
     </div>
     <h1 class="text-lg font-bold">ตารางงาน</h1>
     <p class="text-sm text-slate-500 mt-0.5">สำนักงานสาธารณสุขอำเภอสอง จังหวัดแพร่</p>
-    <p id="modeBadge" class="inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">กำลังตรวจสอบ…</p>
+    <p id="modeBadge" class="inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">กำลังเปิด…</p>
   </header>
 
-  <!-- แถบเชิญเจ้าหน้าที่ล็อกอิน (โชว์เฉพาะโหมดสาธารณะที่มี LIFF ให้ใช้) -->
+  <!-- แถบเชิญเจ้าหน้าที่ล็อกอิน (โชว์เฉพาะมุมมองทั่วไปที่มี LIFF ให้ใช้) -->
   <div id="loginCta" class="hidden bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4 text-sm">
-    <p class="text-sky-800">กำลังดูแบบสาธารณะ — เจ้าหน้าที่ที่เข้าสู่ระบบ LINE เห็นผู้รับผิดชอบและรายละเอียดเพิ่ม</p>
-    <button id="btnLogin" type="button" class="mt-2 px-4 py-2 rounded-xl font-semibold text-xs text-white bg-primary">เข้าสู่ระบบเจ้าหน้าที่</button>
+    <p class="text-sky-800">เจ้าหน้าที่ที่เข้าสู่ระบบด้วย LINE จะเห็นผู้รับผิดชอบและรายละเอียดเพิ่มเติม</p>
+    <button id="btnLogin" type="button" class="mt-2 px-4 py-2 rounded-xl font-semibold text-xs text-white bg-primary">เข้าสู่ระบบด้วย LINE</button>
   </div>
 
   <!-- ===== เลือกเดือน ===== -->
@@ -81,9 +81,6 @@
     <button id="btnRetry" type="button" class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-primary">ลองใหม่</button>
   </div>
 
-  <footer class="mt-8 text-center text-xs text-slate-400">
-    ข้อมูลจากฐานข้อมูลปฏิทินการปฏิบัติงานของหน่วยงาน — อัปเดตตามที่บันทึกจริง
-  </footer>
 </div>
 
 <script>
@@ -219,7 +216,7 @@
             '</section>'
           );
         }).join('')
-      : '<p class="py-12 text-center text-slate-400 text-sm">ไม่มีรายการในเดือนนี้</p>';
+      : '<p class="py-12 text-center text-slate-400 text-sm">ยังไม่มีรายการในเดือนนี้</p>';
 
     $('viewList').innerHTML = html;
 
@@ -237,10 +234,10 @@
     state.full = !!data.full;
     const badge = $('modeBadge');
     if (state.full) {
-      badge.textContent = '✓ โหมดเจ้าหน้าที่';
+      badge.textContent = '✓ มุมมองเจ้าหน้าที่';
       badge.className = 'inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800';
     } else {
-      badge.textContent = 'โหมดสาธารณะ';
+      badge.textContent = 'มุมมองทั่วไป';
       badge.className = 'inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600';
     }
     // ปุ่มล็อกอินโชว์เฉพาะ: ไม่เต็มโหมด + มี LIFF ของหน้านี้ให้ล็อกอิน

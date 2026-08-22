@@ -230,7 +230,7 @@ npm run build:css  # สร้าง styles.css สำหรับเปิด�
 
 1. LINE Developers Console > provider เดิม > **LINE Login channel เดิม** > tab LIFF > Add: Endpoint = `https://<user>.github.io/notion-notify/schedule/` (**ปิดท้ายด้วย `/`**), Size **Full**, Bot link = **Off หรือ Normal** (หน้านี้ไม่จำเป็นต้องบังคับแอดเพื่อน — ต่างจากฟอร์มลา)
 2. คัดลอก LIFF ID ใหม่ ไปใส่ GitHub Environment "liff" เป็น **`SCHEDULE_LIFF_ID`** (secret หรือ variable ก็ได้)
-3. push อะไรก็ได้ใน `schedule/` หรือกด workflow ด้วยตัวเอง (Actions > Deploy LIFF form > Run workflow) แล้วทดสอบ: เปิดในแอป LINE ต้องขึ้นป้าย "✓ โหมดเจ้าหน้าที่" / เปิดด้วย Chrome ต้องเป็น "โหมดสาธารณะ" พร้อมปุ่มล็อกอิน
+3. push อะไรก็ได้ใน `schedule/` หรือกด workflow ด้วยตัวเอง (Actions > Deploy LIFF form > Run workflow) แล้วทดสอบ: เปิดในแอป LINE ต้องขึ้นป้าย "✓ มุมมองเจ้าหน้าที่" / เปิดด้วย Chrome ต้องเป็น "มุมมองทั่วไป" พร้อมปุ่มล็อกอิน
 4. เอาลิงก์ `https://liff.line.me/<SCHEDULE_LIFF_ID>` ไปทำปุ่มที่สองบน Rich Menu (เช่น "ตารางงาน 📅") หรือแชร์ URL ตรง `.io/notion-notify/schedule/` ปักหมุดในกลุ่มก็ได้
 
 **หมายเหตุ**: ถ้าไม่ต้องการโหมดสาธารณะ (อยากบังคับล็อกอินก่อนเห็นข้อมูลเลย) หรืออยากซ่อนฟิลด์อื่นเพิ่ม แก้ที่ `toScheduleItem_` ใน Code.gs จุดเดียว
