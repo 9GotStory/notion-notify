@@ -223,10 +223,24 @@
   // ---------- เครื่องมือเล็กๆ ----------
 
   function $(id) { return document.getElementById(id); }
+
+  // ตัวจับเวลากัน "หน้าค้างหมุนตลอดกาล": liff.init() ค้างหลังวนกลับจากหน้า login ของ LINE
+  // (เคสที่พบบ่อยใน browser ภายนอก) ทำให้ไม่มีวันไปถึงหน้าไหน — เกิน 30 วินาทีให้เปลี่ยนเป็น
+  // หน้า error ที่กด "ลองใหม่" ได้ แทนการให้ผู้ใช้นั่งดู spinner เป็นสิบนาที
+  let bootWatchdog_ = null;
+  function armBootWatchdog_() {
+    clearTimeout(bootWatchdog_);
+    bootWatchdog_ = setTimeout(function () {
+      showError('เปิดหน้านี้นานกว่าปกติมาก — อาจเป็นอินเทอร์เน็ตหรือระบบ LINE ขัดข้องชั่วคราว กด "ลองใหม่" ด้านล่าง หรือปิดแล้วเปิดลิงก์ใหม่อีกครั้ง');
+    }, 30000);
+  }
+
   function show(view) {
     ['loading', 'register', 'confirm', 'form', 'success', 'error'].forEach(v => {
       $('view-' + v).classList.toggle('hidden', v !== view);
     });
+    // ไปถึงหน้าจริง (นอกเหนือจาก loading) = boot จบแล้ว ยกเลิกตัวจับเวลา
+    if (view !== 'loading') clearTimeout(bootWatchdog_);
     window.scrollTo(0, 0);
   }
   function escapeHtml(str) {
@@ -279,6 +293,18 @@
   // - browser ภายนอก: liff.login() พาไปหน้า login ของ LINE แล้ววนกลับมาหน้านี้ — ถ้ายังมีเซสชัน
   //   LINE ในเบราว์เซอร์นั้นอยู่จะสะท้อนกลับทันที ไม่ต้องกรอกอะไรซ้ำ
   function relogin_() {
+    // กันวน login ไม่รู้จบ: ถ้าใน 1 นาทีนี้ขอ login ใหม่เกิน 2 ครั้งแล้วยังไม่ผ่าน
+    // ให้หยุดและแสดง error แทนการเด้งไป-กลับหน้า LINE อีก (sessionStorage อยู่กับแท็บนี้ตลอด)
+    const attempts = Number(sessionStorage.getItem('reloginAttempts') || '0');
+    const since = Number(sessionStorage.getItem('reloginSince') || '0');
+    const freshWindow = Date.now() - since > 60000;
+    const count = freshWindow ? 1 : attempts + 1;
+    sessionStorage.setItem('reloginAttempts', String(count));
+    if (freshWindow) sessionStorage.setItem('reloginSince', String(Date.now()));
+    if (count > 2) {
+      showError('เข้าสู่ระบบใหม่หลายครั้งแล้วยังไม่สำเร็จ — ลองปิดหน้านี้แล้วเปิดลิงก์ใหม่ หรือติดต่อผู้ดูแลระบบ');
+      return;
+    }
     try { if (liff.isLoggedIn()) liff.logout(); } catch (err) { /* ไปต่อได้ */ }
     if (typeof liff.isInClient === 'function' && liff.isInClient()) {
       location.reload();
@@ -317,6 +343,7 @@
 
   async function boot() {
     show('loading');
+    armBootWatchdog_();
     if (typeof liff === 'undefined') {
       showError('โหลด LINE SDK ไม่สำเร็จ — ตรวจอินเทอร์เน็ตแล้วปิดหน้านี้แล้วเปิดใหม่ หากยังไม่หายติดต่อผู้ดูแลระบบ');
       return;
@@ -657,7 +684,12 @@
     show('form');
   });
 
-  $('btnRetry').addEventListener('click', boot);
+  // ปุ่ม "ลองใหม่" = โหลดหน้าใหม่แบบตัด query string ทิ้ง — พารามิเตอร์ค้างจากการวนกลับ
+  // จากหน้า login ของ LINE (code/state) เป็นสาเหตุที่ทำให้ liff.init() ค้างได้ การเริ่มใหม่
+  // ด้วย URL สะอาดแก้เคสนี้ตรงจุด (เรียก boot() ซ้ำเฉยๆ ยังติดค้างเดิมอยู่)
+  $('btnRetry').addEventListener('click', function () {
+    location.replace(location.origin + location.pathname);
+  });
 
   boot();
 })();
