@@ -47,6 +47,12 @@
 
 <div class="max-w-lg mx-auto min-h-screen px-4 pt-6 pb-10">
 
+  <!-- แถบแท็บหลัก (แสดงเฉพาะหลังลงทะเบียนแล้ว — ควบคุมการแสดงผลด้วย JS ใน show()) -->
+  <nav id="mainTabs" style="display:none" class="gap-1 bg-white border border-slate-200 rounded-xl p-1 mb-4">
+    <button type="button" data-view="form" class="main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">ยื่นลา</button>
+    <button type="button" data-view="mine" class="main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">ของฉัน</button>
+  </nav>
+
   <!-- ===== กำลังโหลด ===== -->
   <section id="view-loading" class="py-20 text-center">
     <!-- ตราหน่วยงาน: ใส่ไฟล์ liff-form/logo.png ได้เลย — ถ้ายังไม่มีไฟล์ วนกลับไปใช้ตรา "สสอ." อัตโนมัติ -->
@@ -134,6 +140,10 @@
     <p id="approvalOffNote" class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4">
       ℹ️ ระบบปิดการอนุมัติอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลัก ไม่ต้องรอใครกดอนุมัติ
     </p>
+    <div id="editBanner" class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4">
+      <p>✏️ กำลังแก้ไขใบลาที่ยื่นไว้ — บันทึกแล้วใบลาจะกลับไปรอผู้อนุมัติใหม่อีกครั้ง</p>
+      <button type="button" id="btnCancelEdit" class="mt-1 text-xs font-semibold underline">ยกเลิกการแก้ไขและกลับไปรายการของฉัน</button>
+    </div>
     <header class="flex items-center gap-3 mb-5">
       <div class="w-11 h-11 rounded-full bg-primary-light text-primary flex items-center justify-center text-lg font-bold flex-none" id="userInitial">ก</div>
       <div class="min-w-0">
@@ -189,10 +199,34 @@
             class="w-full py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ส่งใบลา</button>
   </section>
 
+  <!-- ===== ของฉัน: ยอดวันลาปีนี้ + รายการใบลาทั้งหมด (แก้ไข/ยกเลิกได้เอง) ===== -->
+  <section id="view-mine" class="hidden">
+    <header class="mb-4">
+      <h1 class="text-lg font-bold">ของฉัน</h1>
+      <p class="text-sm text-slate-500 mt-1">ยอดวันลาของปีนี้ และใบลาทั้งหมดที่ยื่นไป — ใบที่ยังรออนุมัติแก้ไขได้ ยกเลิกได้ทั้งใบรอและใบอนุมัติแล้วที่ยังไม่ถึงวัน</p>
+    </header>
+
+    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+      <p class="text-sm font-semibold text-slate-600 mb-1">ยอดวันลา ปี <span id="mineYear"></span></p>
+      <div id="mineUsage" class="divide-y divide-slate-100 text-sm"></div>
+      <p class="text-xs text-slate-400 mt-3">* ยอด "ใช้ไปแล้ว" รวมใบที่กำลังรออนุมัติด้วย</p>
+    </div>
+
+    <p class="text-sm font-semibold text-slate-600 mb-2">ใบลาของฉัน (ปีนี้)</p>
+    <div id="mineLoading" class="hidden py-10 text-center">
+      <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+      <p class="text-sm text-slate-500 mt-3">กำลังโหลด…</p>
+    </div>
+    <p id="mineError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
+    <p id="mineEmpty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-2xl p-6 text-center">
+      ยังไม่มีใบลาในปีนี้ — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
+    <div id="mineList"></div>
+  </section>
+
   <!-- ===== ส่งสำเร็จ ===== -->
   <section id="view-success" class="hidden py-10 text-center">
     <div class="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
-    <h1 class="text-lg font-bold mb-1">ส่งใบลาเรียบร้อย</h1>
+    <h1 id="successTitle" class="text-lg font-bold mb-1">ส่งใบลาเรียบร้อย</h1>
     <p class="text-sm text-slate-500 mb-5">ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้</p>
     <div id="successCard" class="text-left bg-white border border-slate-200 rounded-2xl p-5 mb-5 text-sm space-y-2"></div>
     <button id="btnAgain" type="button" class="w-full py-3.5 rounded-xl font-semibold text-primary bg-primary-light">ยื่นอีกใบ</button>
@@ -228,6 +262,8 @@
     holidays: new Set(), today: '', leaveType: '', period: 'เต็มวัน',
     user: null, sending: false, usage: null, leaveYear: '',
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
+    mine: { loading: false, error: '', leaves: [], usage: null, leaveYear: '' },
+    editing: null, // ใบลาที่กำลังแก้ไข (null = โหมดยื่นใหม่) — ฟอร์มเดิวมันเดิมสลับได้สองโหมด
   };
 
   // ---------- เครื่องมือเล็กๆ ----------
@@ -253,9 +289,21 @@
   }
 
   function show(view) {
-    ['loading', 'register', 'confirm', 'form', 'success', 'error'].forEach(v => {
+    ['loading', 'register', 'confirm', 'form', 'mine', 'success', 'error'].forEach(v => {
       $('view-' + v).classList.toggle('hidden', v !== view);
     });
+    // แถบแท็บหลักแสดงเฉพาะสองหน้าหลักหลังลงทะเบียน (กำหนด display ด้วย inline style
+    // เพราะคลาส hidden กับ flex ของ Tailwind ตีกันที่ลำดับการ generate ในไฟล์ ไม่พึ่งได้)
+    const tabs = $('mainTabs');
+    if (tabs) {
+      tabs.style.display = (view === 'form' || view === 'mine') ? 'flex' : 'none';
+      document.querySelectorAll('.main-tab').forEach(btn => {
+        const active = btn.dataset.view === view;
+        btn.classList.toggle('bg-primary-light', active);
+        btn.classList.toggle('text-primary', active);
+        btn.classList.toggle('text-slate-500', !active);
+      });
+    }
     // ไปถึงหน้าจริง (นอกเหนือจาก loading) = boot จบแล้ว ยกเลิกตัวจับเวลา
     if (view !== 'loading') clearTimeout(bootWatchdog_);
     window.scrollTo(0, 0);
@@ -516,6 +564,157 @@
     }
   });
 
+  // ---------- ของฉัน: ยอดวันลา + รายการใบลา (myLeaves / cancel / edit) ----------
+
+  async function loadMyLeaves_() {
+    if (state.mine.loading) return;
+    state.mine.loading = true;
+    state.mine.error = '';
+    renderMineState_();
+    try {
+      const data = await api('myLeaves');
+      state.mine.leaves = data.leaves || [];
+      state.mine.usage = data.usage || null;
+      state.mine.leaveYear = data.leaveYear || '';
+      state.mine.loading = false;
+      renderMineState_();
+    } catch (err) {
+      state.mine.loading = false;
+      state.mine.error = err.message;
+      renderMineState_();
+    }
+  }
+
+  // แถวยอดวันลาต่อประเภท: รวมรายการประเภทจาก Settings ด้วย เพราะ usage จากเซิร์ฟเวอร์เติมเฉพาะ
+  // ประเภทที่มีโควตา (ลาป่วยไม่จำกัดจะไม่โผล่ถ้ายังไม่เคยใช้)
+  function usageRows_(usage) {
+    const types = (state.options.leaveTypes || []).slice();
+    Object.keys(usage).forEach(t => { if (!types.includes(t)) types.push(t); });
+    return types.map(type => {
+      const info = usage[type] || { used: 0, quota: null };
+      const remaining = info.quota == null ? 'ไม่จำกัด' : daysText_(Math.max(0, info.quota - info.used));
+      return {
+        type: type,
+        used: daysText_(info.used || 0),
+        quota: info.quota,
+        remaining: remaining,
+      };
+    });
+  }
+
+  function daysText_(days) {
+    return days === 0 ? '0' : usedLabel_(days);
+  }
+
+  function statusBadgeClasses_(status) {
+    if (status === 'อนุมัติ') return 'text-xs px-2 py-0.5 rounded-full border bg-emerald-50 text-emerald-700 border-emerald-200';
+    if (status === 'ไม่อนุมัติ') return 'text-xs px-2 py-0.5 rounded-full border bg-red-50 text-red-700 border-red-200';
+    if (status === 'ยกเลิก') return 'text-xs px-2 py-0.5 rounded-full border bg-slate-100 text-slate-500 border-slate-200';
+    return 'text-xs px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200'; // รอผู้อนุมัติ/รอหัวหน้า สสอ.
+  }
+
+  function mineLeaveCard_(leave) {
+    const pendingNote = leave.pendingApproverNames && leave.pendingApproverNames.length
+      ? ' · รอ: ' + leave.pendingApproverNames.join(', ') : '';
+    const periodNote = leave.period && leave.period !== 'เต็มวัน' ? ' (' + leave.period + ')' : '';
+    const workLabel = leave.workDaysLabel ? leave.workDaysLabel + 'ทำการ' : usedLabel_(leave.workDays) + ' วันทำการ';
+    const buttons = [];
+    if (leave.canEdit) {
+      buttons.push('<button type="button" data-act="edit" data-page-id="' + escapeHtml(leave.pageId) +
+        '" class="flex-1 py-2 rounded-lg text-xs font-semibold text-primary bg-primary-light">แก้ไข</button>');
+    }
+    if (leave.canCancel) {
+      buttons.push('<button type="button" data-act="cancel" data-page-id="' + escapeHtml(leave.pageId) +
+        '" class="flex-1 py-2 rounded-lg text-xs font-semibold text-red-700 bg-red-50 border border-red-200">ยกเลิก</button>');
+    }
+    return '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-2.5">' +
+      '<div class="flex items-center justify-between gap-2">' +
+        '<span class="font-semibold text-sm">' + escapeHtml(leave.leaveType) + '</span>' +
+        '<span class="' + statusBadgeClasses_(leave.status) + ' flex-none">' + escapeHtml(leave.status) + '</span>' +
+      '</div>' +
+      '<p class="text-xs text-slate-600 mt-1.5">' +
+        escapeHtml(dateRangeLabel(leave.start, leave.end) + periodNote + ' · ' + workLabel + pendingNote) + '</p>' +
+      (leave.reason ? '<p class="text-xs text-slate-400 mt-1 truncate">' + escapeHtml(leave.reason) + '</p>' : '') +
+      (buttons.length ? '<div class="flex gap-2 mt-3">' + buttons.join('') + '</div>' : '') +
+      '</div>';
+  }
+
+  function renderMineState_() {
+    $('mineYear').textContent = state.mine.leaveYear || '';
+    const usageBox = $('mineUsage');
+    if (state.mine.usage) {
+      usageBox.innerHTML = usageRows_(state.mine.usage).map(row =>
+        '<div class="flex items-center justify-between gap-3 py-2">' +
+          '<span class="text-slate-700">' + escapeHtml(row.type) + '</span>' +
+          '<span class="text-xs text-slate-500 flex-none">ใช้ ' + escapeHtml(row.used) +
+            (row.quota != null ? ' / ' + escapeHtml(String(row.quota)) : '') +
+            ' · <span class="font-semibold text-primary-dark">เหลือ ' + escapeHtml(row.remaining) + '</span></span>' +
+        '</div>').join('');
+    } else {
+      usageBox.innerHTML = '<p class="text-sm text-slate-400 py-2">ยังไม่มีข้อมูลยอดวันลา (ระบบลายังไม่ได้ตั้งค่าครบ)</p>';
+    }
+
+    const hasError = !!state.mine.error;
+    const errEl = $('mineError');
+    errEl.textContent = state.mine.error;
+    errEl.classList.toggle('hidden', !hasError);
+    $('mineLoading').classList.toggle('hidden', !state.mine.loading);
+    const leaves = state.mine.leaves || [];
+    $('mineEmpty').classList.toggle('hidden', state.mine.loading || hasError || leaves.length > 0);
+    $('mineList').innerHTML = (state.mine.loading || hasError) ? '' : leaves.map(mineLeaveCard_).join('');
+  }
+
+  // ปุ่มในการ์ดแต่ละใบแจ้งเจตนาผ่าน data-act/data-page-id — ผูก listener ครั้งเดียวที่ลิสต์
+  $('mineList').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const leave = (state.mine.leaves || []).find(l => l.pageId === btn.dataset.pageId);
+    if (!leave) return;
+    if (btn.dataset.act === 'edit') startEdit_(leave);
+    else if (btn.dataset.act === 'cancel') confirmCancelLeave_(leave);
+  });
+
+  async function confirmCancelLeave_(leave) {
+    const summary = leave.leaveType + ' · ' + dateRangeLabel(leave.start, leave.end);
+    // ใบอนุมัติแล้วเตือนให้หนักกว่าใบรอ เพราะมีผลกับตารางที่เพื่อนร่วมงานเห็นแล้ว
+    const message = leave.status === 'อนุมัติ'
+      ? 'ยกเลิกใบลานี้ที่อนุมัติไปแล้ว?\n' + summary + '\n\nระบบจะแจ้งผู้อนุมัติของกลุ่มงานให้ทราบ'
+      : 'ยกเลิกใบลานี้?\n' + summary;
+    if (!window.confirm(message)) return;
+    try {
+      await api('cancel', { pageId: leave.pageId });
+    } catch (err) {
+      state.mine.error = err.message;
+      renderMineState_();
+      return;
+    }
+    await loadMyLeaves_(); // แสดง loading เอง + รีเฟรชทั้งยอดและสถานะ (โควตาคืนทันที)
+  }
+
+  function startEdit_(leave) {
+    state.editing = leave;
+    state.leaveType = leave.leaveType; // prefill ก่อน renderTypeGrid เพื่อไฮไลต์ปุ่มประเภทให้ถูกใบ
+    showForm();
+  }
+
+  document.querySelectorAll('.main-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.view === 'mine') {
+        state.editing = null; // ออกจากโหมดแก้ไขเมื่อไปดูรายการของฉัน
+        show('mine');
+        loadMyLeaves_();
+      } else {
+        show('form');
+      }
+    });
+  });
+
+  $('btnCancelEdit').addEventListener('click', () => {
+    state.editing = null;
+    show('mine');
+    loadMyLeaves_();
+  });
+
   // ---------- ฟอร์มลา ----------
 
   function showForm() {
@@ -529,11 +728,35 @@
     $('dateStart').max = addDays(state.today, 365);
     $('dateEnd').min = $('dateStart').min;
     $('dateEnd').max = $('dateStart').max;
-    $('dateStart').value = state.today;
-    $('dateEnd').value = state.today;
+    if (state.editing) {
+      // โหมดแก้ไข: prefill จากใบเดิมทั้งหมด (วันที่/ครึ่งวัน/เหตุผล) แล้วผู้ใช้แก้ต่อ
+      $('dateStart').value = state.editing.start;
+      $('dateEnd').value = state.editing.end;
+      state.period = state.editing.period && state.editing.period !== 'เต็มวัน' ? state.editing.period : 'เต็มวัน';
+      $('reason').value = state.editing.reason || '';
+      $('editBanner').classList.remove('hidden');
+      $('btnSubmit').textContent = 'บันทึกการแก้ไข';
+    } else {
+      $('dateStart').value = state.today;
+      $('dateEnd').value = state.today;
+      state.period = 'เต็มวัน';
+      $('reason').value = '';
+      $('editBanner').classList.add('hidden');
+      $('btnSubmit').textContent = 'ส่งใบลา';
+    }
+    highlightPeriodBtns_();
     refreshDayCount();
+    refreshUsageLine_(); // โหมดแก้ไข prefill ประเภทอยู่แล้ว ต้องแสดงแถวยอดใช้/สิทธิ์ทันที
     refreshLeaveSwitch_();
     show('form');
+  }
+
+  function highlightPeriodBtns_() {
+    document.querySelectorAll('.period-btn').forEach(b => {
+      const active = b.dataset.period === state.period;
+      b.classList.toggle('bg-primary-light', active);
+      b.classList.toggle('border-primary', active);
+    });
   }
 
   function renderTypeGrid() {
@@ -542,7 +765,10 @@
     (state.options.leaveTypes.length ? state.options.leaveTypes : Object.keys(TYPE_DESCRIPTIONS)).forEach(name => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'type-btn text-left p-3.5 rounded-xl border border-slate-200 hover:border-primary transition-colors motion-reduce:transition-none';
+      // ไฮไลต์ประเภทที่เลือกอยู่ (รวมถึงตอน prefill จากใบที่กำลังแก้ไข) ตั้งแต่ตอนสร้างปุ่ม
+      const selected = name === state.leaveType;
+      btn.className = 'type-btn text-left p-3.5 rounded-xl border transition-colors motion-reduce:transition-none ' +
+        (selected ? 'bg-primary-light border-primary' : 'border-slate-200 hover:border-primary');
       btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(name) + '</span>' +
         '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' + escapeHtml(TYPE_DESCRIPTIONS[name] || '') + '</span>';
       btn.addEventListener('click', () => {
@@ -661,14 +887,18 @@
     const end = $('dateEnd').value || start;
     if (!start) { err.textContent = 'กรุณาเลือกวันที่ลา'; err.classList.remove('hidden'); return; }
 
+    const editing = !!state.editing;
     state.sending = true;
     $('btnSubmit').disabled = true;
-    $('btnSubmit').textContent = 'กำลังส่ง…';
+    $('btnSubmit').textContent = editing ? 'กำลังบันทึก…' : 'กำลังส่ง…';
     try {
-      const result = await api('submit', {
+      const params = {
         leaveType: state.leaveType, start: start, end: end,
         period: state.period, reason: $('reason').value.trim(),
-      });
+      };
+      if (editing) params.pageId = state.editing.pageId;
+      // สอง action ให้ response รูปเดียวกัน — การ์ดสรุปผลจึง render ร่วมกันได้
+      const result = await api(editing ? 'update' : 'submit', params);
       const periodNote = result.period && result.period !== 'เต็มวัน' ? ' (' + result.period + ')' : '';
       $('successCard').innerHTML =
         '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(state.leaveType) + '</span></div>' +
@@ -681,19 +911,23 @@
         (result.warnings && result.warnings.length
           ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2 whitespace-pre-line">' + escapeHtml(result.warnings.join('\n')) + '</span>'
           : '') + '</div>';
+      $('successTitle').textContent = editing ? 'บันทึกการแก้ไขเรียบร้อย' : 'ส่งใบลาเรียบร้อย';
+      $('btnAgain').textContent = editing ? 'กลับไปหน้าของฉัน' : 'ยื่นอีกใบ';
       show('success');
     } catch (submitErr) {
       err.textContent = submitErr.message;
       err.classList.remove('hidden');
     } finally {
       state.sending = false;
-      // คืนสถานะปุ่มตามสวิตช์ระบบลาปัจจุบัน (ไม่ใช่เปิดกลับเสมอไป)
+      // คืนสถานะปุ่มตามสวิตช์ระบบลาปัจจุบัน (ไม่ใช่เปิดกลับเสมอไป) และป้ายตามโหมดที่ยังอยู่
       $('btnSubmit').disabled = state.leaveEnabled === false;
-      $('btnSubmit').textContent = 'ส่งใบลา';
+      $('btnSubmit').textContent = state.editing ? 'บันทึกการแก้ไข' : 'ส่งใบลา';
     }
   });
 
   $('btnAgain').addEventListener('click', () => {
+    const wasEditing = !!state.editing;
+    state.editing = null;
     state.leaveType = '';
     $('reason').value = '';
     renderTypeGrid();
@@ -701,6 +935,12 @@
     $('dateEnd').value = state.today;
     refreshDayCount();
     refreshLeaveSwitch_();
+    if (wasEditing) {
+      // จบการแก้ไข → กลับไปดูรายการ/ยอดล่าสุด (สถานะใบเพิ่งเปลี่ยนเป็นรอผู้อนุมัติใหม่)
+      show('mine');
+      loadMyLeaves_();
+      return;
+    }
     show('form');
   });
 

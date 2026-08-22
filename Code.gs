@@ -176,17 +176,25 @@ function checkAndSendNotification() {
     // เพราะโควตา LINE นับตามจำนวนผู้รับต่อข้อความ การรวมสองวันไว้ด้วยกันไม่เพิ่มโควตาแม้แต่ข้อความเดียว
     const advance = collectAdvanceNotice_(now, settings);
 
-    if (items.length === 0 && leaves.length === 0 && !advance) {
+    // สรุปวันลารายเดือน: การรันเช้าครั้งแรกของแต่ละเดือน (วันทำการแรก) แนบสรุปเดือนที่เพิ่งจบ
+    // มาในข้อความเดียวกัน — ไม่เพิ่มโควตา LINE แม้แต่ข้อความเดียว (นับตามผู้รับต่อข้อความ)
+    const monthly = maybeCollectMonthlyLeaveSummary_(now, settings, props);
+
+    if (items.length === 0 && leaves.length === 0 && !advance && !(monthly && monthly.summary)) {
       // ไม่มีงานและไม่มีผู้ลา ทั้งวันนี้และวันล่วงหน้า -> ไม่ส่งข้อความเข้ากลุ่มเลย แต่ยังบันทึก log ไว้เป็นหลักฐานว่าเช็คแล้วจริง
       logResult_(now, 'skip', 'ไม่มีงาน/ผู้ลาในระบบทั้งวันนี้และวันล่วงหน้า — ไม่ส่งข้อความ');
+      // เดือนก่อนไม่มีใครลาเลย → ไม่มีสรุปให้ส่ง แต่ถือว่าจัดการเดือนนี้แล้ว กัน query ซ้ำทุกเช้า
+      if (monthly) props.setProperty('last_monthly_leave_summary', monthly.currentMonth);
       props.setProperty('LAST_CHECKED_DATE', todayStr);
       return;
     }
 
-    const messageObj = buildLineMessage_(now, items, leaves, settings.message_format, advance);
+    const messageObj = buildLineMessage_(now, items, leaves, settings.message_format, advance,
+      monthly && monthly.summary);
     sendLineMessage_(settings.line_group_id, messageObj);
 
     props.setProperty('LAST_CHECKED_DATE', todayStr);
+    if (monthly) props.setProperty('last_monthly_leave_summary', monthly.currentMonth);
     logResult_(now, 'success', messagePreview_(messageObj).substring(0, 300));
   } catch (err) {
     // นับจำนวนครั้งที่ล้มเหลวของวันนี้ (คีย์แยกตามวันที่ ลบของเก่าทิ้งทุกรอบผ่าน cleanupOldFailCounts_ ด้านบน)
@@ -511,19 +519,21 @@ function itemTimeLabel_(item) {
 // message_format ในชีต Settings เลือกได้ 'text' (ค่าเริ่มต้นถ้าเว้นว่างหรือใส่ค่าอื่น) หรือ 'flex'
 // leaves คือใบลาที่อนุมัติแล้วและคร่อมวันนี้ (จาก getApprovedLeavesForDay_ ใน Leave.gs)
 // advance (ไม่บังคับ) คือข้อมูลวันล่วงหน้าจาก collectAdvanceNotice_ — ส่งมาเมื่อไรจะต่อท้ายเป็นอีกส่วน
-function buildLineMessage_(date, items, leaves, format, advance) {
+// monthly (ไม่บังคับ) คือสรุปวันลารายเดือนจาก buildMonthlyLeaveSummary_ — แนบท้ายเป็นส่วนสุดท้าย
+function buildLineMessage_(date, items, leaves, format, advance, monthly) {
   if (String(format).trim().toLowerCase() === 'flex') {
     const dateLabel = thaiDateLabel_(date);
     let altText = `📅 ปฏิทินงานวันที่ ${dateLabel} (${items.length} รายการ)`;
     if (leaves.length) altText += ` — ผู้ลา ${leaves.length} คน`;
     if (advance) altText += ` — ล่วงหน้า ${advance.items.length + advance.leaves.length} รายการ`;
+    if (monthly) altText += ' — สรุปใบลาเดือนที่แล้ว';
     return {
       type: 'flex',
       altText: altText, // ข้อความสำรองตอนแจ้งเตือน/เครื่องที่ไม่รองรับ Flex
-      contents: buildFlexBubble_(date, items, leaves, advance),
+      contents: buildFlexBubble_(date, items, leaves, advance, monthly),
     };
   }
-  return { type: 'text', text: buildTextMessage_(date, items, leaves, advance) };
+  return { type: 'text', text: buildTextMessage_(date, items, leaves, advance, monthly) };
 }
 
 // รายละเอียดย่อย (ผู้รับผิดชอบ/สถานที่/รายละเอียด/หมายเหตุ) คืนเป็น {label, value} เฉพาะฟิลด์ที่มีค่าเท่านั้น
@@ -564,7 +574,7 @@ function textItemBlock_(item) {
   return lines.join('\n');
 }
 
-function buildTextMessage_(date, items, leaves, advance) {
+function buildTextMessage_(date, items, leaves, advance, monthly) {
   const dateLabel = thaiDateLabel_(date);
   const sections = [];
 
@@ -584,6 +594,11 @@ function buildTextMessage_(date, items, leaves, advance) {
         advance.leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
     }
     sections.push(advanceSectionTitle_(date, advance.date) + `\n\n${parts.join('\n\n')}`);
+  }
+
+  // สรุปวันลารายเดือน (วันทำการแรกของเดือนเท่านั้น) — ส่วนสุดท้ายของข้อความเดียวกัน
+  if (monthly) {
+    sections.push(monthly.title + '\n' + monthly.lines.join('\n') + '\n' + monthly.totalLine);
   }
 
   return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
@@ -676,7 +691,7 @@ function flexLeaveRows_(leaves) {
 // เพื่อให้ label เข้มขึ้นได้แบบชัวร์ว่า render ถูก แทนการลองใช้ span ผสมสไตล์ในบรรทัดเดียวที่ยังไม่ได้ทดสอบจริง)
 // + หัวข้อผู้ลาวันนี้ (ถ้ามี) + footer ชื่อหน่วยงาน
 // items อาจว่างได้ในวันที่มีแต่ผู้ลา — โครงการ์ดยังเหมือนเดิม แค่ไม่มีกล่องรายการงาน
-function buildFlexBubble_(date, items, leaves, advance) {
+function buildFlexBubble_(date, items, leaves, advance, monthly) {
   const dateLabel = thaiDateLabel_(date);
   const theme = dayThemeFor_(date);
 
@@ -718,6 +733,21 @@ function buildFlexBubble_(date, items, leaves, advance) {
     }
     bodyContents.push({ type: 'separator' });
     bodyContents.push({ type: 'box', layout: 'vertical', paddingAll: '16px', contents: advContents });
+  }
+
+  // สรุปวันลารายเดือน (วันทำการแรกของเดือนเท่านั้น) — กล่องสุดท้าย โครงเดียวกับส่วนผู้ลา:
+  // หัวข้อหนาสีเขียว แล้วบรรทัดรายคนตัวเล็ก ปิดท้ายยอดรวมทั้งเดือน
+  if (monthly) {
+    const monthlyContents = [
+      { type: 'text', text: monthly.title, size: 'sm', weight: 'bold', color: '#0F6E56', wrap: true },
+    ].concat(monthly.lines.map(line => ({
+      type: 'text', text: line, size: 'xs', color: '#4A4A4A', wrap: true, margin: 'sm',
+    })));
+    monthlyContents.push({
+      type: 'text', text: monthly.totalLine, size: 'xs', weight: 'bold', color: '#717875', margin: 'md',
+    });
+    bodyContents.push({ type: 'separator' });
+    bodyContents.push({ type: 'box', layout: 'vertical', paddingAll: '16px', contents: monthlyContents });
   }
 
   return {
@@ -847,6 +877,7 @@ function onOpen() {
     .createMenu('ระบบแจ้งเตือนปฏิทิน')
     .addItem('ทดสอบส่งตอนนี้', 'testSendNow')
     .addItem('ทดสอบการ์ดใบลา', 'testLeaveCardNow')
+    .addItem('ทดสอบสรุปรายเดือน', 'testMonthlyLeaveSummaryNow')
     .addItem('รัน Unit Tests', 'runUnitTests')
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
     .addSeparator()
@@ -894,6 +925,7 @@ function setupSheet() {
     ['leave_approval_enabled', 'TRUE', 'โหมดการอนุมัติ: FALSE = แจ้งลาอัตโนมัติ (บันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก ไม่ต้องมีผู้อนุมัติ) — ใช้เมนู "เปิด/ปิดการอนุมัติใบลา" สลับได้'],
     ['leave_type_options', 'ลาป่วย,ลากิจ,ลาพักร้อน,ลาคลอด,ลาอุปสมบถ/ลาบวช,ลาช่วยเหลือภริยาคลอดบุตร,อื่นๆ', 'รายการประเภทการลาในฟอร์ม (คั่นด้วยจุลภาค) — ชื่อที่ตรงตามระเบียบจะได้รับการตรวจสิทธิ์/คำเตือนอัตโนมัติ'],
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
+    ['monthly_leave_summary_enabled', 'TRUE', 'สรุปวันลารายเดือน (FALSE = ปิด): วันทำการแรกของแต่ละเดือน แนบสรุปใบลาที่อนุมัติของเดือนก่อนท้ายข้อความเช้า — รวมข้อความเดียวกัน ไม่เพิ่มโควตา LINE'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
     ['position_options', 'นักวิชาการสาธารณสุข,นักวิชาการอนามัย,นักวิชาการคอมพิวเตอร์,นักบริหารงานสาธารณสุข,พยาบาลวิชาชีพ,พยาบาลช่วยแพทย์,เจ้าพนักงานธุรการ,ลูกจ้างชั่วคราว,อื่นๆ', 'ตัวเลือกตำแหน่งในฟอร์มลงทะเบียน (แก้ให้ตรงหน่วยงานได้เลย คั่นด้วยจุลภาค)'],
@@ -1151,6 +1183,37 @@ function testLeaveCardNow() {
   } catch (err) {
     logResult_(new Date(), 'error (manual test)', String(err));
     SpreadsheetApp.getUi().alert('ส่งการ์ดตัวอย่างไม่สำเร็จ: ' + err);
+  }
+}
+
+// ส่งส่วนสรุปวันลารายเดือนเดี่ยวๆ เข้ากลุ่มหลักเพื่อดูหน้าตาโดยไม่ต้องรอข้ามเดือน
+// (สรุปเดือนก่อนหน้าเสมอ — เหมือนที่ระบบจะส่งจริงในเช้าวันทำการแรกของเดือนถัดไป)
+// ไม่ upsert marker last_monthly_leave_summary: การส่งจริงของเดือนยังทำงานตามปกติ
+function testMonthlyLeaveSummaryNow() {
+  const settings = getSettings_();
+  if (!settings.line_group_id) {
+    SpreadsheetApp.getUi().alert('ยังไม่มี line_group_id ในชีต Settings');
+    return;
+  }
+  try {
+    const now = new Date();
+    const currentMonth = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
+    const targetMonth = previousMonthKey_(currentMonth);
+    const summary = buildMonthlyLeaveSummary_(targetMonth,
+      aggregateLeavesByPersonMonth_(getApprovedLeavesForMonth_(now, settings.leave_database_id, targetMonth)));
+    if (!summary) {
+      SpreadsheetApp.getUi().alert('เดือน ' + targetMonth + ' ไม่มีใบลาที่อนุมัติแล้วเลย จึงไม่มีสรุปให้ทดสอบ');
+      return;
+    }
+    sendLineMessage_(settings.line_group_id, {
+      type: 'text',
+      text: summary.title + '\n' + summary.lines.join('\n') + '\n' + summary.totalLine,
+    });
+    logResult_(now, 'success (manual test)', 'ส่งสรุปวันลารายเดือนตัวอย่างแล้ว (' + targetMonth + ')');
+    SpreadsheetApp.getUi().alert('ส่งสรุปรายเดือนแล้ว ลองเช็คในกลุ่ม LINE');
+  } catch (err) {
+    logResult_(new Date(), 'error (manual test)', String(err));
+    SpreadsheetApp.getUi().alert('ทดสอบสรุปรายเดือนไม่สำเร็จ: ' + err);
   }
 }
 

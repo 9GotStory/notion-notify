@@ -41,6 +41,14 @@ function runUnitTests() {
     testTextMessageWithLeaves_,
     testFlexMessageWithLeaves_,
     testAdvanceNoticeSection_,
+    testParseLeaveSubmissionInput_,
+    testBuildMyLeaveRow_,
+    testApprovedCancelNotifyTargets_,
+    testSubtractLeaveFromUsage_,
+    testPreviousMonthKey_,
+    testAggregateLeavesByPersonMonth_,
+    testBuildMonthlyLeaveSummary_,
+    testMonthlySummaryInMessages_,
     testScheduleHelpers_,
   ];
 
@@ -857,6 +865,179 @@ function testScheduleHelpers_() {
   // การ์ด flex: งานหลายวันมีบรรทัด "ต่อเนื่อง ..." ใต้ชื่องาน
   const digestFlex = buildLineMessage_(new Date('2026-08-06T08:30:00+07:00'), [spanForDigest], [], 'flex');
   assertContains_(JSON.stringify(digestFlex.contents), 'ต่อเนื่อง 6–7 ส.ค. 2569');
+}
+
+// ---------- ใบลาของฉัน / ยกเลิก / แก้ไข / สรุปรายเดือน ----------
+
+function testParseLeaveSubmissionInput_() {
+  const settings = createTestSettings_(); // ไม่มี leave_type_options → ใช้ LEAVE_TYPES_DEFAULT ตาม fallback
+  const today = bangkokTodayStr_();
+
+  const input = parseLeaveSubmissionInput_({
+    leaveType: 'ลากิจ',
+    reason: '  ไปต่อด่านที่ว่าการอำเภอ  ',
+    start: shiftDateStr_(today, 1),
+    end: shiftDateStr_(today, 2),
+    period: 'ครึ่งวันเช้า', // หลายวัน → ครึ่งวันใช้ไม่ได้ ต้องกลายเป็นเต็มวันเงียบๆ
+  }, settings);
+  assertEqual_(input.leaveType, 'ลากิจ');
+  assertEqual_(input.reason, 'ไปต่อด่านที่ว่าการอำเภอ');
+  assertEqual_(input.start, shiftDateStr_(today, 1));
+  assertEqual_(input.end, shiftDateStr_(today, 2));
+  assertEqual_(input.period, 'เต็มวัน');
+
+  // ครึ่งวันใช้ได้เมื่อลา 1 วัน + ประเภทที่ระเบียบอนุญาต
+  const halfDay = parseLeaveSubmissionInput_({
+    leaveType: 'ลาป่วย', reason: '', start: today, end: today, period: 'ครึ่งวันบ่าย',
+  }, settings);
+  assertEqual_(halfDay.period, 'ครึ่งวันบ่าย');
+
+  // reason ต้องถูกตัดที่ 500 ตัวอักษร (ตามข้อจำกัดของฟอร์มเดิม)
+  const long = parseLeaveSubmissionInput_({
+    leaveType: 'ลากิจ', reason: 'x'.repeat(600), start: today, end: today, period: '',
+  }, settings);
+  assertEqual_(long.reason.length, 500);
+
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({ leaveType: 'ไม่มีประเภทนี้', start: today, end: today }, settings);
+  }, 'ประเภทการลาไม่ถูกต้อง');
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลากิจ', start: shiftDateStr_(today, 5), end: shiftDateStr_(today, 3),
+    }, settings);
+  }, 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
+}
+
+function testBuildMyLeaveRow_() {
+  const future = { start: '2026-08-25', end: '2026-08-26' };
+  const past = { start: '2026-08-10', end: '2026-08-11' };
+  const today = '2026-08-20';
+  const base = { pageId: 'p1', leaveType: 'ลากิจ', reason: 'ธุระ', workDays: 2, period: 'เต็มวัน' };
+
+  // เมทริกซ์สถานะ × ช่วงวันที่: แก้ได้เฉพาะใบรอ, ยกเลิกได้รอ+อนุมัติและต้องยังไม่ผ่านไป
+  const cases = [
+    [LEAVE_STATUS.pendingApprover, future, true, true],
+    [LEAVE_STATUS.pendingChiefOffice, future, true, true],
+    [LEAVE_STATUS.approved, future, false, true],
+    [LEAVE_STATUS.pendingApprover, past, true, false],
+    [LEAVE_STATUS.approved, past, false, false],
+    [LEAVE_STATUS.rejected, future, false, false],
+    [LEAVE_STATUS.cancelled, future, false, false],
+  ];
+  cases.forEach(function (c) {
+    const row = buildMyLeaveRow_(Object.assign({}, base, c[1], {
+      status: c[0], currentApprover: { stage: 'first', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] },
+    }), today);
+    assertEqual_(row.canEdit, c[2], c[0] + '/' + c[1].start);
+    assertEqual_(row.canCancel, c[3], c[0] + '/' + c[1].start);
+  });
+
+  // ชื่อผู้อนุมัติที่ยังค้างแสดงเฉพาะใบที่รออนุมัติ
+  assertEqual_(buildMyLeaveRow_(Object.assign({}, base, future, {
+    status: LEAVE_STATUS.pendingApprover,
+    currentApprover: { stage: 'first', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] },
+  }), today).pendingApproverNames.join(','), 'นางสาวสมหญิง ใจงาม');
+  assertEqual_(buildMyLeaveRow_(Object.assign({}, base, future, {
+    status: LEAVE_STATUS.approved, currentApprover: null,
+  }), today).pendingApproverNames.length, 0);
+
+  // ใบไม่มีวันสิ้นสุด (end ว่าง) ต้องใช้วันเริ่มเป็นเกณฑ์ canCancel
+  const noEnd = buildMyLeaveRow_(Object.assign({}, base, { start: '2026-08-25', end: '', status: LEAVE_STATUS.approved }), today);
+  assertTrue_(noEnd.canCancel, 'ใบวันเดียวอนาคตต้องยกเลิกได้');
+}
+
+function testApprovedCancelNotifyTargets_() {
+  const roster = createTestRoster_();
+  const config = createTestApproversConfig_();
+  const settings = createTestSettings_(); // second_approvers = สมพร, สมศรี
+
+  // กลุ่มที่ตั้งส่งต่อ: ผู้อนุมัติของกลุ่ม + หัวหน้า สสอ. ทั้งสอง (ตัดตัวผู้ยื่น — ผู้ยื่นไม่อยู่ในรายการอยู่แล้ว)
+  const forward = approvedCancelNotifyTargets_(config, settings, roster, roster[0]);
+  assertEqual_(forward.map(s => s.lineUserId).sort().join(','), 'U_CHIEF,U_SECOND1,U_SECOND2');
+
+  // กลุ่มไม่ส่งต่อ: มีแค่ผู้อนุมัติของกลุ่ม — และถ้าผู้ยื่นคือผู้อนุมัติเอง → เหลือ []
+  const noForward = approvedCancelNotifyTargets_(config, settings, roster, roster[2]);
+  assertEqual_(noForward.map(s => s.lineUserId).join(','), '');
+
+  // กลุ่มไม่มีในคอนฟิก → [] (ไม่ throw — การยกเลิกต้องไม่ถูกบล็อก)
+  assertEqual_(approvedCancelNotifyTargets_(config, settings, roster, { groupName: 'ไม่มีกลุ่มนี้' }).length, 0);
+}
+
+function testSubtractLeaveFromUsage_() {
+  assertEqual_(subtractLeaveFromUsage_(null, createTestLeave_()), null);
+
+  const usage = { 'ลากิจ': 3, 'ลาพักร้อน': 2 };
+  const result = subtractLeaveFromUsage_(usage, { leaveType: 'ลากิจ', workDays: 2 });
+  assertEqual_(result['ลากิจ'], 1);
+  assertEqual_(result['ลาพักร้อน'], 2); // ประเภทอื่นไม่ถูกแตะ
+  assertEqual_(usage['ลากิจ'], 3); // ต้นฉบับไม่ถูก mutate
+
+  // หักจนติดลบ → หนีบที่ 0 (ใบเดิมอาจถูกแก้ประเภทใน Notion มาก่อน)
+  assertEqual_(subtractLeaveFromUsage_({ 'ลากิจ': 1 }, { leaveType: 'ลากิจ', workDays: 2 })['ลากิจ'], 0);
+}
+
+function testPreviousMonthKey_() {
+  assertEqual_(previousMonthKey_('2026-08'), '2026-07');
+  assertEqual_(previousMonthKey_('2026-01'), '2025-12');
+  assertEqual_(previousMonthKey_('2026-11'), '2026-10'); // เลขสองหลักคงรูปแบบ
+}
+
+function testAggregateLeavesByPersonMonth_() {
+  const aggregates = aggregateLeavesByPersonMonth_([
+    { fullName: 'นายสมศักดิ์ ใจดี', leaveType: 'ลากิจ', workDays: 1, start: '2026-07-01' },
+    { fullName: 'นายสมศักดิ์ ใจดี', leaveType: 'ลาป่วย', workDays: 0.5, start: '2026-07-10' },
+    { fullName: 'นางสาวสมหญิง ใจงาม', leaveType: 'ลาพักร้อน', workDays: 2, start: '2026-07-15' },
+  ]);
+  assertEqual_(aggregates.length, 2);
+  const somsak = aggregates.find(a => a.name === 'นายสมศักดิ์ ใจดี');
+  assertEqual_(somsak.byType['ลากิจ'], 1);
+  assertEqual_(somsak.byType['ลาป่วย'], 0.5); // ครึ่งวันสะสมได้
+  assertEqual_(somsak.total, 1.5);
+  const somying = aggregates.find(a => a.name === 'นางสาวสมหญิง ใจงาม');
+  assertEqual_(somying.total, 2);
+
+  assertEqual_(aggregateLeavesByPersonMonth_([]).length, 0);
+  // ใบไม่มีวันเริ่ม (ข้อมูลไม่สมบูรณ์) ต้องถูกข้าม ไม่ throw
+  assertEqual_(aggregateLeavesByPersonMonth_([{ fullName: 'x', leaveType: 'ลากิจ', workDays: 1 }]).length, 0);
+}
+
+function testBuildMonthlyLeaveSummary_() {
+  // เดือนว่าง → null (ผู้เรียกใช้เป็นเงื่อนไขว่าจะมีส่วนสรุปหรือไม่)
+  assertEqual_(buildMonthlyLeaveSummary_('2026-07', []), null);
+
+  const summary = buildMonthlyLeaveSummary_('2026-07', [
+    { name: 'นายสมศักดิ์ ใจดี', byType: { 'ลากิจ': 1, 'ลาป่วย': 0.5 }, total: 1.5 },
+    { name: 'นางสาวสมหญิง ใจงาม', byType: { 'ลาพักร้อน': 2 }, total: 2 },
+  ]);
+  assertEqual_(summary.title, '📊 สรุปวันลาประจำเดือนกรกฎาคม 2569'); // เดือนเต็ม + ปี พ.ศ.
+  assertEqual_(summary.lines.length, 2);
+  assertContains_(summary.lines[0], 'นายสมศักดิ์ ใจดี');
+  assertContains_(summary.lines[0], 'ลากิจ 1 วัน');
+  assertContains_(summary.lines[0], 'ลาป่วย ½ วัน');
+  assertContains_(summary.lines[0], 'รวม 1½ วันทำการ');
+  assertEqual_(summary.totalLine, 'รวมทั้งเดือน 3½ วันทำการ');
+}
+
+function testMonthlySummaryInMessages_() {
+  const date = new Date('2026-08-20T08:00:00+07:00');
+  const monthly = buildMonthlyLeaveSummary_('2026-07', [
+    { name: 'นายสมศักดิ์ ใจดี', byType: { 'ลากิจ': 2 }, total: 2 },
+  ]);
+
+  // ข้อความ text: ส่วนสรุปเดือนต่อท้ายเป็นส่วนสุดท้ายของข้อความเดียวกัน
+  const text = buildLineMessage_(date, [createTestItem_()], [], 'text', null, monthly);
+  assertContains_(text.text, 'ประชุมทีม');
+  assertContains_(text.text, 'สรุปวันลาประจำเดือนกรกฎาคม 2569');
+  assertContains_(text.text, 'รวมทั้งเดือน 2 วันทำการ');
+
+  // flex: มีกล่องสรุปเดือนใน body + altText บอกว่ามีสรุปใบลาเดือนที่แล้ว
+  const flex = buildLineMessage_(date, [createTestItem_()], [], 'flex', null, monthly);
+  assertContains_(flex.altText, 'สรุปใบลาเดือนที่แล้ว');
+  assertContains_(JSON.stringify(flex.contents.body), 'สรุปวันลาประจำเดือนกรกฎาคม 2569');
+
+  // ไม่ส่ง monthly เลย (param ที่ 6 ว่าง) → ไม่มีส่วนสรุป ผู้เรียกเดิมไม่กระทบ
+  const withoutMonthly = buildLineMessage_(date, [createTestItem_()], [], 'text', null, null);
+  assertFalse_(withoutMonthly.text.indexOf('สรุปวันลาประจำเดือน') !== -1);
 }
 
 function assertTrue_(condition, message) {

@@ -102,6 +102,9 @@ function handleApiRequest_(body) {
       case 'session': return apiSession_(body);
       case 'bind': return apiBind_(body);
       case 'submit': return apiSubmit_(body);
+      case 'myLeaves': return apiMyLeaves_(body);
+      case 'cancel': return apiCancelLeave_(body);
+      case 'update': return apiUpdateLeave_(body);
       case 'calendar': return apiCalendar_(body);
       case 'schedule': return apiSchedule_(body);
       default:
@@ -659,15 +662,23 @@ function apiBind_(body) {
   }
 }
 
+/** ตรวจ + มาตรฐาน input ใบลาจาก LIFF (ใช้ร่วมทั้งยื่นใหม่และแก้ไขใบเดิม) — pure ต่อ settings ที่ส่งเข้า
+ *  throw เป็นภาษาไทยเมื่อไม่ผ่าน คืน { leaveType, reason, start, end, period } */
+function parseLeaveSubmissionInput_(body, settings) {
+  const leaveType = String(body.leaveType || '').trim();
+  const reason = String(body.reason || '').trim().substring(0, 500);
+  const range = parseLeaveDateRange_(body.start, body.end, bangkokTodayStr_());
+  // ประเภทการลามาจาก Settings (leave_type_options) + ช่วงวัน (ครึ่งวันใช้ได้เฉพาะบางประเภท/ลา 1 วัน)
+  if (!leaveTypeList_(settings).includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
+  const period = normalizeLeavePeriod_(body.period, leaveType, range.start, range.end);
+  return { leaveType: leaveType, reason: reason, start: range.start, end: range.end, period: period };
+}
+
 function apiSubmit_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
   if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
-
-  const leaveType = String(body.leaveType || '').trim();
-  const reason = String(body.reason || '').trim().substring(0, 500);
-  const range = parseLeaveDateRange_(body.start, body.end, bangkokTodayStr_());
 
   const settings = getSettings_();
   requireLeaveSystemEnabled_(settings); // ปิดระบบ = ปฏิเสธการยื่นลาใหม่ทั้งหมด
@@ -675,10 +686,11 @@ function apiSubmit_(body) {
   if (!leaveDbId || leaveDbId === 'your_leave_database_id') {
     throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');
   }
-
-  // ประเภทการลามาจาก Settings (leave_type_options) + ช่วงวัน (ครึ่งวันใช้ได้เฉพาะบางประเภท/ลา 1 วัน)
-  if (!leaveTypeList_(settings).includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
-  const period = normalizeLeavePeriod_(body.period, leaveType, range.start, range.end);
+  const input = parseLeaveSubmissionInput_(body, settings);
+  const leaveType = input.leaveType;
+  const reason = input.reason;
+  const range = { start: input.start, end: input.end };
+  const period = input.period;
 
   // คำนวณตามระเบียบฯ: ฐานวันทำการ + ครึ่งวัน = 0.5 + คำเตือนจากยอดใช้จริงของปีนี้ (เตือนอย่างเดียว ไม่บล็อก)
   const workDays = computeWorkDays_(range.start, range.end, readHolidaySet_(), period);
@@ -796,6 +808,331 @@ function apiSubmit_(body) {
     needsSecond: chain.needsSecond && chain.stage === 'first',
     warnings: warnings,
   };
+}
+
+// ---------- ใบลาของฉัน: ดูรายการ / ยกเลิก / แก้ไข (apiAction: myLeaves / cancel / update) ----------
+
+/** ใบลาทั้งหมดของคนหนึ่งในปีปฏิทิน (ทุกสถานะ — เจ้าของดูประวัติของตัวเองได้ทั้งหมด)
+ *  เรียงวันเริ่มลงล่าง (ใบล่าสุดอยู่บน) — ใช้ queryNotionPages_ วน cursor ตามแบบ query ปฏิทิน */
+function getMyLeavesForYear_(leaveDbId, userId, year) {
+  const payload = {
+    filter: {
+      and: [
+        { property: PROPS_LEAVE.submitter, rich_text: { equals: userId } },
+        { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: (year + 1) + '-01-01T00:00:00+07:00' } },
+      ],
+    },
+    sorts: [{ property: PROPS_LEAVE.date, direction: 'descending' }],
+    page_size: 100,
+  };
+  return queryNotionPages_(resolveLeaveDataSourceId_(leaveDbId), payload).map(parseLeavePage_);
+}
+
+/** แถวใบลาหนึ่งใบสำหรับหน้า "ของฉัน" (pure) — กติกะปุ่มแก้ไข/ยกเลิกอยู่ฝั่งเซิร์ฟเวอร์ ฝั่งหน้าเว็บแค่ตาม
+ *  แก้ได้: เฉพาะใบที่ยังรออนุมัติ / ยกเลิกได้: รออนุมัติหรืออนุมัติแล้ว และยังไม่ผ่านไป (end >= วันนี้) */
+function buildMyLeaveRow_(leave, todayStr) {
+  const isPending = leave.status === LEAVE_STATUS.pendingApprover ||
+    leave.status === LEAVE_STATUS.pendingChiefOffice;
+  const effectiveEnd = leave.end || leave.start;
+  return {
+    pageId: leave.pageId,
+    leaveType: leave.leaveType,
+    start: leave.start,
+    end: effectiveEnd,
+    period: leave.period,
+    status: leave.status,
+    workDays: leave.workDays,
+    workDaysLabel: workDaysLabel_(leave.workDays),
+    reason: leave.reason,
+    canEdit: isPending,
+    canCancel: (isPending || leave.status === LEAVE_STATUS.approved) && effectiveEnd >= todayStr,
+    pendingApproverNames: isPending && leave.currentApprover ? (leave.currentApprover.names || []) : [],
+  };
+}
+
+function apiMyLeaves_(body) {
+  const profile = verifyLineToken_(requireAccessToken_(body));
+  const roster = readStaffRoster_();
+  const staff = findStaffByUserId_(roster, profile.userId);
+  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
+
+  const settings = getSettings_();
+  const now = new Date();
+  const todayStr = bangkokTodayStr_();
+  const year = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy'));
+
+  const leaveDbId = String(settings.leave_database_id || '').trim();
+  let leaves = [];
+  if (leaveDbId && leaveDbId !== 'your_leave_database_id') {
+    leaves = getMyLeavesForYear_(leaveDbId, staff.lineUserId, year)
+      // กันเคส property "ผู้ยื่น (ระบบ)" ถูกแก้ใน Notion จนดึงใบของคนอื่นมาแสดง
+      .filter(leave => leave.submitterUserId === profile.userId)
+      .map(leave => buildMyLeaveRow_(leave, todayStr));
+  }
+
+  // ยอดใช้สดกลับมาด้วยชุดเดียวกัน — หน้า "ของฉัน" refresh ยอดได้ทันทีหลังยกเลิกโดยไม่ต้องเรียก session ซ้ำ
+  return {
+    ok: true,
+    leaves: leaves,
+    usage: buildUsageSummary_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, now)),
+    leaveYear: String(year + 543),
+    today: todayStr,
+  };
+}
+
+/** หักใบลาหนึ่งออกจากยอดใช้ของปี (pure) — ใช้ตอนแก้ไขใบที่ยังรอ เพราะ usage นับใบรออนุมัติรวมอยู่แล้ว
+ *  ไม่หักแล้วคำเตือนจะนับใบเดิมซ้ำกับใบที่กำลังแก้ คืน null เมื่อรับ usage เป็น null (ตามสัญญาเดิม) */
+function subtractLeaveFromUsage_(usage, leave) {
+  if (!usage) return null;
+  const next = Object.assign({}, usage);
+  if (leave && leave.leaveType) {
+    next[leave.leaveType] = Math.max(0, (next[leave.leaveType] || 0) - (leave.workDays || 0));
+  }
+  return next;
+}
+
+/** ผู้ที่ควรรับรู้เมื่อใบลา "อนุมัติแล้ว" ถูกผู้ยื่นยกเลิก: ผู้อนุมัติของกลุ่ม (+ หัวหน้า สสอ. ถ้ากลุ่มตั้งส่งต่อ)
+ *  คำนวณจากคอนฟิกสดในชีต — ไม่ใช้ resolveApprovalChain_ เพราะฟังก์ชันนั้น throw เมื่อคอนฟิกไม่ครบ
+ *  ซึ่งห้ามบล็อกการยกเลิก คืน [] เมื่อไม่มีใครพร้อม (ผู้ยื่นยกเลิกได้ ระบบแค่ log ให้ผู้ดูแลเห็น) — pure */
+function approvedCancelNotifyTargets_(config, settings, roster, submitter) {
+  if (!submitter) return [];
+  const submitterKey = staffKey_(submitter);
+  const row = (config || []).find(c => c.groupName === submitter.groupName);
+  if (!row) return [];
+  // รวมผู้อนุมัติของกลุ่ม (+ หัวหน้า สสอ. ถ้ากลุ่มตั้งส่งต่อ) ตัดชื่อซ้ำและตัวผู้ยื่นทิ้ง
+  const names = [];
+  row.approverNames.concat(row.forward ? secondApproverNames_(settings) : [])
+    .forEach(n => { if (!names.includes(n)) names.push(n); });
+  return registeredStaffByNames_(roster, names).filter(s => staffKey_(s) !== submitterKey);
+}
+
+/** ผู้ยื่นยกเลิกใบลาของตัวเอง — ได้ทั้งใบรออนุมัติและใบอนุมัติแล้ว (ไม่ต้องขออนุมัติยกเลิกซ้ำ)
+ *  ใบที่วันที่ผ่านมาแล้วยกเลิกผ่านระบบไม่ได้ (กันแก้ประวัติย้อนหลังด้วยตัวเอง — ติดต่อผู้ดูแลแทน)
+ *  ระบบลาปิดอยู่ก็ยกเลิกได้ ตามนโยบายเดียวกับปุ่มอนุมัติ (ปิดแล้วใบค้างยังจบได้) */
+function apiCancelLeave_(body) {
+  const profile = verifyLineToken_(requireAccessToken_(body));
+  const roster = readStaffRoster_();
+  const staff = findStaffByUserId_(roster, profile.userId);
+  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
+
+  const pageId = String(body.pageId || '').trim();
+  if (!pageId) throw new Error('ไม่พบใบลาที่ต้องการยกเลิก');
+
+  // lock ตัวเดียวกับปุ่มอนุมัติและการแก้ไข กัน "ยกเลิก" แข่งกับ "กดอนุมัติ/แก้ไข" พร้อมกันจนสถานะเพี้ยน
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลคำสั่งอื่นอยู่ ลองอีกครั้ง');
+  try {
+    const leavePage = parseLeavePage_(getLeavePage_(pageId));
+
+    if (leavePage.submitterUserId !== profile.userId) {
+      throw new Error('คุณไม่ใช่เจ้าของใบลานี้');
+    }
+    const cancellable = leavePage.status === LEAVE_STATUS.approved ||
+      leavePage.status === LEAVE_STATUS.pendingApprover ||
+      leavePage.status === LEAVE_STATUS.pendingChiefOffice;
+    if (!cancellable) {
+      throw new Error('ใบลานี้ดำเนินการไปแล้วและยกเลิกไม่ได้ (สถานะปัจจุบัน: ' +
+        (leavePage.status || 'ไม่ทราบ') + ')');
+    }
+    if ((leavePage.end || leavePage.start) < bangkokTodayStr_()) {
+      throw new Error('ใบลาช่วงวันที่ผ่านมาแล้ว ยกเลิกผ่านระบบไม่ได้ — ติดต่อผู้ดูแลระบบ');
+    }
+
+    const wasPending = leavePage.status !== LEAVE_STATUS.approved;
+    // เก็บเป้าหมายแจ้งก่อนเคลียร์ "ผู้อนุมัติปัจจุบัน": ใบรออนุมัติแจ้งผู้อนุมัติที่ค้างอยู่
+    const pendingUserIds = wasPending && leavePage.currentApprover ? (leavePage.currentApprover.userIds || []) : [];
+
+    updateLeavePage_(pageId, {
+      [PROPS_LEAVE.status]: { select: { name: LEAVE_STATUS.cancelled } },
+      // เคลียร์ผู้อนุมัติปัจจุบัน = ปุ่มบนการ์ดเก่าที่ยังค้างในแชทใคร กดต่อจะโดน canApproveLeave_ ปฏิเสธ
+      [PROPS_LEAVE.currentApprover]: richTextValue_(''),
+      [PROPS_LEAVE.audit]: richTextValue_(
+        (leavePage.audit ? leavePage.audit + '\n' : '') + formatAuditLine_(staff, 'ยกเลิกโดยผู้ยื่น')),
+    });
+
+    // แจ้งผู้เกี่ยวข้องหลังบันทึกสำเร็จ — 1:1 เท่านั้น ไม่ fallback เข้ากลุ่ม (ใบลาเป็นเรื่องส่วนตัว)
+    if (pendingUserIds.length) {
+      pendingUserIds.forEach(userId => {
+        pushPrivateMessage_(userId, {
+          type: 'text',
+          text: 'ℹ️ ใบลาที่คุณกำลังพิจารณาถูกผู้ยื่นถอนแล้ว\n' + leaveSummaryText_(leavePage),
+        });
+      });
+    } else if (!wasPending) {
+      // ใบอนุมัติแล้ว: แจ้งผู้อนุมัติของกลุ่มปัจจุบัน (จากคอนฟิกสด) ให้ทราบ — ไม่มีใครพร้อมก็ log ไว้ให้ผู้ดูแลเห็น
+      const targets = approvedCancelNotifyTargets_(readApproversConfig_(), getSettings_(), roster, staff);
+      if (targets.length) {
+        targets.forEach(target => {
+          pushPrivateMessage_(target.lineUserId, {
+            type: 'text',
+            text: 'ℹ️ ' + staffDisplayName_(staff) + ' ยกเลิกใบลาที่อนุมัติไปแล้ว\n' + leaveSummaryText_(leavePage),
+          });
+        });
+      } else {
+        logResult_(new Date(), 'leave-cancel',
+          'ยกเลิกใบอนุมัติแล้วแต่ไม่มีผู้อนุมัติที่ลงทะเบียนพร้อมรับแจ้ง ใบลา ' + leavePage.fullName);
+      }
+    }
+    pushPrivateMessage_(staff.lineUserId, {
+      type: 'text',
+      text: '✅ ยกเลิกใบลาแล้ว\n' + leaveSummaryText_(leavePage),
+    });
+    logResult_(new Date(), 'leave-cancel',
+      leavePage.fullName + ' ยกเลิก' + leavePage.leaveType + ' ' +
+      leaveDateLabel_(leavePage.start, leavePage.end) + ' โดยผู้ยื่น');
+    // ยอดใช้วันลาคืนอัตโนมัติ: getLeaveUsageForYear_ ไม่นับสถานะ "ยกเลิก" อยู่แล้ว
+    return { ok: true, status: LEAVE_STATUS.cancelled };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** ผู้ยื่นแก้ไขใบลาของตัวเองที่ยังรออนุมัติ — แก้ในหน้า Notion เดิม: คำนวณใหม่ทั้งใบ
+ *  ตั้งสถานะกลับรออนุมัติ (รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด) ส่งการ์ดใหม่ และจด audit การแก้ไข */
+function apiUpdateLeave_(body) {
+  const profile = verifyLineToken_(requireAccessToken_(body));
+  const roster = readStaffRoster_();
+  const staff = findStaffByUserId_(roster, profile.userId);
+  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
+
+  const settings = getSettings_();
+  requireLeaveSystemEnabled_(settings); // การแก้ไข = การยื่นใหม่ จึงถูกปิดพร้อมระบบเหมือนกัน
+  const leaveDbId = String(settings.leave_database_id || '').trim();
+  if (!leaveDbId || leaveDbId === 'your_leave_database_id') {
+    throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');
+  }
+  const input = parseLeaveSubmissionInput_(body, settings);
+
+  const pageId = String(body.pageId || '').trim();
+  if (!pageId) throw new Error('ไม่พบใบลาที่ต้องการแก้ไข');
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลคำสั่งอื่นอยู่ ลองอีกครั้ง');
+  try {
+    const rawPage = getLeavePage_(pageId);
+    const leavePage = parseLeavePage_(rawPage);
+    if (leavePage.submitterUserId !== profile.userId) {
+      throw new Error('คุณไม่ใช่เจ้าของใบลานี้');
+    }
+    const isPending = leavePage.status === LEAVE_STATUS.pendingApprover ||
+      leavePage.status === LEAVE_STATUS.pendingChiefOffice;
+    if (!isPending) {
+      throw new Error('แก้ไขได้เฉพาะใบลาที่ยังรอการอนุมัติ (สถานะปัจจุบัน: ' +
+        (leavePage.status || 'ไม่ทราบ') + ') — ใบที่อนุมัติแล้วให้ยกเลิกแล้วยื่นใหม่');
+    }
+
+    // คำนวณใหม่ทั้งใบ: หักใบเดิมออกจากยอดใช้ก่อน (usage นับใบรออนุมัติรวมอยู่แล้ว)
+    const workDays = computeWorkDays_(input.start, input.end, readHolidaySet_(), input.period);
+    const usage = subtractLeaveFromUsage_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date()), leavePage);
+    const warnings = buildLeaveWarnings_(input.leaveType, workDays, usage);
+    const usedLabel = usage && LEAVE_QUOTAS[input.leaveType] != null
+      ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((usage[input.leaveType] || 0) + workDays) + ' / ' + LEAVE_QUOTAS[input.leaveType] + ' วันทำการ'
+      : '';
+    const systemNote = [usedLabel].concat(warnings).filter(Boolean).join('\n');
+    const oldUserIds = leavePage.currentApprover ? (leavePage.currentApprover.userIds || []) : [];
+
+    let newStatus;
+    let currentApproverJson;
+    let approverLabel;
+    let needsSecond = false;
+    let chainTargets = [];
+    let viaPool = false;
+    if (!isLeaveApprovalEnabled_(settings)) {
+      // โหมดแจ้งลาอัตโนมัติ: คงสถานะ "อนุมัติ" ไว้ (กันใบค้างเป็น "รอ" โดยไม่มีใครได้รับการ์ด)
+      newStatus = LEAVE_STATUS.approved;
+      currentApproverJson = '';
+      approverLabel = 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว';
+    } else {
+      // รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด (throw ไทยได้ — ใบเดิมยังอยู่สถานะเดิม ผู้ใช้ยังยกเลิกได้)
+      const chain = resolveApprovalChain_(readApproversConfig_(), settings, roster, staff);
+      newStatus = chain.stage === 'second' ? LEAVE_STATUS.pendingChiefOffice : LEAVE_STATUS.pendingApprover;
+      currentApproverJson = serializeApproverInfo_(chain.stage, chain.targets);
+      chainTargets = chain.targets;
+      viaPool = !!chain.viaPool;
+      needsSecond = chain.needsSecond && chain.stage === 'first';
+      approverLabel = chain.targets.map(s => staffDisplayName_(s)).join(', ');
+      if (viaPool) approverLabel += ' (เข้ากลุ่มหลัก — ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)';
+    }
+
+    const properties = {
+      [PROPS_LEAVE.type]: { select: { name: input.leaveType } },
+      [PROPS_LEAVE.date]: { date: { start: input.start, end: input.end } },
+      [PROPS_LEAVE.reason]: richTextValue_(input.reason),
+      [PROPS_LEAVE.status]: { select: { name: newStatus } },
+      [PROPS_LEAVE.currentApprover]: richTextValue_(currentApproverJson),
+      [PROPS_LEAVE.workDays]: { number: workDays },
+      [PROPS_LEAVE.audit]: richTextValue_(
+        (leavePage.audit ? leavePage.audit + '\n' : '') + formatAuditLine_(staff, 'ผู้ยื่นแก้ไขใบลา — ส่งขออนุมัติใหม่')),
+    };
+    // เขียน "ช่วงวัน"/"หมายเหตุระบบ" แบบ optional เหมือนตอนสร้างใบ (database รุ่นเก่าอาจยังไม่มีสอง property นี้)
+    // เคลียร์ค่าเดิมเฉพาะเมื่อ property มีอยู่จริงในหน้า — ไม่งั้น PATCH จะพังเพราะส่ง property ที่ DB ไม่มี
+    const rawProps = rawPage.properties || {};
+    if (input.period !== 'เต็มวัน') {
+      properties[PROPS_LEAVE.period] = richTextValue_(input.period);
+    } else if (rawProps[PROPS_LEAVE.period]) {
+      properties[PROPS_LEAVE.period] = richTextValue_('');
+    }
+    if (systemNote) {
+      properties[PROPS_LEAVE.systemNote] = richTextValue_(systemNote);
+    } else if (rawProps[PROPS_LEAVE.systemNote]) {
+      properties[PROPS_LEAVE.systemNote] = richTextValue_('');
+    }
+
+    const updatedPage = parseLeavePage_(updateLeavePage_(pageId, properties));
+
+    // แจ้งผู้อนุมัติชุดเก่า "ที่ไม่อยู่ในชุดใหม่" ว่าใบถูกแก้ — การ์ดเก่าในแชทเป็นข้อมูลเก่าแล้ว
+    // (ชุดที่ซ้ำกับชุดใหม่จะได้การ์ดใหม่อยู่แล้ว ไม่ต้องเปลือง push ซ้ำ)
+    const newUserIds = {};
+    chainTargets.forEach(s => { newUserIds[s.lineUserId] = true; });
+    oldUserIds.filter(id => id && !newUserIds[id]).forEach(userId => {
+      pushPrivateMessage_(userId, {
+        type: 'text',
+        text: 'ℹ️ ผู้ยื่นแก้ไขใบลาที่คุณกำลังพิจารณา — การ์ดใหม่ส่งให้ผู้อนุมัติปัจจุบันแล้ว (ปุ่มบนการ์ดเก่าใช้ไม่ได้)\n' +
+          leaveSummaryText_(updatedPage),
+      });
+    });
+
+    if (newStatus === LEAVE_STATUS.approved) {
+      // โหมดแจ้งลาอัตโนมัติ: แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก — ใบลาขึ้นสรุปเช้าได้ทันทีเพราะยังเป็น "อนุมัติ"
+      try {
+        sendLineMessage_(settings.line_group_id, {
+          type: 'flex',
+          altText: '🏖️ แก้ไขการแจ้งลา: ' + updatedPage.fullName + ' — ' + input.leaveType + ' ' +
+            leaveDateLabel_(input.start, input.end),
+          contents: buildLeaveNoticeBubble_(updatedPage),
+        });
+      } catch (notifyErr) {
+        logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลา (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
+      }
+    } else if (viaPool) {
+      try {
+        sendLineMessage_(settings.line_group_id, buildLeaveApprovalBubble_(updatedPage));
+      } catch (err) {
+        logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติ (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + err);
+        throw new Error('ส่งเรื่องให้ผู้อนุมัติไม่สำเร็จ โปรดลองอีกครั้ง (หากยังไม่สำเร็จติดต่อผู้ดูแล)');
+      }
+    } else {
+      pushApproverCardWithFallback_(chainTargets.map(s => s.lineUserId), buildLeaveApprovalBubble_(updatedPage), updatedPage);
+    }
+
+    logResult_(new Date(), 'leave-edit',
+      updatedPage.fullName + ' แก้ไขใบลาเป็น' + input.leaveType + ' ' +
+      leaveDateLabel_(input.start, input.end) + ' (' + workDaysLabel_(workDays) + ') → ' + approverLabel);
+
+    return {
+      ok: true,
+      workDays: workDays,
+      workDaysLabel: workDaysLabel_(workDays),
+      period: input.period,
+      approverName: approverLabel,
+      needsSecond: needsSecond,
+      autoApproved: newStatus === LEAVE_STATUS.approved,
+      warnings: warnings,
+    };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 function apiCalendar_(body) {
@@ -1072,8 +1409,14 @@ function leaveSummaryText_(leavePage) {
 }
 
 function handleLeavePostback_(event, webhookEventId) {
+  // lock ตัวเดียวกับ apiCancelLeave_/apiUpdateLeave_ กัน "ผู้อนุมัติกดปุ่ม" แข่งกับ
+  // "ผู้ยื่นยกเลิก/แก้ไข" พร้อมกันจนสถานะเพี้ยน — ได้ lock ไม่ทันให้ return เลย (ยังไม่ mark dedup
+  // เพื่อให้ webhook retry รอบถัดไปของ LINE มีโอกาสได้ lock; ผู้กดก็กดซ้ำเองได้)
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return;
   try {
     // LINE ยิง webhook ซ้ำเมื่อตอบช้า — เก็บ webhookEventId กันประมวลผลซ้ำ
+    // (mark หลังได้ lock เท่านั้น: ถ้า mark ก่อนแล้วไม่ได้ทำงาน retry จะถูก dedup กลืนทิ้งจนใบลาค้าง)
     if (webhookEventId) {
       const cache = CacheService.getScriptCache();
       const dedupKey = 'wh_' + webhookEventId;
@@ -1197,6 +1540,8 @@ function handleLeavePostback_(event, webhookEventId) {
   } catch (err) {
     // ไม่ throw กลับไปหา LINE (เดี๋ยวถูก retry รัวๆ) — เก็บไว้ดูใน Logs/Executions
     logResult_(new Date(), 'error', 'ประมวลผลปุ่มใบลาไม่สำเร็จ: ' + err);
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -1242,6 +1587,98 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
     .map(leave => enrichLeaveForDisplay_(leave, todayStr, holidays, roster))
     // เรียงตามชื่อ (ส่วนแสดงผลเป็นบรรทัดเดียวต่อคน ไม่มีกลุ่มงาน จึงเรียงชื่อให้อ่านไล่ง่าย)
     .sort((a, b) => (a.firstName || a.fullName).localeCompare(b.firstName || b.fullName, 'th'));
+}
+
+// ---------- สรุปวันลารายเดือน (แนบท้ายข้อความเช้าวันทำการแรกของแต่ละเดือน) ----------
+
+// เดือนก่อนหน้าจาก 'YYYY-MM' — pure
+function previousMonthKey_(monthKey) {
+  const parts = String(monthKey).split('-').map(Number);
+  return parts[1] === 1 ? (parts[0] - 1) + '-12' : parts[0] + '-' + String(parts[1] - 1).padStart(2, '0');
+}
+
+/** ใบลาสถานะ "อนุมัติ" ที่เริ่มในเดือนที่กำหนด (นับตามวันเริ่มของใบ — semantics เดียวกับยอดใช้รายปี
+ *  ใบคร่อมเดือนจึงรวมอยู่เดือนที่เริ่มเท่านั้น ไม่หักแยกข้ามเดือน)
+ *  ถ้ายังไม่ตั้งค่า leave_database_id คืน [] พร้อม log (แบบเดียวกับ getApprovedLeavesForDay_) */
+function getApprovedLeavesForMonth_(now, leaveDatabaseId, monthKey) {
+  const dbId = String(leaveDatabaseId || '').trim();
+  if (!dbId || dbId === 'your_leave_database_id') {
+    logResult_(now, 'skip-leave-monthly', 'ยังไม่ได้ตั้งค่า leave_database_id — ข้ามสรุปวันลารายเดือน');
+    return [];
+  }
+  const bounds = scheduleMonthBounds_(monthKey); // {from, to} — to เป็นวันแรกของเดือนถัดไป (exclusive)
+  const payload = {
+    filter: {
+      and: [
+        { property: PROPS_LEAVE.status, select: { equals: LEAVE_STATUS.approved } },
+        { property: PROPS_LEAVE.date, date: { on_or_after: bounds.from + 'T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: bounds.to + 'T00:00:00+07:00' } },
+      ],
+    },
+    page_size: 100,
+  };
+  return queryNotionPages_(resolveLeaveDataSourceId_(dbId), payload).map(parseLeavePage_);
+}
+
+/** รวมใบลาเป็นรายคน×ประเภทสำหรับสรุปเดือน (pure) — เรียงชื่อไทยเหมือนส่วน "ผู้ลาวันนี้" */
+function aggregateLeavesByPersonMonth_(leaves) {
+  const byPerson = {};
+  (leaves || []).forEach(leave => {
+    if (!leave.start || !leave.leaveType) return;
+    const name = leave.fullName || '(ไม่ทราบชื่อ)';
+    if (!byPerson[name]) byPerson[name] = { name: name, byType: {}, total: 0 };
+    byPerson[name].byType[leave.leaveType] = (byPerson[name].byType[leave.leaveType] || 0) + (leave.workDays || 0);
+    byPerson[name].total += leave.workDays || 0;
+  });
+  return Object.keys(byPerson)
+    .map(k => byPerson[k])
+    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+}
+
+// ตัวเลขวันลาแบบไม่มีหน่วยติดมา (เช่น "2", "1½") — คู่กับ workDaysLabel_ ที่ติด " วัน" มาให้
+// ใช้เมื่อผู้เรียกจะต่อหน่วยเอง เช่น "1½ วันทำการ"
+function workDaysShortLabel_(days) {
+  const whole = Math.floor(days);
+  const half = days - whole >= 0.5;
+  return (whole > 0 ? whole : '') + (half ? '½' : '');
+}
+
+/** สรุปเดือนแบบโครงสร้าง (ใช้ทั้งข้อความ text และแถว flex) — pure
+ *  คืน { title, lines, totalLine, grandTotal } หรือ null เมื่อเดือนนั้นไม่มีใบลาเลย */
+function buildMonthlyLeaveSummary_(monthKey, aggregates) {
+  if (!aggregates || !aggregates.length) return null;
+  const parts = String(monthKey).split('-').map(Number);
+  const title = '📊 สรุปวันลาประจำเดือน' + THAI_MONTH_NAMES[parts[1] - 1] + ' ' + (parts[0] + 543);
+  let grandTotal = 0;
+  const lines = aggregates.map(row => {
+    grandTotal += row.total;
+    const types = Object.keys(row.byType)
+      .map(type => type + ' ' + workDaysLabel_(row.byType[type]))
+      .join(', ');
+    return '• ' + row.name + ' — ' + types + ' (รวม ' + workDaysShortLabel_(row.total) + ' วันทำการ)';
+  });
+  return {
+    title: title,
+    lines: lines,
+    totalLine: 'รวมทั้งเดือน ' + workDaysShortLabel_(grandTotal) + ' วันทำการ',
+    grandTotal: grandTotal,
+  };
+}
+
+/** เตรียมส่วนสรุปวันลารายเดือนสำหรับข้อความเช้า — คืน { currentMonth, summary } หรือ null
+ *  เงื่อนไข: สวิตช์ monthly_leave_summary_enabled ไม่ใช่ FALSE + ยังไม่เคยส่งสรุปของเดือนปัจจุบัน
+ *  (เดือนที่สรุปคือเดือนก่อนหน้าที่เพิ่งจบ; วันทำการแรกของเดือน = การรันเช้าครั้งแรกของเดือนนั้น
+ *  เพราะการรันเช้าข้ามวันหยุดไปแล้ว) — summary เป็น null ได้เมื่อเดือนก่อนไม่มีใครลาเลย
+ *  ไม่ upsert marker เอง: ผู้เรียก mark หลังส่งสำเร็จเท่านั้น (ผิดพลาดวันนั้น = ลองใหม่วันถัดไป) */
+function maybeCollectMonthlyLeaveSummary_(now, settings, props) {
+  if (String(settings.monthly_leave_summary_enabled || '').trim().toUpperCase() === 'FALSE') return null;
+  const currentMonth = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
+  if (props.getProperty('last_monthly_leave_summary') === currentMonth) return null;
+  const targetMonth = previousMonthKey_(currentMonth);
+  const summary = buildMonthlyLeaveSummary_(
+    targetMonth,
+    aggregateLeavesByPersonMonth_(getApprovedLeavesForMonth_(now, settings.leave_database_id, targetMonth)));
+  return { currentMonth: currentMonth, summary: summary };
 }
 
 // หา "วันทำการถัดไป" ถัดจากวันที่กำหนด (ข้ามเสาร์-อาทิตย์และวันหยุด) — pure

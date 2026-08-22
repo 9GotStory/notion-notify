@@ -51,6 +51,7 @@
       <button type="button" data-tab="settings" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium bg-primary text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">การตั้งค่า</button>
       <button type="button" data-tab="holidays" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">วันหยุด</button>
       <button type="button" data-tab="logs" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ประวัติการส่ง</button>
+      <button type="button" data-tab="report" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">รายงานวันลา</button>
     </nav>
 
     <!-- ===== Settings ===== -->
@@ -149,6 +150,41 @@
       </div>
     </section>
 
+    <!-- ===== รายงานวันลา (สรุปใบลาที่อนุมัติแล้ว รายคน×ประเภท) ===== -->
+    <section id="tab-report" class="hidden">
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+        <div class="flex flex-wrap items-end gap-2">
+          <div>
+            <label for="r-year" class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ.)</label>
+            <select id="r-year" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"></select>
+          </div>
+          <div>
+            <label for="r-month" class="block text-xs font-semibold text-slate-500 mb-1.5">เดือน</label>
+            <select id="r-month" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              <option value="">ทั้งปี</option>
+            </select>
+          </div>
+          <button type="button" id="btnRunReport" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">แสดง</button>
+          <button type="button" id="btnReportCsv" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-primary bg-primary-light disabled:opacity-50 disabled:cursor-default">ดาวน์โหลด CSV</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">สรุปเฉพาะใบลาสถานะ "อนุมัติ" นับเป็นวันทำการตามวันเริ่มของใบ (ใบคร่อมเดือนนับเดือนที่เริ่ม) — ตรงกับวิธีนับสิทธิ์ของระบบลา</p>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr id="reportHead" class="text-left text-xs text-slate-500 font-semibold"></tr>
+            </thead>
+            <tbody id="reportBody" class="divide-y divide-slate-200"></tbody>
+            <tfoot id="reportFoot" class="divide-y divide-slate-200 border-t-2 border-slate-200 font-semibold"></tfoot>
+          </table>
+        </div>
+        <p id="reportEmpty" class="hidden text-center text-slate-500 text-sm py-8"></p>
+        <p id="reportError" class="hidden text-sm text-red-700 bg-red-50 border-t border-red-200 p-4"></p>
+      </div>
+    </section>
+
   </div>
 
   <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-sm px-4 py-2.5 rounded-lg opacity-0 pointer-events-none transition-opacity motion-reduce:transition-none max-w-[calc(100%-2rem)] text-center"></div>
@@ -197,10 +233,11 @@
       });
       btn.classList.add('bg-primary', 'text-white');
       btn.classList.remove('text-slate-500');
-      ['settings', 'holidays', 'logs'].forEach(name => {
+      ['settings', 'holidays', 'logs', 'report'].forEach(name => {
         $('tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab);
       });
       if (btn.dataset.tab === 'logs') loadLogs();
+      if (btn.dataset.tab === 'report' && !reportLoaded) loadReport(); // เปิดครั้งแรกโหลดเลย ครั้งถัดไปใช้ของเดิม
     });
   });
 
@@ -360,10 +397,136 @@
     showToast('เกิดข้อผิดพลาด: ' + (err && err.message ? err.message : err), true);
   }
 
+  // ---------- รายงานวันลา ----------
+  let lastReport = null; // เก็บผลล่าสุดไว้ใช้กับปุ่ม CSV (ไม่ต้องยิง server ซ้ำ)
+  let reportLoaded = false; // โหลดรายงานอัตโนมัติเมื่อเปิดแท็บครั้งแรกเท่านั้น
+
+  const REPORT_THAI_MONTHS = [
+    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
+  ];
+
+  function initReportControls_() {
+    const now = new Date();
+    const beYear = now.getFullYear() + 543;
+    const yearSel = $('r-year');
+    for (let y = beYear; y >= beYear - 3; y--) {
+      const opt = document.createElement('option');
+      opt.value = String(y - 543); // ส่งกลับเป็น ค.ศ. ตามสัญญาของ api_getLeaveReport
+      opt.textContent = String(y);
+      yearSel.appendChild(opt);
+    }
+    const monthSel = $('r-month');
+    REPORT_THAI_MONTHS.forEach((name, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(i + 1).padStart(2, '0');
+      opt.textContent = name;
+      monthSel.appendChild(opt);
+    });
+  }
+
+  function reportDays_(value) {
+    const num = Number(value || 0);
+    return num === 0 ? '—' : String(num); // 0 แสดงเป็นขีดให้สายตาไล่คนที่ยังไม่ลาง่ายขึ้น
+  }
+
+  function loadReport() {
+    reportLoaded = true;
+    const year = $('r-year').value;
+    const month = $('r-month').value;
+    if (!year) return;
+    $('btnRunReport').disabled = true;
+    $('btnRunReport').textContent = 'กำลังโหลด…';
+    $('reportError').classList.add('hidden');
+    $('reportEmpty').classList.add('hidden');
+    google.script.run
+      .withSuccessHandler(res => {
+        $('btnRunReport').disabled = false;
+        $('btnRunReport').textContent = 'แสดง';
+        if (res.ok) { lastReport = res; renderReport(res); }
+        else showReportError_(res.error || 'โหลดรายงานไม่สำเร็จ');
+      })
+      .withFailureHandler(err => {
+        $('btnRunReport').disabled = false;
+        $('btnRunReport').textContent = 'แสดง';
+        showReportError_(err && err.message ? err.message : String(err));
+      })
+      .api_getLeaveReport(year, month ? year + '-' + month : '');
+  }
+
+  function showReportError_(message) {
+    lastReport = null;
+    $('btnReportCsv').disabled = true;
+    $('reportHead').innerHTML = '';
+    $('reportBody').innerHTML = '';
+    $('reportFoot').innerHTML = '';
+    $('reportEmpty').classList.add('hidden');
+    const el = $('reportError');
+    el.textContent = message;
+    el.classList.remove('hidden');
+  }
+
+  function renderReport(res) {
+    $('btnReportCsv').disabled = false;
+    $('reportError').classList.add('hidden');
+
+    $('reportHead').innerHTML =
+      '<th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">กลุ่มงาน</th>' +
+      res.types.map(t => '<th class="px-4 py-2.5 text-right whitespace-nowrap">' + escapeHtml(t) + '</th>').join('') +
+      '<th class="px-4 py-2.5 text-right">รวม</th>';
+
+    const body = $('reportBody');
+    body.innerHTML = res.rows.map(row =>
+      '<tr>' +
+        '<td class="px-4 py-2.5 whitespace-nowrap">' + escapeHtml(row.name) + '</td>' +
+        '<td class="px-4 py-2.5 text-slate-500 whitespace-nowrap">' + escapeHtml(row.group || '') + '</td>' +
+        row.cells.map(c => '<td class="px-4 py-2.5 text-right font-mono text-xs">' + escapeHtml(reportDays_(c)) + '</td>').join('') +
+        '<td class="px-4 py-2.5 text-right font-mono text-xs font-semibold">' + escapeHtml(reportDays_(row.total)) + '</td>' +
+      '</tr>').join('');
+
+    $('reportFoot').innerHTML =
+      '<tr class="text-slate-600">' +
+        '<td class="px-4 py-2.5" colspan="2">รวมทุกคน — ' + escapeHtml(res.monthLabel) + '</td>' +
+        res.columnTotals.map(c => '<td class="px-4 py-2.5 text-right font-mono text-xs">' + escapeHtml(reportDays_(c)) + '</td>').join('') +
+        '<td class="px-4 py-2.5 text-right font-mono text-xs">' + escapeHtml(reportDays_(res.grandTotal)) + '</td>' +
+      '</tr>';
+
+    $('reportEmpty').textContent = 'ไม่มีใบลาที่อนุมัติแล้วในช่วง' + res.monthLabel;
+    $('reportEmpty').classList.toggle('hidden', res.rows.length > 0);
+  }
+
+  // สร้าง CSV ฝั่ง browser ทั้งหมด — นำหน้าด้วย BOM กัน Excel เปิดภาษาไทยเพี้ยน
+  function downloadReportCsv_() {
+    if (!lastReport || !lastReport.rows) { showToast('ยังไม่มีรายงานให้บันทึก กด "แสดง" ก่อน', true); return; }
+    const res = lastReport;
+    const quote = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    const lines = [];
+    lines.push([quote('รายงานวันลา ' + res.monthLabel)].concat(res.types.map(() => '')).concat(['']).join(','));
+    lines.push(['ชื่อ', 'กลุ่มงาน'].concat(res.types).concat(['รวม']).map(quote).join(','));
+    res.rows.forEach(row => {
+      lines.push([row.name, row.group || ''].concat(row.cells.map(String)).concat([String(row.total)]).map(quote).join(','));
+    });
+    lines.push(['รวมทุกคน', ''].concat(res.columnTotals.map(String)).concat([String(res.grandTotal)]).map(quote).join(','));
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'รายงานวันลา-' + (res.month ? res.month : res.year) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  $('btnRunReport').addEventListener('click', loadReport);
+  $('btnReportCsv').addEventListener('click', downloadReportCsv_);
+  $('btnReportCsv').disabled = true;
+
   // ---------- Init ----------
   loadSettings();
   loadHolidays();
   loadLogs();
+  initReportControls_();
 </script>
 </body>
 </html>
