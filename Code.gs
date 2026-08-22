@@ -392,18 +392,31 @@ function apiSchedule_(body) {
 
   const payload = buildNotionQueryPayload_(bounds.from, bounds.to);
   const dataSourceId = resolveDataSourceId_(settings.notion_database_id);
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: notionHeaders_(),
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
-  });
-  if (response.getResponseCode() >= 300) {
-    throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + ')');
+  // Notion ให้ได้สูงสุด 100 รายการ/หน้า — เดือนที่แน่นอาจเกิน จึงวนตาม next_cursor ให้ครบ
+  // กัน runaway ด้วยเพดาน 3 หน้า (300 รายการ/เดือน) เกินขอบเขตการใช้งานจริงของหน่วยงานมาก
+  // หมายเหตุ: filter นี้เทียบกับ "วันเริ่ม" ของงาน — งานแบบช่วงวันที่ข้ามเดือนจะขึ้นเฉพาะเดือนเริ่มต้น
+  // (เหมือนข้อความเช้า ดูหมายเหตุใน getNotionItemsForDay_ — ปัจจุบันข้อมูลจริงยังไม่มีเคสช่วงวันที่)
+  const results = [];
+  let cursor = null;
+  for (let i = 0; i < 3; i++) {
+    const queryPayload = cursor ? Object.assign({}, payload, { start_cursor: cursor }) : payload;
+    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: notionHeaders_(),
+      payload: JSON.stringify(queryPayload),
+      muteHttpExceptions: true,
+    });
+    if (response.getResponseCode() >= 300) {
+      throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + ')');
+    }
+    const data = JSON.parse(response.getContentText());
+    results.push.apply(results, data.results || []);
+    if (!data.has_more || !data.next_cursor) break;
+    cursor = data.next_cursor;
+    if (i === 2) console.warn('schedule ' + month + ' เกิน 300 รายการ ตัดที่เพดาน 3 หน้า');
   }
-  const data = JSON.parse(response.getContentText());
-  const items = (data.results || []).map(page => toScheduleItem_(parseNotionPage_(page), full));
+  const items = results.map(page => toScheduleItem_(parseNotionPage_(page), full));
   items.sort((a, b) => a.date === b.date
     ? a.title.localeCompare(b.title, 'th')
     : (a.date < b.date ? -1 : 1));
