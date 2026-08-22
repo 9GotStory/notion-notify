@@ -279,31 +279,46 @@ function buildNotionQueryPayload_(todayStr, tomorrowStr) {
   };
 }
 
+// ยิง data-source query วนตาม next_cursor จนครบ (Notion ให้สูงสุด 100 รายการ/หน้า)
+// กัน runaway ด้วยเพดานหน้า (default 3) แล้ว log เตือนถ้ายังเหลือรายการต่อ — ใช้ร่วมทุกจุดที่ query ปฏิทิน
+function queryNotionPages_(dataSourceId, payload, maxPages) {
+  const limit = maxPages || 3;
+  const results = [];
+  let cursor = null;
+  for (let i = 0; i < limit; i++) {
+    const queryPayload = cursor ? Object.assign({}, payload, { start_cursor: cursor }) : payload;
+    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: notionHeaders_(),
+      payload: JSON.stringify(queryPayload),
+      muteHttpExceptions: true,
+    });
+    if (response.getResponseCode() >= 300) {
+      throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' + response.getContentText());
+    }
+    const data = JSON.parse(response.getContentText());
+    results.push.apply(results, data.results || []);
+    if (!data.has_more || !data.next_cursor) break;
+    cursor = data.next_cursor;
+    if (i === limit - 1) console.warn('query ปฏิทินเกิน ' + limit * 100 + ' รายการ ตัดที่เพดาน ' + limit + ' หน้า');
+  }
+  return results;
+}
+
 function getNotionItemsForDay_(date, databaseId) {
   const dataSourceId = resolveDataSourceId_(databaseId);
 
   const todayStr = Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd');
   const tomorrowStr = Utilities.formatDate(new Date(date.getTime() + 86400000), 'Asia/Bangkok', 'yyyy-MM-dd');
 
-  const payload = buildNotionQueryPayload_(todayStr, tomorrowStr);
+  // หน้าต่างย้อนหลัง 92 วันเพื่อเก็บ "งานแบบช่วงวันที่" ที่เริ่มก่อนหน้าแต่ยังครอบคลุมวันนี้
+  // (Notion filter เทียบวันเริ่มเท่านั้น) แล้วกรอง overlap จริงด้วย itemOverlapsRange_ อีกชั้น
+  const payload = buildNotionQueryPayload_(shiftDateStr_(todayStr, -RANGE_PADDING_DAYS), tomorrowStr);
 
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: notionHeaders_(),
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
-  });
-
-  if (response.getResponseCode() >= 300) {
-    throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' + response.getContentText());
-  }
-
-  const data = JSON.parse(response.getContentText());
-  return (data.results || []).map(parseNotionPage_);
-  // หมายเหตุ: ตัวกรองนี้เช็คว่า "วันเริ่ม" ของแต่ละงานตรงกับวันนี้ ถ้างานไหนตั้งเป็นช่วงวันที่ (มีวันสิ้นสุดด้วย)
-  // ยังไม่ยืนยัน 100% ว่า Notion จะรวมงานนั้นในทุกวันของช่วงหรือแค่วันเริ่มวันเดียว — ยังไม่เจอเคสแบบนี้จริง
-  // ในข้อมูลตอนตรวจสอบ ถ้าเจอว่างานหลายวันหายไปจากการแจ้งเตือนวันถัดๆ ไป ให้บอกแล้วจะปรับ filter เพิ่ม
+  return queryNotionPages_(dataSourceId, payload)
+    .map(parseNotionPage_)
+    .filter(item => itemOverlapsRange_(item, todayStr, tomorrowStr));
 }
 
 // ดึงข้อมูลส่วน "ล่วงหน้า" ตามค่า advance_notice_days ใน Settings (1–7, เว้นว่าง/ค่าอื่น = ปิด)
@@ -316,6 +331,28 @@ function collectAdvanceNotice_(now, settings) {
   const items = getNotionItemsForDay_(targetDate, settings.notion_database_id);
   const leaves = getApprovedLeavesForDay_(targetDate, settings.leave_database_id);
   return items.length || leaves.length ? { date: targetDate, items: items, leaves: leaves } : null;
+}
+
+// ---------- งานแบบช่วงวันที่ (มีวันสิ้นสุด) ต้องนับทุกวันที่ครอบคลุม ----------
+
+// Notion date filter เทียบได้เฉพาะ "วันเริ่ม" ของ property (ยืนยันจากเอกสาร API — ธง use_end
+// มีเฉพาะ meeting-notes) งานที่เริ่มก่อนหน้าต่างที่สนใจแต่ยังไม่จบจึงตกไปตอน query
+// วิธีแก้ตามแบบเดียวกับ getApprovedLeavesForDay_: ขยายหน้าต่าง query ย้อนหลัง PADDING_DAYS
+// วัน แล้วกรอง overlap จริงฝั่งโค้ดด้วย itemOverlapsRange_ ข้างล่าง
+const RANGE_PADDING_DAYS = 92; // ~3 เดือน — ครอบคลุมงานยาวข้ามเดือนในทางปฏิบัติ
+
+// เลื่อนวันที่แบบ 'yyyy-MM-dd' ไปข้างหน้า/ข้างหลัง N วัน (UTC ล้วน ไม่พึ่ง timezone เครื่องรัน) — pure
+function shiftDateStr_(dayStr, days) {
+  return new Date(Date.parse(dayStr + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+}
+
+// งานคร่อมช่วง [fromStr, toStr) หรือไม่ (toStr เป็น exclusive — วันแรกที่ "ไม่"นับ) — pure
+// รับได้ทั้งวันที่ล้วนและ datetime แบบ 'yyyy-MM-ddTHH:mm:ss+07:00' (ตัดเอาแค่ส่วนวันที่)
+function itemOverlapsRange_(item, fromStr, toStr) {
+  if (!item.start) return false;
+  const startDay = item.start.slice(0, 10);
+  const lastDay = (item.end || item.start).slice(0, 10);
+  return startDay < toStr && lastDay >= fromStr;
 }
 
 // ---------- ตารางงานสำหรับหน้าเว็บ /schedule/ (apiAction: schedule) ----------
@@ -338,11 +375,11 @@ function scheduleMonthAllowed_(currentMonth, month) {
   return diff >= -1 && diff <= 6;
 }
 
-// แปลงรายการงานเป็นแถวตารางงาน — โหมดสาธารณะ (full=false) ตัดฟิลด์ภายในออก
+// แถวตารางงานของงานหนึ่งรายการ "ในวันใดวันหนึ่ง" — โหมดสาธารณะ (full=false) ตัดฟิลด์ภายในออก
 // (ผู้รับผิดชอบ/รายละเอียด/หมายเหตุ เก็บไว้ให้บัญชี LINE ที่ลงทะเบียนแล้วเท่านั้น)
-function toScheduleItem_(item, full) {
+function toScheduleItem_(item, dateStr, full) {
   const row = {
-    date: String(item.start || '').slice(0, 10),
+    date: dateStr,
     title: item.title,
     time: itemTimeLabel_(item),
     location: item.location || '',
@@ -353,6 +390,22 @@ function toScheduleItem_(item, full) {
     row.notes = item.notes || '';
   }
   return row;
+}
+
+// ขยายงานเป็นรายการรายวันทุกวันที่มันครอบคลุม ภายในหน้าต่าง [fromStr, toStr) เท่านั้น
+// งานวันเดียวคืน 1 แถว / งานคร่อมข้ามเดือนคืนเฉพาะวันที่อยู่ในหน้าต่าง — pure
+// (กันลูปยาวผิดปกติด้วยเพดาน 370 วัน ≈ 1 ปี ต่อหนึ่งงาน)
+function expandScheduleRows_(item, fromStr, toStr, full) {
+  const rows = [];
+  if (!item.start) return rows;
+  const lastDay = (item.end || item.start).slice(0, 10);
+  let cursor = item.start.slice(0, 10);
+  if (cursor < fromStr) cursor = fromStr;
+  for (let i = 0; i < 370 && cursor <= lastDay && cursor < toStr; i++) {
+    rows.push(toScheduleItem_(item, cursor, full));
+    cursor = shiftDateStr_(cursor, 1);
+  }
+  return rows;
 }
 
 function apiSchedule_(body) {
@@ -390,33 +443,16 @@ function apiSchedule_(body) {
     try { return JSON.parse(cached); } catch (err) { /* ค่าใน cache เสีย → ดึงใหม่ด้านล่าง */ }
   }
 
-  const payload = buildNotionQueryPayload_(bounds.from, bounds.to);
+  // หน้าต่างย้อนหลัง 92 วันเพื่อเก็บงานแบบช่วงวันที่ที่เริ่มก่อนเดือนนี้แต่ยังครอบคลุมอยู่
+  const payload = buildNotionQueryPayload_(shiftDateStr_(bounds.from, -RANGE_PADDING_DAYS), bounds.to);
   const dataSourceId = resolveDataSourceId_(settings.notion_database_id);
-  // Notion ให้ได้สูงสุด 100 รายการ/หน้า — เดือนที่แน่นอาจเกิน จึงวนตาม next_cursor ให้ครบ
-  // กัน runaway ด้วยเพดาน 3 หน้า (300 รายการ/เดือน) เกินขอบเขตการใช้งานจริงของหน่วยงานมาก
-  // หมายเหตุ: filter นี้เทียบกับ "วันเริ่ม" ของงาน — งานแบบช่วงวันที่ข้ามเดือนจะขึ้นเฉพาะเดือนเริ่มต้น
-  // (เหมือนข้อความเช้า ดูหมายเหตุใน getNotionItemsForDay_ — ปัจจุบันข้อมูลจริงยังไม่มีเคสช่วงวันที่)
-  const results = [];
-  let cursor = null;
-  for (let i = 0; i < 3; i++) {
-    const queryPayload = cursor ? Object.assign({}, payload, { start_cursor: cursor }) : payload;
-    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
-      method: 'post',
-      contentType: 'application/json',
-      headers: notionHeaders_(),
-      payload: JSON.stringify(queryPayload),
-      muteHttpExceptions: true,
-    });
-    if (response.getResponseCode() >= 300) {
-      throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + ')');
-    }
-    const data = JSON.parse(response.getContentText());
-    results.push.apply(results, data.results || []);
-    if (!data.has_more || !data.next_cursor) break;
-    cursor = data.next_cursor;
-    if (i === 2) console.warn('schedule ' + month + ' เกิน 300 รายการ ตัดที่เพดาน 3 หน้า');
-  }
-  const items = results.map(page => toScheduleItem_(parseNotionPage_(page), full));
+  const results = queryNotionPages_(dataSourceId, payload);
+
+  // งานแบบช่วงวันที่ถูกขยายเป็นรายวัน แสดงเฉพาะวันที่อยู่ในเดือนที่กำลังดู
+  const items = [];
+  results.forEach(page => {
+    expandScheduleRows_(parseNotionPage_(page), bounds.from, bounds.to, full).forEach(row => items.push(row));
+  });
   items.sort((a, b) => a.date === b.date
     ? a.title.localeCompare(b.title, 'th')
     : (a.date < b.date ? -1 : 1));

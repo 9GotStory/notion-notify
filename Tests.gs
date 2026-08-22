@@ -806,8 +806,8 @@ function testScheduleHelpers_() {
   assertFalse_(scheduleMonthAllowed_('2026-08', '2027-03'), 'ล่วงหน้าเกิน 6 เดือนต้องห้าม');
 
   // โหมดสาธารณะ: ตัดผู้รับผิดชอบ/รายละเอียด/หมายเหตุออก — เหลือเฉพาะงาน เวลา สถานที่
-  const item = createTestItem_();
-  const publicRow = toScheduleItem_(item, false);
+  const item = createTestItem_(); // งานวันเดียว 2026-08-06
+  const publicRow = toScheduleItem_(item, '2026-08-06', false);
   assertEqual_(publicRow.date, '2026-08-06');
   assertEqual_(publicRow.time, '08:30–16:00');
   assertEqual_(publicRow.title, 'ประชุมทีม');
@@ -817,9 +817,31 @@ function testScheduleHelpers_() {
   assertFalse_('notes' in publicRow);
 
   // โหมดเจ้าหน้าที่ (ล็อกอินแล้ว): ครบทุกฟิลด์
-  const fullRow = toScheduleItem_(item, true);
+  const fullRow = toScheduleItem_(item, '2026-08-06', true);
   assertEqual_(fullRow.assignees, 'สมชาย');
   assertEqual_(fullRow.details, 'สรุปงาน');
+
+  // ---------- งานแบบช่วงวันที่: ต้องนับทุกวันที่ครอบคลุม ไม่ใช่แค่วันเริ่ม ----------
+  assertEqual_(shiftDateStr_('2026-08-31', 1), '2026-09-01');
+  assertEqual_(shiftDateStr_('2026-01-01', -1), '2025-12-31');
+
+  // overlap: เริ่มก่อนหน้าต่างแต่ยังไม่จบ = คร่อม / เริ่มหลังหน้าต่าง = ไม่นับ
+  assertTrue_(itemOverlapsRange_({ start: '2026-07-28', end: '2026-08-03' }, '2026-08-01', '2026-09-01'), 'งานเริ่มก่อนเดือนแต่คร่อมเข้ามาต้องนับ');
+  assertFalse_(itemOverlapsRange_({ start: '2026-07-28', end: '2026-07-31' }, '2026-08-01', '2026-09-01'), 'จบก่อนเดือนเริ่มต้องไม่นับ');
+  assertFalse_(itemOverlapsRange_({ start: '2026-09-01', end: null }, '2026-08-01', '2026-09-01'), 'เริ่มวันแรกของเดือนถัดไปต้องไม่นับ (toStr exclusive)');
+  assertTrue_(itemOverlapsRange_({ start: '2026-08-31T23:00:00+07:00', end: '2026-09-02' }, '2026-08-01', '2026-09-01'), 'datetime ที่มีเวลาต้องเทียบแบบตัดเอาแค่วันที่');
+  assertFalse_(itemOverlapsRange_({ start: null }, '2026-08-01', '2026-09-01'), 'ไม่มีวันที่เลยต้องไม่นับ');
+
+  // ขยายรายวัน: งานคร่อมข้ามเดือน 30 ส.ค.-2 ก.ย. → เดือน ส.ค. เห็น 2 วันท้าย / เดือน ก.ย. เห็น 2 วันแรก
+  const spanItem = { title: 'อบรม', start: '2026-08-30', end: '2026-09-02', location: '', assignees: [], details: '', notes: '' };
+  const augRows = expandScheduleRows_(spanItem, '2026-08-01', '2026-09-01', false);
+  assertEqual_(augRows.map(r => r.date).join(','), '2026-08-30,2026-08-31');
+  const sepRows = expandScheduleRows_(spanItem, '2026-09-01', '2026-10-01', false);
+  assertEqual_(sepRows.map(r => r.date).join(','), '2026-09-01,2026-09-02');
+
+  // งานวันเดียว → 1 แถวในวันนั้น / งานนอกหน้าต่าง → 0 แถว
+  assertEqual_(expandScheduleRows_(item, '2026-08-01', '2026-09-01', false).length, 1);
+  assertEqual_(expandScheduleRows_(spanItem, '2026-10-01', '2026-11-01', false).length, 0);
 }
 
 function assertTrue_(condition, message) {
