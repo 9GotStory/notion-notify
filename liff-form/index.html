@@ -272,9 +272,29 @@
 
   // ---------- คุยกับ GAS API ----------
 
+  // กู้เซสชันอัตโนมัติเมื่อ token หมดอายุ — LIFF access token อายุเพียง 12 ชม. และถูกเพิกถอน
+  // ทันทีที่ปิดหน้า LIFF (ตามเอกสาร LINE) ผู้ใช้ที่เปิดลิงก์อีกครั้งหลังผ่านไปหลายสัปดาห์จึงต้องออก token
+  // ใหม่เสมอ:
+  // - ในแอป LINE: init ออก token ใหม่ให้เองทุกครั้ง → ล้าง token เดิมแล้วรีโหลดก็ใช้ได้เลย
+  // - browser ภายนอก: liff.login() พาไปหน้า login ของ LINE แล้ววนกลับมาหน้านี้ — ถ้ายังมีเซสชัน
+  //   LINE ในเบราว์เซอร์นั้นอยู่จะสะท้อนกลับทันที ไม่ต้องกรอกอะไรซ้ำ
+  function relogin_() {
+    try { if (liff.isLoggedIn()) liff.logout(); } catch (err) { /* ไปต่อได้ */ }
+    if (typeof liff.isInClient === 'function' && liff.isInClient()) {
+      location.reload();
+    } else {
+      liff.login(); // นำทางออกจากหน้านี้ไปหน้า login ของ LINE
+    }
+  }
+
   async function api(action, extra) {
     const accessToken = liff.getAccessToken();
-    if (!accessToken) throw new Error('ไม่พบข้อมูลการเข้าสู่ระบบ — ปิดแล้วเปิดใหม่อีกครั้ง');
+    if (!accessToken) {
+      // token หาย/หมดอายุ — ขอใหม่เองแทนการแสดง error ให้ผู้ใช้ต้องปิด-เปิดหน้าใหม่เอง
+      // (relogin_ จะนำทางออกจากหน้านี้ ข้อความนี้โชว์เฉพาะกรณีนำทางไม่สำเร็จ)
+      relogin_();
+      throw new Error('กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่');
+    }
     // ใช้ GET (query params) แทน POST — browser/WebView บางรุ่นตาม redirect 302 ของ Apps Script
     // ไปได้เฉพาะเมื่อ method เป็น GET (POST ต้องถูก rewrite เป็น GET ตาม spec ซึ่งเพี้ยนได้)
     const params = new URLSearchParams(
@@ -311,6 +331,8 @@
       // withLoginOnExternalBrowser (ตามเอกสารทางการ) = browser ภายนอกที่ยังไม่ล็อกอิน LINE
       // ให้ init เด้งหน้า login ให้เองแล้ววนกลับมาหน้านี้ ไม่ต้องเรียก liff.login() เอง
       await liff.init({ liffId: CONFIG.LIFF_ID, withLoginOnExternalBrowser: true });
+      // เปิดใช้หลังผ่านไปนาน (token ถูกเพิกถอนตั้งแต่ปิดหน้าครั้งก่อน) → ขอเซสชันใหม่เงียบๆ
+      if (!liff.isLoggedIn()) { relogin_(); return; }
       const session = await api('session');
       state.leaveEnabled = session.leaveEnabled !== false;
       state.leaveClosedMessage = session.leaveClosedMessage || '';
@@ -329,7 +351,13 @@
         show('register');
       }
     } catch (err) {
-      showError(err.message);
+      const message = String((err && err.message) || '');
+      // เซสชันหมดอายุระหว่างทาง → กู้ใหม่เองแทนการบอกให้ผู้ใช้ปิด-เปิดหน้าใหม่เอง
+      if (message.indexOf('เซสชันหมดอายุ') !== -1 || message.indexOf('ไม่พบข้อมูลการเข้าสู่ระบบ') !== -1) {
+        relogin_();
+        return;
+      }
+      showError(message);
     }
   }
 
