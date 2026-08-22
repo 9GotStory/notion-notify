@@ -273,10 +273,15 @@
     const liffId = (CONFIG.SCHEDULE_LIFF_ID || '').trim();
     if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
       try {
-        await liff.init({ liffId: liffId });
-        state.liffReady = true;
-        if (liff.isLoggedIn()) state.token = liff.getAccessToken() || '';
+        // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา) ต้องไม่ลากหน้าสาธารณะ
+        // ให้ค้างตามไปด้วย: หมดเวลาแล้วเดินหน้าแบบสาธารณะก่อน รีเฟรชใหม่ภายหลังก็อัปเกรดเอง
+        await Promise.race([
+          liff.init({ liffId: liffId }),
+          new Promise(function (resolve) { setTimeout(resolve, 5000); }),
+        ]);
       } catch (err) { /* LIFF พัง → ดูแบบสาธารณะ ไม่บล็อกเนื้อหา */ }
+      state.liffReady = true; // SDK โหลดแล้ว ปุ่มล็อกอินใช้ได้ (ตัว login มี try/catch กันตัวเอง)
+      if (liff.isLoggedIn && liff.isLoggedIn()) state.token = liff.getAccessToken() || '';
     }
     await loadMonth(todayMonth());
   }
@@ -290,8 +295,12 @@
     this.textContent = 'กำลังเชื่อมต่อ LINE…';
     // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน
     if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
-    if (liff.isLoggedIn()) liff.logout(); // token เก่าหมดอายุ → ล้างก่อนขอใหม่
-    liff.login();
+    try {
+      if (liff.isLoggedIn()) liff.logout(); // token เก่าหมดอายุ → ล้างก่อนขอใหม่
+      liff.login();
+    } catch (err) {
+      location.reload(); // init ยังไม่พร้อม (เคส init ค้าง) — โหลดหน้าใหม่ให้เริ่มใหม่ทั้งหมด
+    }
   });
 
   boot();

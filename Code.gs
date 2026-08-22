@@ -381,6 +381,15 @@ function apiSchedule_(body) {
     return { ok: false, error: 'ยังไม่ได้ตั้งค่า notion_database_id — ติดต่อผู้ดูแลระบบ' };
   }
   const bounds = scheduleMonthBounds_(month);
+  // endpoint นี้เป็นสาธารณะ (ไม่ต้อง login) — กันถูกยิงรัวจนกระทบโควตา UrlFetch/Notion ของทั้งระบบ
+  // ด้วย cache ฝั่งสคริปต์ 5 นาที แยกตามเดือน+โหมด (สาธารณะ/เต็ม) — ตารางงานเปลี่ยนไม่บ่อยกว่านี้อยู่แล้ว
+  const cache = CacheService.getScriptCache();
+  const cacheKey = 'schedule_' + month + (full ? '_full' : '_pub');
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try { return JSON.parse(cached); } catch (err) { /* ค่าใน cache เสีย → ดึงใหม่ด้านล่าง */ }
+  }
+
   const payload = buildNotionQueryPayload_(bounds.from, bounds.to);
   const dataSourceId = resolveDataSourceId_(settings.notion_database_id);
   const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
@@ -398,7 +407,9 @@ function apiSchedule_(body) {
   items.sort((a, b) => a.date === b.date
     ? a.title.localeCompare(b.title, 'th')
     : (a.date < b.date ? -1 : 1));
-  return { ok: true, month: month, full: full, items: items };
+  const result = { ok: true, month: month, full: full, items: items };
+  try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }
+  return result;
 }
 
 function parseNotionPage_(page) {
