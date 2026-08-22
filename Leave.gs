@@ -1259,11 +1259,6 @@ function nextWorkingDayStr_(afterStr, holidaySet) {
 function enrichLeaveForDisplay_(leave, todayStr, holidays, roster) {
   const enriched = Object.assign({}, leave);
   enriched.firstName = leaveFirstName_(leave, roster);
-  if (enriched.workDays > 1) {
-    // นับวันทำการตั้งแต่วันเริ่มถึงวันนี้ (รวมวันนี้) = วันที่เท่าไหร่ของช่วง — เช้าส่งเฉพาะวันทำการ
-    // อยู่แล้ว จึงการันตีได้อย่างน้อย 1 เสมอ (clamp กันเคสข้อมูลเพี้ยน)
-    enriched.dayNo = Math.min(Math.max(countBusinessDays_(enriched.start, todayStr, holidays), 1), enriched.workDays);
-  }
   if (enriched.end && enriched.end > todayStr) {
     const returnStr = nextWorkingDayStr_(enriched.end, holidays);
     if (returnStr) enriched.returnLabel = thaiShortDate_(returnStr); // แบบเต็มพร้อมปี พ.ศ. — ถ้อยคำทางการ
@@ -1298,13 +1293,13 @@ function leaveFirstName_(leave, roster) {
   return first;
 }
 
-/** ส่วนขยายทางการท้ายแถว: "วันที่ 2 จาก 5 วันทำการ" / "ครึ่งวันช่วงบ่าย" / "กลับทำการ 27 ส.ค. 2569" */
+/** ส่วนขยายท้ายแถว (ทางการแต่สั้น): ครึ่งวัน / จำนวนวันทำการทั้งช่วง / วันกลับทำการถัดไป */
 function leaveFormalSuffix_(leave) {
   const parts = [];
   if (leave.period === 'ครึ่งวันเช้า' || leave.period === 'ครึ่งวันบ่าย') {
     parts.push('ครึ่งวันช่วง' + (leave.period === 'ครึ่งวันเช้า' ? 'เช้า' : 'บ่าย'));
-  } else if (leave.dayNo && leave.workDays > 1) {
-    parts.push('วันที่ ' + leave.dayNo + ' จาก ' + leave.workDays + ' วันทำการ');
+  } else if (leave.workDays > 1) {
+    parts.push(leave.workDays + ' วันทำการ');
   }
   if (leave.returnLabel) parts.push('กลับทำการ ' + leave.returnLabel);
   return parts.join(' ');

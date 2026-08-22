@@ -520,18 +520,17 @@ function testLeaveDisplayEnrichment_() {
     fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', leaveType: 'ลาพักร้อน',
     submitterUserId: 'U_SUBMITTER', start: '2026-08-20', end: '2026-08-24', period: 'เต็มวัน', workDays: 3,
   }, '2026-08-21', new Set());
-  assertEqual_(enriched.dayNo, 2);
   // ลาวันสุดท้ายคือจันทร์ 24 → กลับทำการวันถัดไป อังคาร 25 ส.ค. 2569 (ถ้อยคำทางการพร้อมปี)
   assertEqual_(enriched.returnLabel, '25 ส.ค. 2569');
-  // ชื่อเฉพาะ: จาก roster ถ้ามี userId ตรง ไม่มี roster ก็ตัดจากชื่อเต็ม (ทนต่อคำนำหน้าทั่วไป)
+  // ชื่อเฉพาะ: จาก roster ถ้ามี userId ตรง ไม่มี roster ก็ตัดจากชื่อเต็ม (ทนต่อคำนำหน้าทั้งแบบเกาะ/คั่น)
   assertEqual_(enriched.firstName, 'สมศักดิ์');
   assertEqual_(leaveFirstName_({ fullName: 'นางสาวสมหญิง ใจงาม' }, null), 'สมหญิง');
   assertEqual_(leaveFirstName_({ fullName: 'แพทย์หญิงสมพร ดี' }, null), 'สมพร');
   assertEqual_(leaveFirstName_({ fullName: 'สมชาย ใจแข็ง' }, null), 'สมชาย');
   assertEqual_(leaveFirstName_({ fullName: 'นายสมศักดิ์ ใจดี' }, createTestRoster_()), 'สมศักดิ์');
-  // ส่วนขยายทางการ + บรรทัดรายละเอียดเต็ม
-  assertEqual_(leaveFormalSuffix_(enriched), 'วันที่ 2 จาก 3 วันทำการ กลับทำการ 25 ส.ค. 2569');
-  assertEqual_(leaveSummaryLabel_(enriched), 'ลาพักร้อน วันที่ 2 จาก 3 วันทำการ กลับทำการ 25 ส.ค. 2569');
+  // ส่วนขยายท้ายแถว (ทางการแต่สั้น) + บรรทัดรายละเอียดเต็ม
+  assertEqual_(leaveFormalSuffix_(enriched), '3 วันทำการ กลับทำการ 25 ส.ค. 2569');
+  assertEqual_(leaveSummaryLabel_(enriched), 'ลาพักร้อน 3 วันทำการ กลับทำการ 25 ส.ค. 2569');
 
   // ลาครึ่งวัน = ถ้อยคำทางการ "ครึ่งวันช่วงเช้า/บ่าย" ไม่มี dayNo/วันกลับ (จบในวันเดียว)
   const halfDay = enrichLeaveForDisplay_({
@@ -541,12 +540,12 @@ function testLeaveDisplayEnrichment_() {
   assertEqual_(leaveFormalSuffix_(halfDay), 'ครึ่งวันช่วงเช้า');
   assertFalse_(halfDay.returnLabel ? true : false);
 
-  // วันสุดท้ายของช่วงลา (end == today) = ไม่แสดงวันกลับ เหลือแค่ "วันที่ 2 จาก 2 วันทำการ"
+  // วันสุดท้ายของช่วงลา (end == today) = ไม่แสดงวันกลับ เหลือแค่จำนวนวันทั้งช่วง
   const lastDay = enrichLeaveForDisplay_({
     fullName: 'นายสมศักดิ์ ใจดี', start: '2026-08-20', end: '2026-08-21', workDays: 2, period: 'เต็มวัน',
   }, '2026-08-21', new Set());
   assertFalse_(lastDay.returnLabel ? true : false);
-  assertEqual_(leaveFormalSuffix_(lastDay), 'วันที่ 2 จาก 2 วันทำการ');
+  assertEqual_(leaveFormalSuffix_(lastDay), '2 วันทำการ');
 }
 
 function testFindDuplicates_() {
