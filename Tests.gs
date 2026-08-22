@@ -842,6 +842,21 @@ function testScheduleHelpers_() {
   // งานวันเดียว → 1 แถวในวันนั้น / งานนอกหน้าต่าง → 0 แถว
   assertEqual_(expandScheduleRows_(item, '2026-08-01', '2026-09-01', false).length, 1);
   assertEqual_(expandScheduleRows_(spanItem, '2026-10-01', '2026-11-01', false).length, 0);
+
+  // ป้ายช่วงวันที่: งานวันเดียว = ว่าง / ข้ามเดือน = เต็มรูปแบบ / เดือนเดียวกัน = ย่อ
+  assertEqual_(publicRow.range, '');
+  assertEqual_(toScheduleItem_(spanItem, '2026-08-30', false).range, '30 ส.ค. 2569 – 2 ก.ย. 2569');
+  const sameMonthItem = Object.assign({}, spanItem, { end: '2026-08-31' });
+  assertEqual_(toScheduleItem_(sameMonthItem, '2026-08-30', false).range, '30–31 ส.ค. 2569');
+
+  // ข้อความเช้า text: งานหลายวันต่อท้ายช่วงวันที่แบบวงเล็บ
+  const spanForDigest = Object.assign(createTestItem_(), { start: '2026-08-06', end: '2026-08-07', isDatetime: false });
+  const digestText = buildLineMessage_(new Date('2026-08-06T08:30:00+07:00'), [spanForDigest], [], 'text');
+  assertContains_(digestText.text, 'ประชุมทีม (6–7 ส.ค. 2569)');
+
+  // การ์ด flex: งานหลายวันมีบรรทัด "ต่อเนื่อง ..." ใต้ชื่องาน
+  const digestFlex = buildLineMessage_(new Date('2026-08-06T08:30:00+07:00'), [spanForDigest], [], 'flex');
+  assertContains_(JSON.stringify(digestFlex.contents), 'ต่อเนื่อง 6–7 ส.ค. 2569');
 }
 
 function assertTrue_(condition, message) {

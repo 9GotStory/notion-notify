@@ -178,6 +178,7 @@
 
   function itemCard(item) {
     const rows = [];
+    if (item.range) rows.push(['ช่วงวันที่', item.range]); // งานหลายวัน — บอกช่วงเต็มของรายการนี้
     if (state.full && item.assignees) rows.push(['ผู้รับผิดชอบ', item.assignees]);
     if (item.location) rows.push(['สถานที่', item.location]);
     if (state.full && item.details) rows.push(['รายละเอียด', item.details]);

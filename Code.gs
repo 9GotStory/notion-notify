@@ -382,6 +382,8 @@ function toScheduleItem_(item, dateStr, full) {
     date: dateStr,
     title: item.title,
     time: itemTimeLabel_(item),
+    // ป้ายช่วงวันที่ของงานหลายวัน (ว่าง = งานวันเดียว) — เป็นข้อมูลตารางงาน ไม่ใช่ฟิลด์ภายใน จึงส่งทั้งโหมดสาธารณะ
+    range: itemRangeLabel_(item),
     location: item.location || '',
   };
   if (full) {
@@ -543,9 +545,21 @@ function advanceSectionTitle_(date, advanceDate) {
   return (nextDayStr === targetStr ? '🔭 วันพรุ่งนี้ · ' : '🔭 ล่วงหน้า · ') + thaiDateLabel_(advanceDate);
 }
 
+// ป้ายช่วงวันที่ของงานแบบหลายวัน ("30–31 ส.ค. 2569" / ข้ามเดือน "30 ส.ค. – 2 ก.ย. 2569")
+// คืน '' เมื่องานวันเดียว — ใช้ฟอร์แมตเดียวกับการ์ดใบลา (leaveDateLabel_) ให้ทั้งระบบสม่ำเสมอกัน
+function itemRangeLabel_(item) {
+  if (!item.start || !item.end) return '';
+  const startDay = item.start.slice(0, 10);
+  const endDay = item.end.slice(0, 10);
+  if (endDay === startDay) return '';
+  return leaveDateLabel_(startDay, endDay);
+}
+
 // แปลงงานหนึ่งรายการเป็นบล็อกบูลเล็ต (พร้อมฟิลด์ย่อยแบบย่อหน้า) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
+// งานแบบหลายวันต่อท้ายช่วงวันที่แบบวงเล็บ เพื่อให้รู้ว่ารายการนี้คร่อมกี่วัน/ถึงวันไหน
 function textItemBlock_(item) {
-  const lines = [`• ${itemTimeLabel_(item)} — ${item.title}`];
+  const range = itemRangeLabel_(item);
+  const lines = [`• ${itemTimeLabel_(item)} — ${item.title}${range ? ' (' + range + ')' : ''}`];
   itemSubFields_(item).forEach(f => lines.push(`   ${f.label}: ${f.value}`));
   return lines.join('\n');
 }
@@ -608,6 +622,19 @@ function flexItemBoxes_(items) {
         ],
       },
     ];
+
+    // งานแบบหลายวัน: บรรทัดเล็กใต้ชื่อบอกช่วงเต็ม ให้รู้ว่ารายการนี้กำลังคร่อมอยู่ถึงวันไหน
+    const rangeLabel = itemRangeLabel_(item);
+    if (rangeLabel) {
+      itemContents.push({
+        type: 'text',
+        text: 'ต่อเนื่อง ' + rangeLabel,
+        size: 'xs',
+        color: '#717875',
+        wrap: true,
+        margin: 'xs',
+      });
+    }
 
     itemSubFields_(item).forEach(f => {
       itemContents.push({
