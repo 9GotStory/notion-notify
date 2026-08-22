@@ -389,13 +389,8 @@ function buildTextMessage_(date, items, leaves) {
   }
 
   if (leaves && leaves.length) {
-    const leaveBlocks = leaves.map(leave => {
-      const lines = ['• ' + leaveSummaryLabel_(leave)];
-      const detail = leaveDetailLabel_(leave);
-      if (detail) lines.push('   ' + detail);
-      return lines.join('\n');
-    });
-    sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` + leaveBlocks.join('\n'));
+    sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` +
+      leaves.map(leave => '• ' + leaveSummaryLabel_(leave)).join('\n'));
   }
 
   return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
@@ -468,15 +463,12 @@ function buildFlexBubble_(date, items, leaves) {
   }
 
   if (leaves && leaves.length) {
-    // แถวผู้ลาเป็นสองบรรทัดต่อคน ให้จังหวะเดียวกับรายการงาน:
-    //   บรรทัดแรก = ชื่อ (หนา) + ป้ายสั้นด้านขวา (ครึ่งวันเช้า/บ่าย หรือ 2/5 = วันที่เท่าไหร่ของช่วงลา)
-    //   บรรทัดสอง = กลุ่มงาน · ช่วงวันที่ · กลับวันทำการถัดไป
+    // แถวผู้ลาแบบกระชับบรรทัดเดียวต่อคน (เดียวกับรูปแบบ text): ชื่อ(หนา) + ประเภท + ป้ายในวงเล็บสีเขียว
+    // ทุกชิ้นสั้นพอจะไม่ wrap — ป้ายใช้ shrink-to-fit กันดันชื่อขึ้นบรรทัดใหม่
     const leaveRows = [];
     leaves.forEach((leave, i) => {
       if (i > 0) leaveRows.push({ type: 'separator', margin: 'sm' });
-      const badge = leaveBadge_(leave);
-      const detail = leaveDetailLabel_(leave);
-      const nameContents = [{
+      const contents = [{
         type: 'text',
         text: leave.fullName,
         size: 'sm',
@@ -484,11 +476,20 @@ function buildFlexBubble_(date, items, leaves) {
         color: '#333333',
         flex: 1,
         wrap: true,
+      }, {
+        type: 'text',
+        text: leave.leaveType,
+        size: 'xs',
+        color: '#4A4A4A',
+        flex: 0,
+        margin: 'md',
+        adjustMode: 'shrink-to-fit',
       }];
-      if (badge) {
-        nameContents.push({
+      const paren = leaveParenLabel_(leave);
+      if (paren) {
+        contents.push({
           type: 'text',
-          text: badge,
+          text: '(' + paren + ')',
           size: 'xs',
           weight: 'bold',
           color: '#0F6E56',
@@ -497,18 +498,7 @@ function buildFlexBubble_(date, items, leaves) {
           adjustMode: 'shrink-to-fit',
         });
       }
-      const boxContents = [{ type: 'box', layout: 'baseline', contents: nameContents }];
-      if (detail) {
-        boxContents.push({
-          type: 'text',
-          text: detail,
-          size: 'xs',
-          color: '#717875',
-          wrap: true,
-          margin: 'sm',
-        });
-      }
-      leaveRows.push({ type: 'box', layout: 'vertical', margin: 'md', contents: boxContents });
+      leaveRows.push({ type: 'box', layout: 'baseline', margin: 'md', contents: contents });
     });
 
     // เมื่อมีรายการงานอยู่ก่อน คั่นด้วย separator เต็มความกว้างการ์ด (แบบเดียวกับเส้นคาดใต้ header)

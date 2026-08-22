@@ -521,17 +521,17 @@ function testLeaveDisplayEnrichment_() {
     start: '2026-08-20', end: '2026-08-24', period: 'เต็มวัน', workDays: 3,
   }, '2026-08-21', new Set());
   assertEqual_(enriched.dayNo, 2);
-  // ลาวันสุดท้ายคือจันทร์ 24 → กลับทำงานวันถัดไป อังคาร 25 ส.ค.
-  assertEqual_(enriched.returnLabel, '25 ส.ค. 2569');
-  assertEqual_(leaveBadge_(enriched), '2/3');
-  assertContains_(leaveDetailLabel_(enriched), 'กลับ 25 ส.ค. 2569');
+  // ลาวันสุดท้ายคือจันทร์ 24 → กลับทำงานวันถัดไป อังคาร 25 ส.ค. (แบบสั้นไม่มีปี)
+  assertEqual_(enriched.returnLabel, '25 ส.ค.');
+  assertEqual_(leaveParenLabel_(enriched), '2/3 · กลับ 25 ส.ค.');
+  assertContains_(leaveSummaryLabel_(enriched), 'ลาพักร้อน (2/3 · กลับ 25 ส.ค.)');
 
   // ลาครึ่งวัน = badge เป็นครึ่งวัน ไม่มี dayNo/วันกลับ (จบในวันเดียว)
   const halfDay = enrichLeaveForDisplay_({
     fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า', leaveType: 'ลากิจ',
     start: '2026-08-21', end: '2026-08-21', period: 'ครึ่งวันเช้า', workDays: 0.5,
   }, '2026-08-21', new Set());
-  assertEqual_(leaveBadge_(halfDay), 'ครึ่งวันเช้า');
+  assertEqual_(leaveParenLabel_(halfDay), 'ครึ่งวันเช้า');
   assertFalse_(halfDay.returnLabel ? true : false);
 
   // วันสุดท้ายของช่วงลา (end == today) = ไม่แสดงวันกลับ
@@ -539,7 +539,7 @@ function testLeaveDisplayEnrichment_() {
     start: '2026-08-20', end: '2026-08-21', workDays: 2, period: 'เต็มวัน',
   }, '2026-08-21', new Set());
   assertFalse_(lastDay.returnLabel ? true : false);
-  assertEqual_(leaveBadge_(lastDay), '2/2');
+  assertEqual_(leaveParenLabel_(lastDay), '2/2');
 }
 
 function testFindDuplicates_() {
@@ -692,12 +692,12 @@ function testTextMessageWithLeaves_() {
   const date = new Date('2026-08-20T08:00:00+07:00');
   const leave = createTestLeave_();
 
-  // มีทั้งงานและผู้ลา (ฟอร์แมตใหม่: บรรทัดชื่อ+ป้าย แล้วตามด้วยบรรทัดรายละเอียดย่อหน้า 3 ช่องแบบเดียวกับงาน)
+  // มีทั้งงานและผู้ลา — ผู้ลาเป็นบรรทัดเดียวกระชับ ไม่มีกลุ่มงาน (กันบรรทัดยาว wrap ไม่เป็นระเบียบ)
   const both = buildLineMessage_(date, [createTestItem_()], [leave], 'text');
   assertContains_(both.text, 'ประชุมทีม');
   assertContains_(both.text, 'ผู้ลาวันนี้ (1 คน)');
   assertContains_(both.text, 'นายสมศักดิ์ ใจดี — ลากิจ');
-  assertContains_(both.text, '   กลุ่มงานคลังสินค้า · 20–21 ส.ค. 2569');
+  assertFalse_(both.text.indexOf('กลุ่มงานคลังสินค้า') !== -1);
 
   // ไม่มีงานเลยแต่มีผู้ลา → ยังส่งข้อความได้
   const leaveOnly = buildLineMessage_(date, [], [leave], 'text');

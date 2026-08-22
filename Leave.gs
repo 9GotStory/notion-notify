@@ -1237,9 +1237,8 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
     .filter(leave => leave.start && leaveRangeOverlap_(leave.start, leave.end, todayStr))
     // เก็บข้อมูลเชิงบริบทสำหรับสรุปเช้า: ลาครึ่งวัน / วันที่เท่าไหร่ของช่วง (นับวันทำการ) / กลับวันทำการถัดไป
     .map(leave => enrichLeaveForDisplay_(leave, todayStr, holidays))
-    // เรียงตามกลุ่มงานก่อนชื่อ เพื่อให้คนหน่วยเดียวกันอยู่ใกล้กัน
-    .sort((a, b) => (a.groupName || '').localeCompare(b.groupName || '', 'th') ||
-      a.fullName.localeCompare(b.fullName, 'th'));
+    // เรียงตามชื่อ (ส่วนแสดงผลเป็นบรรทัดเดียวต่อคน ไม่มีกลุ่มงาน จึงเรียงชื่อให้อ่านไล่ง่าย)
+    .sort((a, b) => a.fullName.localeCompare(b.fullName, 'th'));
 }
 
 // หา "วันทำการถัดไป" ถัดจากวันที่กำหนด (ข้ามเสาร์-อาทิตย์และวันหยุด) — pure
@@ -1264,29 +1263,34 @@ function enrichLeaveForDisplay_(leave, todayStr, holidays) {
   }
   if (enriched.end && enriched.end > todayStr) {
     const returnStr = nextWorkingDayStr_(enriched.end, holidays);
-    if (returnStr) enriched.returnLabel = thaiShortDate_(returnStr);
+    // แบบสั้นไม่รวมปี เพื่อให้แถวผู้ลาเป็นบรรทัดเดียวสั้นๆ ไม่ต้อง wrap
+    if (returnStr) enriched.returnLabel = thaiShortDateNoYear_(returnStr);
   }
   return enriched;
 }
 
-/** ป้ายหลักของแถวผู้ลา เช่น "นายสมศักดิ์ ใจดี — ลากิจ (ครึ่งวันเช้า)" หรือ "— ลาพักร้อน (2/5)" */
+// วันที่แบบสั้นไม่มีปี เช่น "27 ส.ค." (ใช้ในสรุปเช้าที่บริบทเป็นปีปัจจุบันอยู่แล้ว)
+function thaiShortDateNoYear_(dateStr) {
+  const parts = String(dateStr).split('-').map(Number);
+  return parts[2] + ' ' + THAI_MONTH_SHORT[parts[1] - 1];
+}
+
+/** แถวผู้ลาแบบกระชับบรรทัดเดียว เช่น
+ *  "นายสมศักดิ์ ใจดี — ลาพักร้อน (2/5 · กลับ 27 ส.ค.)"
+ *  "นางสาวสมหญิง ใจงาม — ลากิจ (ครึ่งวันบ่าย)" */
 function leaveSummaryLabel_(leave) {
-  const badge = leaveBadge_(leave);
-  return leave.fullName + ' — ' + leave.leaveType + (badge ? ' (' + badge + ')' : '');
+  const paren = leaveParenLabel_(leave);
+  return leave.fullName + ' — ' + leave.leaveType + (paren ? ' (' + paren + ')' : '');
 }
 
-/** ป้ายย่อด้านขวา/ในวงเล็บ: ครึ่งวัน หรือ วันที่ x/y ของช่วง (เลือกอย่างเดียว ครึ่งวันมีอยู่แล้ว 1 วัน) */
-function leaveBadge_(leave) {
-  if (leave.period && leave.period !== 'เต็มวัน') return leave.period;
-  if (leave.dayNo && leave.workDays > 1) return leave.dayNo + '/' + leave.workDays;
-  return '';
-}
-
-/** บรรทัดรายละเอียดใต้ชื่อ: กลุ่มงาน · ช่วงวันที่ · กลับวันทำการถัดไป */
-function leaveDetailLabel_(leave) {
-  return [
-    leave.groupName,
-    leaveDateLabel_(leave.start, leave.end),
-    leave.returnLabel ? 'กลับ ' + leave.returnLabel : '',
-  ].filter(Boolean).join(' · ');
+/** ป้ายในวงเล็บ (รวมทุกอย่างที่มีเป็นชิ้นเดียวสั้นๆ): ครึ่งวัน หรือ วันที่ x/y ของช่วง + กลับวันทำการถัดไป */
+function leaveParenLabel_(leave) {
+  const parts = [];
+  if (leave.period && leave.period !== 'เต็มวัน') {
+    parts.push(leave.period);
+  } else if (leave.dayNo && leave.workDays > 1) {
+    parts.push(leave.dayNo + '/' + leave.workDays);
+  }
+  if (leave.returnLabel) parts.push('กลับ ' + leave.returnLabel);
+  return parts.join(' · ');
 }
