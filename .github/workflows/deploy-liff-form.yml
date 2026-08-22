@@ -19,6 +19,7 @@ on:
     branches: [main]
     paths:
       - 'liff-form/**'
+      - 'schedule/**'
       - '.github/workflows/deploy-liff-form.yml'
   workflow_dispatch:
 
@@ -46,6 +47,7 @@ jobs:
         env:
           LIFF_ID: ${{ secrets.LIFF_ID || vars.LIFF_ID }}
           API_URL: ${{ secrets.API_URL || vars.API_URL }}
+          SCHEDULE_LIFF_ID: ${{ secrets.SCHEDULE_LIFF_ID || vars.SCHEDULE_LIFF_ID }}
         run: |
           if [ -z "$LIFF_ID" ] || [ -z "$API_URL" ]; then
             echo "::error::ยังไม่ได้ตั้งค่า — ไปที่ Settings > Environments > liff แล้วเพิ่ม LIFF_ID และ API_URL (เป็น secret หรือ variable ก็ได้)"
@@ -80,7 +82,12 @@ jobs:
             echo "::error::ยังมี placeholder ค้างในไฟล์"
             exit 1
           fi
-          echo "deploy หน้าฟอร์มพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"
+          # หน้าตารางงาน /schedule/ — ใช้ CSS/SDK/โลโก้ชุดเดียวกับฟอร์มลา
+          # SCHEDULE_LIFF_ID เป็นตัวเลือก: ยังไม่ได้สร้าง LIFF ตัวที่สองก็ deploy ได้ (ทำงานโหมดสาธารณะล้วน)
+          mkdir -p site/schedule
+          cp schedule/index.html site/schedule/index.html
+          sed -i "s|__SCHEDULE_LIFF_ID__|${SCHEDULE_LIFF_ID:-}|g; s|__API_URL__|$API_URL|g" site/schedule/index.html
+          echo "deploy หน้าฟอร์ม + ตารางงานพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"
 
       - uses: actions/upload-pages-artifact@v5
         with:

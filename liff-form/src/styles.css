@@ -3,6 +3,10 @@
    (คอมไพล์ด้วย: npx @tailwindcss/cli@4 -i src/styles.css -o styles.css --minify รันจากในโฟลเดอร์ liff-form) */
 @import "tailwindcss";
 
+/* หน้าตารางงาน (schedule/) ใช้ CSS ชุดนี้ด้วย — ประกาศให้ Tailwind สแกนคลาส
+   ใน schedule/index.html ด้วย ไม่งั้นคลาสที่ใช้เฉพาะหน้านั้นจะหายไปตอนคอมไพล์ */
+@source "../schedule";
+
 @theme {
   --color-primary: #0F6E56;
   --color-primary-dark: #0B5643;

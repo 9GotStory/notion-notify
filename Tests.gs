@@ -41,6 +41,7 @@ function runUnitTests() {
     testTextMessageWithLeaves_,
     testFlexMessageWithLeaves_,
     testAdvanceNoticeSection_,
+    testScheduleHelpers_,
   ];
 
   const failures = [];
@@ -787,6 +788,38 @@ function testAdvanceNoticeSection_() {
   };
   const far = buildLineMessage_(date, [], [], 'text', farAdvance);
   assertContains_(far.text, '🔭 ล่วงหน้า · จันทร์ 24 สิงหาคม 2569');
+}
+
+// ตัวช่วยของ apiSchedule_ (หน้าเว็บ /schedule/)
+function testScheduleHelpers_() {
+  // ช่วงวันที่ของเดือน — รวมเคสข้ามปี
+  assertEqual_(scheduleMonthBounds_('2026-08').from, '2026-08-01');
+  assertEqual_(scheduleMonthBounds_('2026-08').to, '2026-09-01');
+  assertEqual_(scheduleMonthBounds_('2026-12').to, '2027-01-01');
+
+  // ขอบเขตการดู: ย้อนหลังได้ 1 เดือน ล่วงหน้าได้ 6 เดือน
+  assertTrue_(scheduleMonthAllowed_('2026-08', '2026-08'), 'เดือนปัจจุบันต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-08', '2026-07'), 'ย้อน 1 เดือนต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-08', '2027-02'), 'ล่วงหน้า 6 เดือนต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-12', '2027-01'), 'ข้ามปี +1 เดือนต้องดูได้');
+  assertFalse_(scheduleMonthAllowed_('2026-08', '2026-06'), 'ย้อนเกิน 1 เดือนต้องห้าม');
+  assertFalse_(scheduleMonthAllowed_('2026-08', '2027-03'), 'ล่วงหน้าเกิน 6 เดือนต้องห้าม');
+
+  // โหมดสาธารณะ: ตัดผู้รับผิดชอบ/รายละเอียด/หมายเหตุออก — เหลือเฉพาะงาน เวลา สถานที่
+  const item = createTestItem_();
+  const publicRow = toScheduleItem_(item, false);
+  assertEqual_(publicRow.date, '2026-08-06');
+  assertEqual_(publicRow.time, '08:30–16:00');
+  assertEqual_(publicRow.title, 'ประชุมทีม');
+  assertEqual_(publicRow.location, 'ห้องประชุม');
+  assertFalse_('assignees' in publicRow, 'โหมดสาธารณะต้องไม่มีผู้รับผิดชอบ');
+  assertFalse_('details' in publicRow);
+  assertFalse_('notes' in publicRow);
+
+  // โหมดเจ้าหน้าที่ (ล็อกอินแล้ว): ครบทุกฟิลด์
+  const fullRow = toScheduleItem_(item, true);
+  assertEqual_(fullRow.assignees, 'สมชาย');
+  assertEqual_(fullRow.details, 'สรุปงาน');
 }
 
 function assertTrue_(condition, message) {

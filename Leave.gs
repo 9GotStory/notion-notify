@@ -103,6 +103,7 @@ function handleApiRequest_(body) {
       case 'bind': return apiBind_(body);
       case 'submit': return apiSubmit_(body);
       case 'calendar': return apiCalendar_(body);
+      case 'schedule': return apiSchedule_(body);
       default:
         return { ok: false, error: 'ไม่รู้จักคำสั่งนี้' };
     }

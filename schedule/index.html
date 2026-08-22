@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ตารางงาน — สสอ.สอง แพร่</title>
+<!-- favicon แบบ inline (กัน 404 และไม่ต้องพึ่งไฟล์ภายนอก) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%230F6E56'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='sans-serif'%3E%E0%B8%95%3C/text%3E%3C/svg%3E">
+
+<!--
+  หน้าดูตารางงาน (ปฏิทินการปฏิบัติงานจาก Notion) — mobile first
+  โหมดสองระดับ: สาธารณะ (มีลิงก์ก็ดูได้ — เห็นงาน/เวลา/สถานที่)
+  กับเจ้าหน้าที่ (เข้าสู่ระบบผ่าน LINE และลงทะเบียนแล้ว — เห็นผู้รับผิดชอบ/รายละเอียด/หมายเหตุเพิ่ม)
+
+  ใช้ทรัพย์กรรมชุดเดียวกับฟอร์มลา (liff-form/): Tailwind คอมไพล์ + LIFF SDK same-origin
+  ส่วน LIFF ของหน้านี้เป็น "แอป LIFF ตัวที่สอง" (endpoint /schedule/) — ถ้ายังไม่ได้สร้าง
+  (ค่าว่าง) หน้าจะทำงานแบบสาธารณะล้วนไปก่อน ไม่พัง
+-->
+<script charset="utf-8" src="../liff-form/sdk.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- Tailwind v4 — คอมไพล์ชุดเดียวกับฟอร์มลา (แก้ธีมที่ liff-form/src/styles.css) -->
+<link rel="stylesheet" href="../liff-form/styles.css">
+
+<!-- GitHub Actions แทนที่ placeholder ก่อน deploy ด้วยค่าจาก Environment "liff"
+     (SCHEDULE_LIFF_ID เป็นตัวเลือก — ว่าง = โหมดสาธารณะล้วน, API_URL ต้องมี) -->
+<script>
+  const CONFIG = {
+    SCHEDULE_LIFF_ID: '__SCHEDULE_LIFF_ID__',
+    API_URL: '__API_URL__',
+  };
+</script>
+</head>
+<body class="font-sans bg-canvas text-slate-900 text-[15px] leading-relaxed">
+
+<div class="max-w-lg mx-auto min-h-screen px-4 pt-6 pb-10">
+
+  <!-- ===== ส่วนหัว ===== -->
+  <header class="text-center mb-5">
+    <img src="../liff-form/logo.png" alt="ตราสัญลักษณ์สำนักงานสาธารณสุขอำเภอสอง"
+         class="w-14 h-14 mx-auto mb-2 object-contain"
+         onerror="this.style.display='none'; document.getElementById('logoFallback').style.display='flex';">
+    <div id="logoFallback" style="display:none"
+         class="w-14 h-14 rounded-full bg-primary text-white items-center justify-center mx-auto mb-2 shadow-sm">
+      <span class="text-sm font-bold tracking-wide">สสอ.</span>
+    </div>
+    <h1 class="text-lg font-bold">ตารางงาน</h1>
+    <p class="text-sm text-slate-500 mt-0.5">สำนักงานสาธารณสุขอำเภอสอง จังหวัดแพร่</p>
+    <p id="modeBadge" class="inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">กำลังตรวจสอบ…</p>
+  </header>
+
+  <!-- แถบเชิญเจ้าหน้าที่ล็อกอิน (โชว์เฉพาะโหมดสาธารณะที่มี LIFF ให้ใช้) -->
+  <div id="loginCta" class="hidden bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4 text-sm">
+    <p class="text-sky-800">กำลังดูแบบสาธารณะ — เจ้าหน้าที่ที่เข้าสู่ระบบ LINE เห็นผู้รับผิดชอบและรายละเอียดเพิ่ม</p>
+    <button id="btnLogin" type="button" class="mt-2 px-4 py-2 rounded-xl font-semibold text-xs text-white bg-primary">เข้าสู่ระบบเจ้าหน้าที่</button>
+  </div>
+
+  <!-- ===== เลือกเดือน ===== -->
+  <nav class="flex items-center justify-between bg-white border border-slate-200 rounded-2xl px-3 py-2.5 mb-4">
+    <button id="btnPrev" type="button" aria-label="เดือนก่อนหน้า" class="w-9 h-9 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent">‹</button>
+    <div class="text-center">
+      <p id="monthLabel" class="font-bold">—</p>
+      <button id="btnToday" type="button" class="text-xs text-primary font-semibold mt-0.5">ไปเดือนนี้</button>
+    </div>
+    <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-9 h-9 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent">›</button>
+  </nav>
+
+  <!-- ===== รายการ ===== -->
+  <section id="viewList"></section>
+
+  <!-- สถานะกำลังโหลด/ผิดพลาด (ถูกย้ายเข้า viewList ตอน render) -->
+  <div id="viewLoading" class="py-16 text-center text-slate-500">
+    <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+    กำลังเปิดตารางงาน…
+  </div>
+  <div id="viewError" class="hidden py-16 text-center">
+    <div class="text-3xl mb-3">😟</div>
+    <p id="errorMessage" class="text-red-700 font-medium mb-5 px-4"></p>
+    <button id="btnRetry" type="button" class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-primary">ลองใหม่</button>
+  </div>
+
+  <footer class="mt-8 text-center text-xs text-slate-400">
+    ข้อมูลจากฐานข้อมูลปฏิทินการปฏิบัติงานของหน่วยงาน — อัปเดตตามที่บันทึกจริง
+  </footer>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
+    'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+  const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+
+  // ขอบเขตการดู มิเรอร์ฝั่งเซิร์ฟเวอร์ (apiSchedule_): ย้อนหลัง 1 เดือน ล่วงหน้า 6 เดือน
+  const MONTH_BACK = -1;
+  const MONTH_FWD = 6;
+
+  const state = {
+    month: '',        // 'YYYY-MM' ที่กำลังดู
+    today: '',        // 'yyyy-MM-dd' ตามเวลาท้องถิ่น
+    cache: {},        // เก็บผลต่อเดือน เลื่อนไป-กลับไม่ต้องดึงซ้ำ
+    token: '',        // LIFF access token (ถ้าล็อกอินแล้ว)
+    full: false,      // โหมดเจ้าหน้าที่ (เห็นครบทุกฟิลด์)
+    liffReady: false, // มี LIFF แอปของหน้านี้ให้ใช้
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function todayStr() {
+    const d = new Date();
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  }
+  function todayMonth() { return todayStr().slice(0, 7); }
+  function shiftMonth(month, delta) {
+    const [y, m] = month.split('-').map(Number);
+    const total = y * 12 + (m - 1) + delta;
+    return Math.floor(total / 12) + '-' + pad((total % 12) + 1);
+  }
+  function monthDiff(from, to) {
+    const [fy, fm] = from.split('-').map(Number);
+    const [ty, tm] = to.split('-').map(Number);
+    return (ty - fy) * 12 + (tm - fm);
+  }
+  function monthLabel(month) {
+    const [y, m] = month.split('-').map(Number);
+    return THAI_MONTHS[m - 1] + ' ' + (y + 543);
+  }
+  function dayLabel(dateStr) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dow = new Date(dateStr + 'T00:00:00').getDay();
+    return THAI_DAYS[dow] + 'ที่ ' + d + ' ' + THAI_MONTHS_SHORT[m - 1] + ' ' + (y + 543);
+  }
+  function escapeHtml(str) {
+    return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    }[c]));
+  }
+
+  // ---------- คุยกับ GAS API (GET + query params ตามแบบฟอร์มลา) ----------
+
+  async function fetchMonth(month) {
+    if (state.cache[month]) return state.cache[month];
+    const params = new URLSearchParams(Object.assign(
+      { apiAction: 'schedule', month: month }, state.token ? { accessToken: state.token } : {}));
+    const res = await fetch(CONFIG.API_URL + '?' + params.toString(), { method: 'GET' });
+    let data = null;
+    try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
+    if (!res.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง');
+    }
+    state.cache[month] = data;
+    return data;
+  }
+
+  // ---------- render ----------
+
+  function showStatus(which) {
+    $('viewLoading').classList.toggle('hidden', which !== 'loading');
+    $('viewError').classList.toggle('hidden', which !== 'error');
+    if (which === 'none') $('viewList').innerHTML = '';
+  }
+
+  function itemCard(item) {
+    const rows = [];
+    if (state.full && item.assignees) rows.push(['ผู้รับผิดชอบ', item.assignees]);
+    if (item.location) rows.push(['สถานที่', item.location]);
+    if (state.full && item.details) rows.push(['รายละเอียด', item.details]);
+    if (state.full && item.notes) rows.push(['หมายเหตุ', item.notes]);
+    const subRows = rows.map(r =>
+      '<div class="flex items-baseline gap-2 mt-1"><span class="text-xs font-semibold text-slate-500 shrink-0">' +
+      escapeHtml(r[0]) + ':</span><span class="text-xs text-slate-600 min-w-0">' + escapeHtml(r[1]) + '</span></div>'
+    ).join('');
+    return (
+      '<div class="bg-white border border-slate-200 rounded-2xl p-4 mt-2">' +
+        '<div class="flex items-baseline gap-2">' +
+          '<span class="text-xs font-bold text-primary shrink-0">' + escapeHtml(item.time || 'ทั้งวัน') + '</span>' +
+          '<span class="text-sm font-bold text-slate-800 min-w-0">' + escapeHtml(item.title) + '</span>' +
+        '</div>' + subRows +
+      '</div>'
+    );
+  }
+
+  function renderMonth(data) {
+    showStatus('none');
+    const byDate = {};
+    (data.items || []).forEach(item => {
+      (byDate[item.date] = byDate[item.date] || []).push(item);
+    });
+    const dates = Object.keys(byDate).sort();
+
+    const html = dates.length
+      ? dates.map(date => {
+          const isToday = date === state.today;
+          return (
+            '<section class="mb-4">' +
+              '<div class="flex items-center gap-2 mb-1 px-1">' +
+                '<h2 class="text-sm font-bold ' + (isToday ? 'text-primary' : 'text-slate-600') + '">' +
+                  escapeHtml(dayLabel(date)) + '</h2>' +
+                (isToday ? '<span class="px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold">วันนี้</span>' : '') +
+              '</div>' +
+              byDate[date].map(itemCard).join('') +
+            '</section>'
+          );
+        }).join('')
+      : '<p class="py-12 text-center text-slate-400 text-sm">ไม่มีรายการในเดือนนี้</p>';
+
+    $('viewList').innerHTML = html;
+
+    // เดือนปัจจุบัน → เลื่อนไปวันนี้ (หรือวันทำการถัดไป) ให้เอง
+    if (state.month === todayMonth()) {
+      const anchor = dates.find(d => d >= state.today) || dates[dates.length - 1];
+      if (anchor && anchor !== dates[0]) {
+        const el = $('viewList').querySelector('section:nth-of-type(' + (dates.indexOf(anchor) + 1) + ')');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  }
+
+  function updateModeBadge(data) {
+    state.full = !!data.full;
+    const badge = $('modeBadge');
+    if (state.full) {
+      badge.textContent = '✓ โหมดเจ้าหน้าที่';
+      badge.className = 'inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800';
+    } else {
+      badge.textContent = 'โหมดสาธารณะ';
+      badge.className = 'inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600';
+    }
+    // ปุ่มล็อกอินโชว์เฉพาะ: ไม่เต็มโหมด + มี LIFF ของหน้านี้ให้ล็อกอิน
+    $('loginCta').classList.toggle('hidden', state.full || !state.liffReady);
+  }
+
+  async function loadMonth(month) {
+    state.month = month;
+    $('monthLabel').textContent = monthLabel(month);
+    $('btnPrev').disabled = monthDiff(todayMonth(), month) <= MONTH_BACK;
+    $('btnNext').disabled = monthDiff(todayMonth(), month) >= MONTH_FWD;
+    showStatus('loading');
+    try {
+      const data = await fetchMonth(month);
+      updateModeBadge(data);
+      renderMonth(data);
+    } catch (err) {
+      $('errorMessage').textContent = err.message || 'เกิดข้อผิดพลาด';
+      showStatus('error');
+    }
+  }
+
+  // ---------- เริ่มทำงาน ----------
+
+  async function boot() {
+    state.today = todayStr();
+
+    // LIFF ของหน้านี้เป็นตัวเลือก: ยังไม่สร้าง (ค่าว่าง) ก็ทำงานแบบสาธารณะได้เลย
+    // และไม่ใส่ withLoginOnExternalBrowser — หน้าสาธารณะต้องไม่ดันผู้ชมไปหน้า login ก่อนเห็นข้อมูล
+    const liffId = (CONFIG.SCHEDULE_LIFF_ID || '').trim();
+    if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
+      try {
+        await liff.init({ liffId: liffId });
+        state.liffReady = true;
+        if (liff.isLoggedIn()) state.token = liff.getAccessToken() || '';
+      } catch (err) { /* LIFF พัง → ดูแบบสาธารณะ ไม่บล็อกเนื้อหา */ }
+    }
+    await loadMonth(todayMonth());
+  }
+
+  $('btnPrev').addEventListener('click', function () { loadMonth(shiftMonth(state.month, -1)); });
+  $('btnNext').addEventListener('click', function () { loadMonth(shiftMonth(state.month, 1)); });
+  $('btnToday').addEventListener('click', function () { loadMonth(todayMonth()); });
+  $('btnRetry').addEventListener('click', function () { location.replace(location.origin + location.pathname); });
+  $('btnLogin').addEventListener('click', function () {
+    // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน
+    if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
+    if (liff.isLoggedIn()) liff.logout(); // token เก่าหมดอายุ → ล้างก่อนขอใหม่
+    liff.login();
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>

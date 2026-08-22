@@ -318,6 +318,89 @@ function collectAdvanceNotice_(now, settings) {
   return items.length || leaves.length ? { date: targetDate, items: items, leaves: leaves } : null;
 }
 
+// ---------- ตารางงานสำหรับหน้าเว็บ /schedule/ (apiAction: schedule) ----------
+
+// แปลง 'YYYY-MM' เป็นช่วงวันที่ [วันแรกของเดือน, วันแรกของเดือนถัดไป) — pure
+function scheduleMonthBounds_(month) {
+  const parts = month.split('-').map(Number);
+  const from = parts[0] + '-' + String(parts[1]).padStart(2, '0') + '-01';
+  const to = parts[1] === 12
+    ? (parts[0] + 1) + '-01-01'
+    : parts[0] + '-' + String(parts[1] + 1).padStart(2, '0') + '-01';
+  return { from: from, to: to };
+}
+
+// อนุญาตให้ดูย้อนหลัง 1 เดือน และล่วงหน้าไม่เกิน 6 เดือน — pure (รับเดือนแบบ 'YYYY-MM')
+function scheduleMonthAllowed_(currentMonth, month) {
+  const [cy, cm] = currentMonth.split('-').map(Number);
+  const [y, m] = month.split('-').map(Number);
+  const diff = (y - cy) * 12 + (m - cm);
+  return diff >= -1 && diff <= 6;
+}
+
+// แปลงรายการงานเป็นแถวตารางงาน — โหมดสาธารณะ (full=false) ตัดฟิลด์ภายในออก
+// (ผู้รับผิดชอบ/รายละเอียด/หมายเหตุ เก็บไว้ให้บัญชี LINE ที่ลงทะเบียนแล้วเท่านั้น)
+function toScheduleItem_(item, full) {
+  const row = {
+    date: String(item.start || '').slice(0, 10),
+    title: item.title,
+    time: itemTimeLabel_(item),
+    location: item.location || '',
+  };
+  if (full) {
+    row.assignees = item.assignees.join(', ');
+    row.details = item.details || '';
+    row.notes = item.notes || '';
+  }
+  return row;
+}
+
+function apiSchedule_(body) {
+  const month = String((body && body.month) || '').trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    return { ok: false, error: 'รูปแบบเดือนไม่ถูกต้อง (YYYY-MM)' };
+  }
+  const currentMonth = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
+  if (!scheduleMonthAllowed_(currentMonth, month)) {
+    return { ok: false, error: 'ดูได้ย้อนหลัง 1 เดือน และล่วงหน้าไม่เกิน 6 เดือน' };
+  }
+
+  // โหมดเต็ม: บัญชี LINE ที่ตรวจ token ผ่าน + ลงทะเบียนในทำเนียบแล้วเท่านั้น
+  // token หมดอายุ/ไม่ถูกต้อง → เงียบๆ ให้ดูแบบสาธารณะไปก่อน (หน้าเว็บเสนอปุ่มล็อกอินเอง)
+  let full = false;
+  const token = String((body && body.accessToken) || '').trim();
+  if (token) {
+    try {
+      const profile = verifyLineToken_(token);
+      if (findStaffByUserId_(readStaffRoster_(), profile.userId)) full = true;
+    } catch (err) { /* ไม่มี token ที่ใช้ได้ → โหมดสาธารณะ */ }
+  }
+
+  const settings = getSettings_();
+  if (!settings.notion_database_id || String(settings.notion_database_id).trim() === 'your_notion_database_id') {
+    return { ok: false, error: 'ยังไม่ได้ตั้งค่า notion_database_id — ติดต่อผู้ดูแลระบบ' };
+  }
+  const bounds = scheduleMonthBounds_(month);
+  const payload = buildNotionQueryPayload_(bounds.from, bounds.to);
+  const dataSourceId = resolveDataSourceId_(settings.notion_database_id);
+  const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
+    method: 'post',
+    contentType: 'application/json',
+    headers: notionHeaders_(),
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true,
+  });
+  if (response.getResponseCode() >= 300) {
+    throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + ')');
+  }
+  const data = JSON.parse(response.getContentText());
+  const items = (data.results || []).map(page => toScheduleItem_(parseNotionPage_(page), full));
+  items.sort((a, b) => a.date === b.date
+    ? a.title.localeCompare(b.title, 'th')
+    : (a.date < b.date ? -1 : 1));
+  return { ok: true, month: month, full: full, items: items };
+}
+
 function parseNotionPage_(page) {
   const props = page.properties || {};
   const dateProp = (props[PROPS_NOTION.date] && props[PROPS_NOTION.date].date) || null;
