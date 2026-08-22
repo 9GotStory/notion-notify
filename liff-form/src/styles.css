@@ -4,8 +4,9 @@
 @import "tailwindcss";
 
 /* หน้าตารางงาน (schedule/) ใช้ CSS ชุดนี้ด้วย — ประกาศให้ Tailwind สแกนคลาส
-   ใน schedule/index.html ด้วย ไม่งั้นคลาสที่ใช้เฉพาะหน้านั้นจะหายไปตอนคอมไพล์ */
-@source "../schedule";
+   ใน schedule/index.html ด้วย ไม่งั้นคลาสที่ใช้เฉพาะหน้านั้นจะหายไปตอนคอมไพล์
+   (path นับจากตำแหน่งไฟล์ CSS นี้ = liff-form/src/ จึงต้องขึ้น 2 ชั้นถึง schedule/) */
+@source "../../schedule";
 
 @theme {
   --color-primary: #0F6E56;
