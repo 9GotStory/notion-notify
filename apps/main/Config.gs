@@ -401,7 +401,8 @@ function testSendNow() {
     // ต่างจากตอนรันจริงตอนเช้า ซึ่งถ้าไม่มีงาน ไม่มีผู้ลา และไม่มีส่วนล่วงหน้าเลยจะไม่ส่งข้อความ
     const messageObj = items.length === 0 && leaves.length === 0 && !advance
       ? { type: 'text', text: '🧪 ข้อความทดสอบ — เชื่อมต่อ LINE และ Notion สำเร็จ\n\n(วันนี้ไม่มีงานในระบบ ถ้าเป็นการรันจริงตอนเช้า ระบบจะไม่ส่งข้อความในกรณีนี้)' }
-      : buildLineMessage_(now, items, leaves, settings.message_format, advance);
+      : buildLineMessage_(now, items, leaves, settings.message_format, advance,
+          undefined, buildAssigneeLeaveConflicts_(items, leaves));
     sendLineMessage_(settings.line_group_id, messageObj);
     logResult_(now, 'success (manual test)', messagePreview_(messageObj).substring(0, 300));
     SpreadsheetApp.getUi().alert('ส่งข้อความทดสอบแล้ว ลองเช็คในกลุ่ม LINE');

@@ -1,8 +1,10 @@
 /** การอนุมัติใบลา: การ์ดขออนุมัติ/แจ้ง, ปุ่ม postback จาก webhook,
  *  การเขียน/อ่านหน้าใบลาใน Notion, push แจ้งผล 1:1 และ audit trail */
 
+// Notion จำกัด rich_text 2,000 ตัวอักษรต่อ text object (developers.notion.com/reference/request-limits)
+// — ตัดที่ 2,000 กันหลุดขีดทุกจุดที่เขียน (หมายเหตุระบบ/บันทึกการอนุมัติที่ยาวขึ้นตามการใช้งานจริง)
 function richTextValue_(text) {
-  return { rich_text: [{ text: { content: String(text == null ? '' : text) } }] };
+  return { rich_text: [{ text: { content: String(text == null ? '' : text).substring(0, 2000) } }] };
 }
 
 /** สร้าง payload สร้างหน้าใบลา (pure — ทดสอบได้โดยไม่ยิง Notion)

@@ -50,6 +50,10 @@ function runUnitTests() {
     testBuildMonthlyLeaveSummary_,
     testMonthlySummaryInMessages_,
     testScheduleLeaveRows_,
+    testConflictingAssignees_,
+    testBuildAssigneeLeaveConflicts_,
+    testConflictWarningInMessages_,
+    testRichTextValueLimit_,
     testScheduleHelpers_,
   ];
 
@@ -1084,6 +1088,68 @@ function testScheduleLeaveRows_() {
     leaveType: 'ลาป่วย', firstName: 'สมชื่น',
   }, '2026-08-01', '2026-09-01', new Set());
   assertEqual_(crossing.map(r => r.date).join(','), '2026-08-03');
+}
+
+function testConflictingAssignees_() {
+  const leavers = new Set(['ธนกร', 'สมศักดิ์']);
+
+  // ชื่อตรง → จับได้ / ชื่อคนอื่น → ไม่จับ / ไม่มีคนลา → ว่าง
+  assertEqual_(conflictingAssignees_('กีระติ, ธนกร, ฐิติณัฐ', leavers).join(','), 'ธนกร');
+  assertEqual_(conflictingAssignees_('กีระติ, ฐิติณัฐ', leavers).length, 0);
+  assertEqual_(conflictingAssignees_('ธนกร', new Set()).length, 0);
+
+  // "ทุกคน" = wildcard — ใครลาก็กระทบ คืนชื่อคนที่ลา (ไม่ใช่คำว่าทุกคน)
+  assertEqual_(conflictingAssignees_('ทุกคน', leavers).sort().join(','), 'ธนกร,สมศักดิ์'.split(',').sort().join(','));
+  // ชื่อซ้ำในหลายงานต้องไม่ซ้ำในผลลัพธ์ + เว้นวรรครอบชื่อได้
+  assertEqual_(conflictingAssignees_(' ธนกร , สมศักดิ์ ', new Set(['ธนกร'])).join(','), 'ธนกร');
+}
+
+function testBuildAssigneeLeaveConflicts_() {
+  const date = new Date('2026-08-24T08:00:00+07:00');
+  const items = [
+    Object.assign({}, createTestItem_(), { title: 'ประชุมวิชาการ UTH', assignees: ['กีระติ', 'ธนกร', 'ยุพิน'] }),
+    Object.assign({}, createTestItem_(), { title: 'รายงานเวร', assignees: ['สมศักดิ์'] }),
+    Object.assign({}, createTestItem_(), { title: 'งานไม่เกี่ยว', assignees: [] }),
+  ];
+  const leaves = [
+    enrichLeaveForDisplay_(Object.assign({}, createTestLeave_(), {
+      submitterUserId: 'U_THANAKORN', fullName: 'นายธนกร ใจดี', leaveType: 'ลาป่วย',
+      start: '2026-08-21', end: '2026-08-24',
+    }), '2026-08-24', new Set(), createTestRoster_()),
+  ];
+  // ธนกร (จาก roster ตาม userId) ลา และเป็นผู้รับผิดชอบประชุม UTH → งานเดียวที่โดนเตือน
+  const conflicts = buildAssigneeLeaveConflicts_(items, leaves);
+  assertEqual_(conflicts.length, 1);
+  assertEqual_(conflicts[0].title, 'ประชุมวิชาการ UTH');
+  assertEqual_(conflicts[0].names.join(','), 'ธนกร');
+  assertContains_(conflicts[0].timeLabel, '08:30'); // พาดเวลาของงานจาก fixture
+
+  // ไม่มีคนลาเลย → ไม่มีอะไรต้องเตือน
+  assertEqual_(buildAssigneeLeaveConflicts_(items, []).length, 0);
+}
+
+function testConflictWarningInMessages_() {
+  const date = new Date('2026-08-24T08:00:00+07:00');
+  const conflicts = [{ title: 'ประชุมวิชาการ UTH', timeLabel: '08:30–16:00', names: ['ธนกร'] }];
+
+  const text = buildLineMessage_(date, [createTestItem_()], [], 'text', undefined, undefined, conflicts);
+  assertContains_(text.text, 'งานที่ผู้รับผิดชอบกำลังลา (1 งาน)');
+  assertContains_(text.text, 'ประชุมวิชาการ UTH — ธนกร ลาอยู่');
+
+  const flex = buildLineMessage_(date, [createTestItem_()], [], 'flex', undefined, undefined, conflicts);
+  assertContains_(flex.altText, 'งานชนผู้ลา 1');
+  assertContains_(JSON.stringify(flex.contents.body), 'ธนกร ลาอยู่');
+
+  // ไม่ส่ง conflicts (เหมือนผู้เรียกเดิม) → ไม่มีส่วนเตือน
+  const without = buildLineMessage_(date, [createTestItem_()], [], 'text');
+  assertFalse_(without.text.indexOf('ผู้รับผิดชอบกำลังลา') !== -1);
+}
+
+// Notion จำกัด rich_text 2,000 ตัวอักษร/object — ตัวช่วยเขียนต้องหน่องให้เองกัน request โดนปฏิเสธ
+function testRichTextValueLimit_() {
+  assertEqual_(richTextValue_('สั้น').rich_text[0].text.content, 'สั้น');
+  assertEqual_(richTextValue_('x'.repeat(2500)).rich_text[0].text.content.length, 2000);
+  assertEqual_(richTextValue_(null).rich_text[0].text.content, '');
 }
 
 function assertTrue_(condition, message) {

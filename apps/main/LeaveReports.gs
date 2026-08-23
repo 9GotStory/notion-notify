@@ -116,6 +116,41 @@ function expandScheduleLeaveRows_(leave, fromStr, toStr, holidaySet) {
   return rows;
 }
 
+// ---------- คนลาชนกับงานที่เป็นผู้รับผิดชอบ (เตือนอย่างเดียว ใช้ร่วม 3 ที่: หน้าตารางงาน / ตอนยื่นลา / สรุปเช้า) ----------
+
+/** ชื่อผู้รับผิดชอบของงานหนึ่งที่กำลังลาในวันนั้น (pure)
+ *  assigneesText = ชื่อคั่นจุลภาคจาก property ผู้รับผิดชอบของปฏิทินงาน
+ *  leaveNamesOnDate = Set ของชื่อจริงที่มีใบลาอนุมัติคร่อมวันนั้น
+ *  กติกา: "ทุกคน" เป็น wildcard — มอบหมายทุกคนแล้วมีใครลา ถือว่ากระทบ คืนชื่อคนที่ลา
+ *  ชื่อผู้รับผิดชอบใน Notion ต้องพิมพ์เป็น "ชื่อจริง" ตรงกับทำเนียบ Staff จึงจะจับคู่ได้ */
+function conflictingAssignees_(assigneesText, leaveNamesOnDate) {
+  if (!assigneesText || !leaveNamesOnDate || !leaveNamesOnDate.size) return [];
+  const hits = new Set();
+  String(assigneesText).split(',').map(s => s.trim()).filter(Boolean).forEach(name => {
+    if (name === 'ทุกคน') {
+      leaveNamesOnDate.forEach(leaver => hits.add(leaver));
+    } else if (leaveNamesOnDate.has(name)) {
+      hits.add(name);
+    }
+  });
+  return Array.from(hits).sort((a, b) => a.localeCompare(b, 'th'));
+}
+
+/** รายการ "งานของวันนั้น" ที่ผู้รับผิดชอบกำลังลา (pure) — ใช้กับสรุปเช้า
+ *  items = งานของวันเดียว (จาก getNotionItemsForDay_) / leaves = ใบลาอนุมัติแล้วที่คร่อมวันเดียวกัน
+ *  คืน [{ title, timeLabel, names }] หรือ [] */
+function buildAssigneeLeaveConflicts_(items, leaves) {
+  if (!leaves || !leaves.length) return [];
+  const leaverNames = new Set(
+    leaves.map(leave => (leave.firstName || leave.fullName || '').trim()).filter(Boolean));
+  const out = [];
+  (items || []).forEach(item => {
+    const names = conflictingAssignees_((item.assignees || []).join(', '), leaverNames);
+    if (names.length) out.push({ title: item.title, timeLabel: itemTimeLabel_(item), names: names });
+  });
+  return out;
+}
+
 // ---------- สรุปวันลารายเดือน (แนบท้ายข้อความเช้าวันทำการแรกของแต่ละเดือน) ----------
 
 // เดือนก่อนหน้าจาก 'YYYY-MM' — pure

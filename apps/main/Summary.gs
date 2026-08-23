@@ -139,8 +139,10 @@ function checkAndSendNotification() {
       return;
     }
 
+    // งานวันนี้ที่ผู้รับผิดชอบกำลังลา — เตือนให้กลุ่มรู้ไว้จัดคนไปแทน (รวมข้อความเดิม โควตาเพิ่ม 0)
+    const conflicts = buildAssigneeLeaveConflicts_(items, leaves);
     const messageObj = buildLineMessage_(now, items, leaves, settings.message_format, advance,
-      monthly && monthly.summary);
+      monthly && monthly.summary, conflicts);
     sendLineMessage_(settings.line_group_id, messageObj);
 
     props.setProperty('LAST_CHECKED_DATE', todayStr);
@@ -193,20 +195,21 @@ function cleanupOldFailCounts_(props, todayStr) {
 // leaves คือใบลาที่อนุมัติแล้วและคร่อมวันนี้ (จาก getApprovedLeavesForDay_ ใน LeaveReports.gs)
 // advance (ไม่บังคับ) คือข้อมูลวันล่วงหน้าจาก collectAdvanceNotice_ — ส่งมาเมื่อไรจะต่อท้ายเป็นอีกส่วน
 // monthly (ไม่บังคับ) คือสรุปวันลารายเดือนจาก buildMonthlyLeaveSummary_ — แนบท้ายเป็นส่วนสุดท้าย
-function buildLineMessage_(date, items, leaves, format, advance, monthly) {
+function buildLineMessage_(date, items, leaves, format, advance, monthly, conflicts) {
   if (String(format).trim().toLowerCase() === 'flex') {
     const dateLabel = thaiDateLabel_(date);
     let altText = `📅 ปฏิทินงานวันที่ ${dateLabel} (${items.length} รายการ)`;
     if (leaves.length) altText += ` — ผู้ลา ${leaves.length} คน`;
     if (advance) altText += ` — ล่วงหน้า ${advance.items.length + advance.leaves.length} รายการ`;
     if (monthly) altText += ' — สรุปใบลาเดือนที่แล้ว';
+    if (conflicts && conflicts.length) altText += ` — ⚠ งานชนผู้ลา ${conflicts.length}`;
     return {
       type: 'flex',
       altText: altText, // ข้อความสำรองตอนแจ้งเตือน/เครื่องที่ไม่รองรับ Flex
-      contents: buildFlexBubble_(date, items, leaves, advance, monthly),
+      contents: buildFlexBubble_(date, items, leaves, advance, monthly, conflicts),
     };
   }
-  return { type: 'text', text: buildTextMessage_(date, items, leaves, advance, monthly) };
+  return { type: 'text', text: buildTextMessage_(date, items, leaves, advance, monthly, conflicts) };
 }
 
 // หัวข้อส่วนล่วงหน้า — เลือกคำตามระยะจริง: ถัดจากวันข้อความ 1 วันใช้ "วันพรุ่งนี้" (อ่านเข้าใจทันที)
@@ -226,7 +229,7 @@ function textItemBlock_(item) {
   return lines.join('\n');
 }
 
-function buildTextMessage_(date, items, leaves, advance, monthly) {
+function buildTextMessage_(date, items, leaves, advance, monthly, conflicts) {
   const dateLabel = thaiDateLabel_(date);
   const sections = [];
 
@@ -235,6 +238,12 @@ function buildTextMessage_(date, items, leaves, advance, monthly) {
   if (leaves && leaves.length) {
     sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` +
       leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
+  }
+
+  // งานวันนี้ที่ผู้รับผิดชอบกำลังลา — ให้กลุ่มเห็นตั้งแต่เช้าเพื่อจัดคนไปแทนได้ทัน
+  if (conflicts && conflicts.length) {
+    sections.push(`⚠ งานที่ผู้รับผิดชอบกำลังลา (${conflicts.length} งาน)\n` +
+      conflicts.map(c => '• ' + c.timeLabel + ' ' + c.title + ' — ' + c.names.join(', ') + ' ลาอยู่').join('\n'));
   }
 
   // ส่วนล่วงหน้า: งาน+ผู้ลาของอีก N วันถัดไป — มีหัวข้อกำกับวันเป้าหมายชัดๆ กันสับสนกับของวันนี้
@@ -343,7 +352,7 @@ function flexLeaveRows_(leaves) {
 // เพื่อให้ label เข้มขึ้นได้แบบชัวร์ว่า render ถูก แทนการลองใช้ span ผสมสไตล์ในบรรทัดเดียวที่ยังไม่ได้ทดสอบจริง)
 // + หัวข้อผู้ลาวันนี้ (ถ้ามี) + footer ชื่อหน่วยงาน
 // items อาจว่างได้ในวันที่มีแต่ผู้ลา — โครงการ์ดยังเหมือนเดิม แค่ไม่มีกล่องรายการงาน
-function buildFlexBubble_(date, items, leaves, advance, monthly) {
+function buildFlexBubble_(date, items, leaves, advance, monthly, conflicts) {
   const dateLabel = thaiDateLabel_(date);
   const theme = dayThemeFor_(date);
 
@@ -369,6 +378,23 @@ function buildFlexBubble_(date, items, leaves, advance, monthly) {
       contents: [
         { type: 'text', text: '🏖️ ผู้ลาวันนี้ (' + leaves.length + ' คน)', size: 'sm', weight: 'bold', color: '#0F6E56' },
       ].concat(flexLeaveRows_(leaves)),
+    });
+  }
+
+  // งานวันนี้ที่ผู้รับผิดชอบกำลังลา — กล่องเตือนโทนอำพัน (สีเดียวกับการ์ดลาบนหน้าเว็บ) ให้เห็นแยกจากข้อมูลปกติ
+  if (conflicts && conflicts.length) {
+    bodyContents.push({ type: 'separator' });
+    bodyContents.push({
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '16px',
+      contents: [
+        { type: 'text', text: '⚠ งานที่ผู้รับผิดชอบกำลังลา (' + conflicts.length + ' งาน)', size: 'sm', weight: 'bold', color: '#B45309' },
+      ].concat(conflicts.map(c => ({
+        type: 'text',
+        text: '• ' + c.timeLabel + ' ' + c.title + ' — ' + c.names.join(', ') + ' ลาอยู่',
+        size: 'xs', color: '#92400E', wrap: true, margin: 'sm',
+      }))),
     });
   }
 

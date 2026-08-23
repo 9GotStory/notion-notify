@@ -187,6 +187,25 @@ function parseLeaveSubmissionInput_(body, settings) {
   return { leaveType: leaveType, reason: reason, start: range.start, end: range.end, period: period };
 }
 
+/** เติมคำเตือน "ในช่วงลามีงานที่คุณรับผิดชอบ" ลง warnings (mutate โดยตั้งใจ — flow เดิมส่งต่อไปทั้งฟอร์มและการ์ดอนุมัติ)
+ *  ตรวจไม่สำเร็จก็แค่ log แล้วข้าม — คำเตือนต้องไม่ทำให้ยื่นลาไม่ได้ เช่นเดียวกับการตรวจสิทธิ์
+ *  แสดงสูงสุด 5 รายการแล้วสรุปเป็น "อีก N รายการ" — กันคำเตือนยาวจนหมายเหตุระบบของใบลาโดนตัดที่ขีด 2,000 ของ Notion */
+function appendAssigneeConflictWarning_(settings, firstName, startStr, endStr, warnings) {
+  try {
+    const conflicts = getItemsForAssigneeInRange_(settings, firstName, startStr, shiftDateStr_(endStr, 1));
+    if (conflicts.length) {
+      const shown = conflicts.slice(0, 5).map(item =>
+        item.title + ' (' + leaveDateLabel_((item.start || '').slice(0, 10), (item.end || item.start || '').slice(0, 10)) + ')'
+      );
+      if (conflicts.length > 5) shown.push('อีก ' + (conflicts.length - 5) + ' รายการ');
+      warnings.push('⚠ ในช่วงลามีงานที่คุณเป็นผู้รับผิดชอบ: ' + shown.join(', ') +
+        ' — ควรประสานหัวหน้างานเพื่อมอบหมายผู้ไปแทน');
+    }
+  } catch (err) {
+    logResult_(new Date(), 'error', 'ตรวจงานที่รับผิดชอบในช่วงลาไม่สำเร็จ (ข้ามคำเตือนนี้): ' + err);
+  }
+}
+
 function apiSubmit_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
   const roster = readStaffRoster_();
@@ -209,6 +228,7 @@ function apiSubmit_(body) {
   const workDays = computeWorkDays_(range.start, range.end, readHolidaySet_(), period);
   const usage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date());
   const warnings = buildLeaveWarnings_(leaveType, workDays, usage);
+  appendAssigneeConflictWarning_(settings, staff.firstName, range.start, range.end, warnings);
   const usedLabel = usage && LEAVE_QUOTAS[leaveType] != null
     ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((usage[leaveType] || 0) + workDays) + ' / ' + LEAVE_QUOTAS[leaveType] + ' วันทำการ'
     : '';
@@ -528,6 +548,7 @@ function apiUpdateLeave_(body) {
     const workDays = computeWorkDays_(input.start, input.end, readHolidaySet_(), input.period);
     const usage = subtractLeaveFromUsage_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date()), leavePage);
     const warnings = buildLeaveWarnings_(input.leaveType, workDays, usage);
+    appendAssigneeConflictWarning_(settings, staff.firstName, input.start, input.end, warnings);
     const usedLabel = usage && LEAVE_QUOTAS[input.leaveType] != null
       ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((usage[input.leaveType] || 0) + workDays) + ' / ' + LEAVE_QUOTAS[input.leaveType] + ' วันทำการ'
       : '';

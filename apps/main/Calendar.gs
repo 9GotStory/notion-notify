@@ -127,6 +127,18 @@ function expandScheduleRows_(item, fromStr, toStr, full) {
   return rows;
 }
 
+/** งาน (สถานะยืนยันแล้ว) ที่คร่อมช่วง [fromStr, toStr) และมีผู้รับผิดชอบตรงกับชื่อที่กำหนด (รวม "ทุกคน")
+ *  ใช้เตือนตอนยื่น/แก้ไขใบลาว่า "ในช่วงลามีงานที่คุณรับผิดชอบอยู่" — เตือนเท่านั้น ไม่บล็อก */
+function getItemsForAssigneeInRange_(settings, firstName, fromStr, toStr) {
+  if (!firstName || !settings.notion_database_id ||
+      String(settings.notion_database_id).trim() === 'your_notion_database_id') return [];
+  const payload = buildNotionQueryPayload_(shiftDateStr_(fromStr, -RANGE_PADDING_DAYS), toStr);
+  return queryNotionPages_(resolveDataSourceId_(settings.notion_database_id), payload)
+    .map(parseNotionPage_)
+    .filter(item => itemOverlapsRange_(item, fromStr, toStr))
+    .filter(item => (item.assignees || []).some(name => name === firstName || name === 'ทุกคน'));
+}
+
 function apiSchedule_(body) {
   const month = String((body && body.month) || '').trim();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
@@ -185,6 +197,16 @@ function apiSchedule_(body) {
     leaves.sort((a, b) => a.date === b.date
       ? a.name.localeCompare(b.name, 'th')
       : (a.date < b.date ? -1 : 1));
+
+    // คนลาชนงานที่รับผิดชอบ: ต่องานแต่ละวันด้วยชื่อผู้รับผิดชอบที่กำลังลาในวันนั้น (ให้หน้าเว็บขึ้น ⚠)
+    const leaveNamesByDate = {};
+    leaves.forEach(row => {
+      (leaveNamesByDate[row.date] = leaveNamesByDate[row.date] || new Set()).add(row.name);
+    });
+    items.forEach(row => {
+      const onLeave = conflictingAssignees_(row.assignees, leaveNamesByDate[row.date]);
+      if (onLeave.length) row.assigneesOnLeave = onLeave;
+    });
   }
   const result = { ok: true, month: month, full: full, items: items, leaves: leaves };
   try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }
