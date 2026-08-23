@@ -59,6 +59,7 @@ function runUnitTests() {
     testLeaveWarningsWithEffectiveQuota_,
     testBaseQuotaMap_,
     testUsageSummaryWithQuotaMap_,
+    testQuotaProfileSeed_,
     testScheduleHelpers_,
   ];
 
@@ -484,17 +485,17 @@ function testComputeWorkDays_() {
 }
 
 function testBuildLeaveWarnings_() {
-  // เกินโควตาลากิจ (ใช้ 8 + ยื่น 3 = 11 > 10)
-  let w = buildLeaveWarnings_('ลากิจ', 3, { 'ลากิจ': 8 });
+  // เกินโควตาลากิจ (ใช้ 43 + ยื่น 3 = 46 > 45)
+  let w = buildLeaveWarnings_('ลากิจ', 3, { 'ลากิจ': 43 });
   assertEqual_(w.length, 1);
   assertContains_(w[0], 'เกินสิทธิ์');
-  assertContains_(w[0], '11');
+  assertContains_(w[0], '46');
   // ครบสิทธิ์พอดี = แจ้งเตือนเตือนล่วงหน้า
-  w = buildLeaveWarnings_('ลากิจ', 2, { 'ลากิจ': 8 });
+  w = buildLeaveWarnings_('ลากิจ', 2, { 'ลากิจ': 43 });
   assertEqual_(w.length, 1);
   assertContains_(w[0], 'ครบสิทธิ์');
   // ยังไม่ถึง = เงียบ
-  w = buildLeaveWarnings_('ลากิจ', 1, { 'ลากิจ': 8 });
+  w = buildLeaveWarnings_('ลากิจ', 1, { 'ลากิจ': 43 });
   assertEqual_(w.length, 0);
   // ไม่มีข้อมูล usage (อ่าน Notion ไม่ได้) = ไม่เตือนเรื่องสิทธิ์ แต่เตือนใบแพทย์ยังทำงาน
   w = buildLeaveWarnings_('ลาป่วย', 5, null);
@@ -512,15 +513,15 @@ function testBuildLeaveWarnings_() {
   assertEqual_(w.length, 2);
   assertContains_(w.join(' '), 'สะสม');
   assertContains_(w.join(' '), 'เกินสิทธิ์');
-  // ครึ่งวันรวมยอดทศนิยมได้ (ใช้ 9.5 + ยื่น 0.5 = 10 พอดี = ครบสิทธิ์)
-  w = buildLeaveWarnings_('ลากิจ', 0.5, { 'ลากิจ': 9.5 });
+  // ครึ่งวันรวมยอดทศนิยมได้ (ใช้ 44.5 + ยื่น 0.5 = 45 พอดี = ครบสิทธิ์)
+  w = buildLeaveWarnings_('ลากิจ', 0.5, { 'ลากิจ': 44.5 });
   assertContains_(w[0], 'ครบสิทธิ์');
 }
 
 function testBuildUsageSummary_() {
   const summary = buildUsageSummary_({ 'ลากิจ': 3.5, 'ลาป่วย': 2 });
   assertEqual_(summary['ลากิจ'].used, 3.5);
-  assertEqual_(summary['ลากิจ'].quota, 10);
+  assertEqual_(summary['ลากิจ'].quota, 45);
   assertEqual_(summary['ลาป่วย'].quota, null); // ลาป่วยไม่จำกัด
   assertEqual_(summary['ลาคลอด'].used, 0); // ประเภทมีโควตาแต่ยังไม่เคยใช้ก็แสดง
   assertEqual_(summary['ลาคลอด'].quota, 90);
@@ -1198,11 +1199,11 @@ function testUsageSummaryWithBalances_() {
   assertEqual_(summary['อื่นๆ'].quota, null);
   // ประเภทมีโควตาแต่ไม่มีรายการปรับและไม่เคยใช้ — ยังโผล่ครบตาม buildUsageSummary_ เดิม
   assertEqual_(summary['ลากิจ'].used, 0);
-  assertEqual_(summary['ลากิจ'].quota, 10);
+  assertEqual_(summary['ลากิจ'].quota, 45);
 
   // ไม่มีรายการปรับเลย = ผลเหมือน buildUsageSummary_ เดิมเป๊ะ
   const plain = buildUsageSummaryWithBalances_({ 'ลากิจ': 3 }, [], 2026);
-  assertEqual_(plain['ลากิจ'].quota, 10);
+  assertEqual_(plain['ลากิจ'].quota, 45);
   assertEqual_(plain['ลากิจ'].used, 3);
 
   // ใบลาอ่านไม่ได้ (null) แต่มีรายการปรับ → ยังสรุปได้จากฐานโควตา ไม่เป็น null เปล่า
@@ -1250,7 +1251,7 @@ function testBaseQuotaMap_() {
   // สถานะว่าง (ยังไม่ระบุ) = ค่าเริ่มต้นทั้งชุด / ไม่มี profiles เลยก็คืนค่าเริ่มต้น
   const blank = baseQuotaMap_(profiles, '', 2026);
   assertEqual_(blank['ลาพักร้อน'], 10);
-  assertEqual_(baseQuotaMap_([], 'ข้าราชการ', 2026)['ลากิจ'], 10);
+  assertEqual_(baseQuotaMap_([], 'ข้าราชการ', 2026)['ลากิจ'], 45);
 }
 
 // สรุปยอดต้องใช้โควตาตามประเภทบุคลากรของคนนั้นเป็นฐาน — ก่อนรวมยกมาจากสมุดรายการปรับ
@@ -1265,12 +1266,35 @@ function testUsageSummaryWithQuotaMap_() {
   const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 1 }, balances, 2026, quotaMap);
   assertEqual_(summary['ลาพักร้อน'].quota, 2); // ฐาน 0 + ยกมา 2
   assertEqual_(summary['ลาพักร้อน'].used, 1);
-  assertEqual_(summary['ลากิจ'].quota, 10); // ประเภทที่แถวไม่มี = ค่าเริ่มต้น
+  assertEqual_(summary['ลากิจ'].quota, 45); // ประเภทที่แถวไม่มี = ค่าเริ่มต้น
 
-  // คำเตือนสิทธิ์ต้องเห็นโควตารวมของคนนั้น (2) ไม่ใช่ค่าเริ่มต้น (10) — ใช้ 1 + ยื่นอีก 1 = ครบ
+  // คำเตือนสิทธิ์ต้องเห็นโควตารวมของคนนั้น (2) ไม่ใช่ค่าเริ่มต้น (45) — ใช้ 1 + ยื่นอีก 1 = ครบ
   const warnings = buildLeaveWarnings_('ลาพักร้อน', 1, { 'ลาพักร้อน': 1 },
     summary['ลาพักร้อน'].quota);
   assertTrue_(warnings.some(w => w.indexOf('ครบสิทธิ์ 2') !== -1), 'เตือนครบสิทธิ์ตามโควตาของคนนั้น');
+}
+
+// ข้อมูลตั้งต้น QUOTA_PROFILE_SEED ต้องเชื่อมกับระบบได้จริง — ชื่อประเภทการลา/บุคลากรผิดตัวอักษรเดียว
+// จะทำให้แถวนั้นจับคู่ไม่ติดเงียบๆ (ไม่มี error) จึงต้องมี test กันไว้
+function testQuotaProfileSeed_() {
+  const knownLeaveTypes = new Set(LEAVE_TYPES_DEFAULT);
+  const seen = new Set();
+  const byEmployment = {};
+  QUOTA_PROFILE_SEED.forEach(row => {
+    assertEqual_(row.length, QUOTA_PROFILE_COLUMNS.length, 'seed ต้องมีครบ ' + QUOTA_PROFILE_COLUMNS.length + ' คอลัมน์');
+    const [, employmentType, leaveType, quota, note] = row;
+    assertTrue_(knownLeaveTypes.has(leaveType), 'ชื่อประเภทการลา "' + leaveType + '" ไม่ตรงกับ LEAVE_TYPES_DEFAULT');
+    assertTrue_(!seen.has(employmentType + '|' + leaveType), 'seed ซ้ำ: ' + employmentType + ' ' + leaveType);
+    seen.add(employmentType + '|' + leaveType);
+    assertTrue_(quota >= 0 && quota <= 365, 'โควตาต้องอยู่ระหว่าง 0-365 วันทำการ');
+    assertTrue_(String(note).trim().length > 0, 'ทุกแถวต้องมีหมายเหตุอ้างอิงแหล่งที่มา');
+    byEmployment[employmentType] = (byEmployment[employmentType] || 0) + 1;
+  });
+  // 6 ประเภทบุคลากร × ครบทุกประเภทการลาหลัก (เว้น "อื่นๆ" ที่ไม่มีสิทธิ์มาตรฐาน)
+  assertEqual_(Object.keys(byEmployment).length, 6);
+  Object.keys(byEmployment).forEach(type => {
+    assertEqual_(byEmployment[type], knownLeaveTypes.size - 1, type + ' ต้องมีครบทุกประเภทการลา');
+  });
 }
 
 function assertTrue_(condition, message) {

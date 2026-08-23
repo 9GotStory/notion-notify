@@ -52,6 +52,7 @@ function onOpen() {
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
     .addSeparator()
     .addItem('เตรียม/ตรวจสอบชีตทั้งหมด', 'setupSheet')
+    .addItem('เติมสิทธิ์วันลาตามระเบียบ', 'seedLeaveQuotaDefaults')
     .addItem('เปิด/ปิดระบบลา', 'toggleLeaveSystem')
     .addItem('เปิด/ปิดการอนุมัติใบลา', 'toggleLeaveApproval')
     .addToUi();
@@ -72,7 +73,7 @@ function setupSheet() {
   ensureSheet_(ss, 'Approvers', 'ผู้อนุมัติระบบลางาน — กลุ่มงานไหน ใครอนุมัติ ส่งต่อ หัวหน้า สสอ. ไหม', APPROVERS_SHEET_COLUMNS, status);
   ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ — เพิ่มอัตโนมัติเมื่อแต่ละคนลงทะเบียนผ่านฟอร์มเอง', STAFF_SHEET_COLUMNS, status);
   ensureSheet_(ss, 'LeaveBalances', 'สมุดรายการปรับยอดวันลา — ยอดที่แสดงทุกจุด = ใบลาจริง + รายการในนี้ (จัดการผ่านหน้าเว็บตั้งค่าหรือแก้ตรงนี้)', BALANCE_SHEET_COLUMNS, status);
-  ensureSheet_(ss, 'QuotaProfiles', 'โควตาสิทธิ์ตามประเภทบุคลากร (ว่างทั้งชีต = ทุกคนใช้ค่าเริ่มต้นตามระเบียบราชการ)', QUOTA_PROFILE_COLUMNS, status);
+  ensureSheet_(ss, 'QuotaProfiles', QUOTA_PROFILE_SHEET_TITLE, QUOTA_PROFILE_COLUMNS, status);
   // migration: ชีต Staff ที่สร้างก่อนมีคอลัมน์ "ประเภทบุคลากร" — เติมหัวคอลัมน์ที่ 9 ให้ (ต่อท้าย ไม่ขยับของเดิม)
   const staffSheet = ss.getSheetByName('Staff');
   if (staffSheet && !String(staffSheet.getRange(2, 9).getDisplayValue()).trim()) {
@@ -105,12 +106,29 @@ function setupSheet() {
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['monthly_leave_summary_enabled', 'TRUE', 'สรุปวันลารายเดือน (FALSE = ปิด): วันทำการแรกของแต่ละเดือน แนบสรุปใบลาที่อนุมัติของเดือนก่อนท้ายข้อความเช้า — รวมข้อความเดียวกัน ไม่เพิ่มโควตา LINE'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
-    ['employment_type_options', 'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ', 'ตัวเลือกประเภทบุคลากรในฟอร์มลงทะเบียน (คั่นจุลภาค) — ใช้จับคู่โควตาจากชีต QuotaProfiles'],
+    ['employment_type_options', 'ข้าราชการ,พนักงานราชการ,พนักงานกระทรวงสาธารณสุข,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ', 'ตัวเลือกประเภทบุคลากรในฟอร์มลงทะเบียน (คั่นจุลภาค) — ใช้จับคู่โควตาจากชีต QuotaProfiles'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
     ['position_options', 'นักวิชาการสาธารณสุข,นักวิชาการอนามัย,นักวิชาการคอมพิวเตอร์,นักบริหารงานสาธารณสุข,พยาบาลวิชาชีพ,พยาบาลช่วยแพทย์,เจ้าพนักงานธุรการ,ลูกจ้างชั่วคราว,อื่นๆ', 'ตัวเลือกตำแหน่งในฟอร์มลงทะเบียน (แก้ให้ตรงหน่วยงานได้เลย คั่นด้วยจุลภาค)'],
   ].forEach(row => {
     if (upsertSettingRow_(row[0], row[1], row[2])) addedKeys.push(row[0]);
   });
+
+  // เติมแถวสิทธิ์อ้างอิงระเบียบลงชีต QuotaProfiles (เฉพาะคู่ ประเภทบุคลากร+ประเภทการลา ที่ยังไม่มี — ไม่แตะของที่แก้ไว้แล้ว)
+  const seeded = seedLeaveQuotaDefaults_();
+  if (seeded.blocked) status.push('⚠ ' + seeded.blocked);
+  else if (seeded.added) status.push('เติมสิทธิ์วันลาตามระเบียบ ' + seeded.added + ' รายการ ลงชีต QuotaProfiles');
+
+  // migration: ตัวเลือกประเภทบุคลากรเดิมยังไม่มี "พนักงานกระทรวงสาธารณสุข" — เติมให้โดยแทรกก่อน "อื่นๆ"
+  // (ระบบโควตาใช้ชื่อนี้จับคู่แถวใน QuotaProfiles — รายการอื่นที่ผู้ดูแลปรับไว้เองไม่ถูกแตะ)
+  const empRaw = String(getSettings_().employment_type_options || '');
+  if (empRaw && empRaw.indexOf('พนักงานกระทรวงสาธารณสุข') === -1) {
+    const list = empRaw.split(',').map(s => s.trim()).filter(Boolean);
+    const at = list.indexOf('อื่นๆ');
+    if (at >= 0) list.splice(at, 0, 'พนักงานกระทรวงสาธารณสุข');
+    else list.push('พนักงานกระทรวงสาธารณสุข');
+    setSettingValue_('employment_type_options', list.join(','));
+    status.push('เติมตัวเลือก "พนักงานกระทรวงสาธารณสุข" ใน Settings (employment_type_options)');
+  }
 
   // ตรวจความพร้อมระบบทั้งสายหลังสร้าง/เติมชีต — ให้ผู้ดูแลเห็นว่าขาดอะไรในคลิกเดียว
   const findings = collectSystemHealth_();
@@ -133,6 +151,43 @@ function setupSheet() {
     SpreadsheetApp.getUi().alert('เตรียมสเปรดชีตเรียบร้อย', summary, SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (err) {
     console.log(summary);
+  }
+}
+
+// เติมแถวสิทธิ์จาก QUOTA_PROFILE_SEED ลงชีต QuotaProfiles — เฉพาะคู่ (ประเภทบุคลากร+ประเภทการลา)
+// ที่ยังไม่มีแถวใดๆ แถวที่ผู้ดูแลเพิ่ม/แก้เองไว้แล้วจะไม่ถูกแตะ (idempotent — รันซ้ำกี่ครั้งก็ปลอดภัย)
+// สร้างชีตให้เองถ้ายังไม่มี จึงรันจากเมนูเฉพาะตัวได้แม้ยังไม่เคยรัน setupSheet
+// คืน {added, kept, blocked?} — blocked ตอนชีตเป็นโครงคอลัมน์รุ่นเก่า (เขียนไม่ได้ ไม่เสียข้อมูล)
+function seedLeaveQuotaDefaults_() {
+  const ensureStatus = [];
+  const usable = ensureSheet_(SpreadsheetApp.getActive(), 'QuotaProfiles',
+    QUOTA_PROFILE_SHEET_TITLE, QUOTA_PROFILE_COLUMNS, ensureStatus);
+  if (!usable) {
+    return { added: 0, kept: 0, blocked: 'ชีต QuotaProfiles ใช้หัวตารางโครงเดิม — ย้ายข้อมูลตาม SETUP.md ก่อนแล้วรันใหม่' };
+  }
+
+  const existing = new Set(readQuotaProfiles_().map(p => p.employmentType + '|' + p.leaveType));
+  const rows = QUOTA_PROFILE_SEED.filter(r => !existing.has(String(r[1]).trim() + '|' + String(r[2]).trim()));
+  if (rows.length) {
+    const sheet = SpreadsheetApp.getActive().getSheetByName('QuotaProfiles');
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, QUOTA_PROFILE_COLUMNS.length).setValues(rows);
+  }
+  return { added: rows.length, kept: QUOTA_PROFILE_SEED.length - rows.length };
+}
+
+// จุดรันจากเมนู — เติมสิทธิ์อ้างอิงระเบียบลงชีต QuotaProfiles แล้วรายงานผล
+function seedLeaveQuotaDefaults() {
+  const result = seedLeaveQuotaDefaults_();
+  const msg = result.blocked
+    ? '⚠ ' + result.blocked
+    : 'เติมสิทธิ์วันลาตามระเบียบแล้ว ' + result.added + ' รายการ' +
+      (result.kept ? '\nข้าม ' + result.kept + ' รายการที่มีอยู่แล้ว (ไม่แตะของเดิม)' : '') +
+      '\n\nตัวเลขเป็นเกณฑ์ "ได้รับเงินเดือน/ค่าจ้าง" ตามระเบียบ ศึกษา ณ ส.ค. 2569\n' +
+      'ตรวจทาน/ปรับได้ที่ชีต QuotaProfiles หรือแท็บ "โควตา" ของหน้าเว็บตั้งค่า';
+  try {
+    SpreadsheetApp.getUi().alert(msg);
+  } catch (err) {
+    console.log(msg); // รันจาก editor ไม่มี UI → log แทน
   }
 }
 
@@ -243,7 +298,7 @@ function ensureSheet_(ss, name, title, headers, status) {
   const hasData = sheet.getLastRow() > 2;
   if (currentHeader && currentHeader !== String(headers[0]).trim() && hasData) {
     status.push('⚠ ชีต ' + name + ' ใช้หัวตารางโครงเดิมและมีข้อมูลอยู่ — ไม่แตะ ให้ย้ายข้อมูลเองแล้วลบหัวเดิม (ดู SETUP.md)');
-    return;
+    return false; // โครงคอลัมน์ไม่ตรงมาตรฐาน — ผู้เรียกต้องไม่เขียนข้อมูลลงชีตนี้
   }
   if (currentHeader !== String(headers[0]).trim()) {
     sheet.getRange(1, 1).setValue(title);
@@ -254,6 +309,7 @@ function ensureSheet_(ss, name, title, headers, status) {
   } else {
     status.push((isNew ? 'สร้างใหม่: ' : 'พร้อมอยู่แล้ว: ') + name);
   }
+  return true;
 }
 
 // ---------- สวิตช์เปิด/ปิดระบบลา (สลับค่า leave_system_enabled ในชีต Settings) ----------
