@@ -93,7 +93,11 @@ function withOk_(result) {
 const ADMIN_API = {
   get_overview: () => api_getOverview_(),
   get_settings: () => withOk_({ settings: api_getSettings() }),
-  save_settings: p => api_saveSettings(parseJsonParam_(p.data, 'object')),
+  // validateSettings_ ตอบ {ok:false, errors:[...]} — พับเป็น error เดียวให้ client แสดงตรงๆ
+  save_settings: p => {
+    const r = api_saveSettings(parseJsonParam_(p.data, 'object'));
+    return r.ok ? r : { ok: false, error: (r.errors || []).join(' · ') || 'บันทึกไม่สำเร็จ' };
+  },
   get_holidays: () => withOk_({ holidays: api_getHolidays() }),
   add_holiday: p => api_addHoliday(p.date, p.name, p.type),
   delete_holiday: p => api_deleteHoliday(p.row),

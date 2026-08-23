@@ -86,7 +86,8 @@ const UI = {
       return '"' + s.replace(/"/g, '""') + '"';
     };
     const lines = rows.map(row => row.map(quote).join(','));
-    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    // ﻿ (BOM) นำหน้า — Excel เข้าใจว่าไฟล์เป็น UTF-8 ไม่อ่านภาษาไทยเพี้ยน
+    const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
