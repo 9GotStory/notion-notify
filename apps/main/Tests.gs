@@ -54,6 +54,7 @@ function runUnitTests() {
     testBuildAssigneeLeaveConflicts_,
     testConflictWarningInMessages_,
     testRichTextValueLimit_,
+    testUsageFromLeaves_,
     testScheduleHelpers_,
   ];
 
@@ -1150,6 +1151,23 @@ function testRichTextValueLimit_() {
   assertEqual_(richTextValue_('สั้น').rich_text[0].text.content, 'สั้น');
   assertEqual_(richTextValue_('x'.repeat(2500)).rich_text[0].text.content.length, 2000);
   assertEqual_(richTextValue_(null).rich_text[0].text.content, '');
+}
+
+// ยอดใช้จากชุดใบลาที่ดึงมาแล้ว — ต้องนับเฉพาะอนุมัติ+รอสองขั้น (เทียบเท่า getLeaveUsageForYear_)
+// และรวมครึ่งวัน 0.5 ได้ ใบไม่มีประเภท/ยกเลิก/ไม่อนุมัติต้องถูกข้าม
+function testUsageFromLeaves_() {
+  const usage = usageFromLeaves_([
+    { status: LEAVE_STATUS.approved, leaveType: 'ลาป่วย', workDays: 2 },
+    { status: LEAVE_STATUS.pendingApprover, leaveType: 'ลาป่วย', workDays: 0.5 },
+    { status: LEAVE_STATUS.pendingChiefOffice, leaveType: 'ลากิจ', workDays: 1 },
+    { status: LEAVE_STATUS.cancelled, leaveType: 'ลาป่วย', workDays: 3 },
+    { status: LEAVE_STATUS.rejected, leaveType: 'ลากิจ', workDays: 2 },
+    { status: LEAVE_STATUS.approved, leaveType: '', workDays: 1 },
+  ]);
+  assertEqual_(usage['ลาป่วย'], 2.5);
+  assertEqual_(usage['ลากิจ'], 1);
+  assertEqual_(Object.keys(usage).length, 2);
+  assertEqual_(Object.keys(usageFromLeaves_([])).length, 0);
 }
 
 function assertTrue_(condition, message) {

@@ -397,18 +397,21 @@ function apiMyLeaves_(body) {
 
   const leaveDbId = String(settings.leave_database_id || '').trim();
   let leaves = [];
+  let usage = null;
   if (leaveDbId && leaveDbId !== 'your_leave_database_id') {
-    leaves = getMyLeavesForYear_(leaveDbId, staff.lineUserId, year)
+    const parsed = getMyLeavesForYear_(leaveDbId, staff.lineUserId, year)
       // กันเคส property "ผู้ยื่น (ระบบ)" ถูกแก้ใน Notion จนดึงใบของคนอื่นมาแสดง
-      .filter(leave => leave.submitterUserId === profile.userId)
-      .map(leave => buildMyLeaveRow_(leave, todayStr));
+      .filter(leave => leave.submitterUserId === profile.userId);
+    // ยอดใช้คำนวณจากชุดเดียวกันเลย (ไม่ query ซ้ำ — ก่อนหน้านี้ยิง Notion 4 คำขอ/ครั้งจนโดน rate limit
+    // ทำให้การ์ดยอดกลายเป็น "ไม่มีข้อมูล" ทั้งที่รายการด้านล่างแสดงได้)
+    usage = buildUsageSummary_(usageFromLeaves_(parsed));
+    leaves = parsed.map(leave => buildMyLeaveRow_(leave, todayStr));
   }
 
-  // ยอดใช้สดกลับมาด้วยชุดเดียวกัน — หน้า "ของฉัน" refresh ยอดได้ทันทีหลังยกเลิกโดยไม่ต้องเรียก session ซ้ำ
   return {
     ok: true,
     leaves: leaves,
-    usage: buildUsageSummary_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, now)),
+    usage: usage,
     leaveYear: String(year + 543),
     today: todayStr,
   };

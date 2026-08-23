@@ -183,6 +183,20 @@ function getLeaveUsageForYear_(leaveDbId, submitterUserId, now) {
   }
 }
 
+/** คำนวณยอดใช้รายประเภทจาก "ใบลาทั้งหมดของปี" ที่ดึงมาแล้ว (pure) — ใช้แทนการ query ซ้ำใน myLeaves
+ *  นับเฉพาะสถานะเดียวกับ getLeaveUsageForYear_ (อนุมัติ + รอทั้งสองขั้น) ผลลัพธ์เทียบเท่ากัน
+ *  ทำเพื่อลดจำนวนคำขอต่อ action ลงจาก 4 เหลือ 2 — ไม่ให้ชน rate limit ของ Notion (~3 req/s) */
+function usageFromLeaves_(leaves) {
+  const counted = [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice];
+  const usage = {};
+  (leaves || []).forEach(leave => {
+    if (counted.includes(leave.status) && leave.leaveType) {
+      usage[leave.leaveType] = (usage[leave.leaveType] || 0) + (leave.workDays || 0);
+    }
+  });
+  return usage;
+}
+
 function readHolidaySet_() {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Holidays');
   const lastRow = sheet.getLastRow();
