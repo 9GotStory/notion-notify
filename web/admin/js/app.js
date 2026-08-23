@@ -1,9 +1,8 @@
-// ตัวเดินหน้าของหน้าผู้ดูแล — hash router + login gate
+// ตัวเดินหน้าของหน้าผู้ดูแล — hash router + login gate (โหลดท้ายสุด หลัง views ทุกไฟล์)
 // view contract: AdminViews.<name>.render(rootElement) → Promise (โหลดข้อมูลสดทุกครั้ง
 // ที่เข้าหน้า — กันเลขแถวชีตเพี้ยนหลังคนอื่นแก้พร้อมกัน และกัน state ค้างจากหน้าก่อน)
+// (ทะเบียน AdminViews ประกาศไว้ใน ui.js ซึ่งโหลดก่อน views)
 'use strict';
-
-const AdminViews = {}; // views/*.js ลงทะเบียนตัวเอง: AdminViews.<name> = { render }
 
 const App = {
 

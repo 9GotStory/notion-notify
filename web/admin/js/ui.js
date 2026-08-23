@@ -2,6 +2,10 @@
 // โหลดก่อน views ทุกไฟล์: ใช้ผ่าน global UI
 'use strict';
 
+// ทะเบียนหน้าของ SPA — ต้องประกาศที่นี่ (ไฟล์แรกๆ ที่โหลด) เพราะ views/*.js
+// ลงทะเบียนตัวเองทันทีตอนโหลด ก่อน app.js (ตัวเดินหน้า) จะถูกโหลดท้ายสุด
+const AdminViews = {};
+
 const UI = {
 
   $(id) { return document.getElementById(id); },
