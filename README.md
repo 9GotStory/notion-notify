@@ -54,8 +54,8 @@ notion-notify/
 
 - API/webhook (โปรเจกต์หลัก): `https://script.google.com/macros/s/AKfycbybCXO_I22rahuFOl8J-IJ_xluDagiDh6kouAMTv8hIB1M2b3mo3djrujP1TBpxgXeX/exec`
 - หน้าตั้งค่า (webapp): `https://script.google.com/macros/s/AKfycbxAjzU09oMjcQtT3RXpqNTh_rt9RDCzdrH_SGysycgYUNb0CEs7wcrztpmizPPe6rO2TQ/exec`
-- ฟอร์มลา: `https://9gotstory.github.io/notion-notify/web/liff-form/` (URL เก่า `/liff-form/` มี redirect รองรับ)
-- ตารางงาน: `https://9gotstory.github.io/notion-notify/web/schedule/` (URL เก่า `/schedule/` มี redirect รองรับ)
+- ฟอร์มลา: `https://9gotstory.github.io/notion-notify/web/liff-form/`
+- ตารางงาน: `https://9gotstory.github.io/notion-notify/web/schedule/`
 
 ## เอกสาร
 

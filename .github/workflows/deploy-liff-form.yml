@@ -8,7 +8,6 @@
 #
 # workflow จะแทนที่ __LIFF_ID__ / __API_URL__ ใน web/liff-form/index.html ก่อนเสิร์ฟขึ้น Pages
 # (URL ปัจจุบัน .../notion-notify/web/liff-form/) และเสิร์ฟเฉพาะหน้าเว็บ ไม่โฮสต์ไฟล์ .gs ทั้ง repo
-# — สร้างหน้า redirect ที่ URL เก่า (/liff-form/, /schedule/) ให้ลิงก์ที่เคยแชร์/ปักหมุดไว้ยังใช้ได้
 #
 # ต้องตั้งค่าครั้งเดียว: Settings > Pages > Source: "GitHub Actions"
 # (ถ้ายังเป็น "Deploy from a branch" workflow นี้จะ deploy ไม่ได้)
@@ -89,18 +88,6 @@ jobs:
           mkdir -p site/web/schedule
           cp web/schedule/index.html site/web/schedule/index.html
           sed -i "s|__SCHEDULE_LIFF_ID__|${SCHEDULE_LIFF_ID:-}|g; s|__API_URL__|$API_URL|g" site/web/schedule/index.html
-          # หน้า redirect ที่ URL เก่า (ก่อนย้ายเข้า web/) — ลิงก์ที่เคยแชร์/ปักหมุดไว้ยังพาไปถึงหน้าใหม่
-          # (ผู้ใช้ลิงก์ liff.line.me ไม่ผ่านทางนี้ — วิ่งตรงไป endpoint ที่ลงทะเบียนไว้กับ LINE โดยตรง)
-          mkdir -p site/liff-form site/schedule
-          for page in liff-form schedule; do
-            printf '%s\n' \
-              '<!doctype html><html lang="th"><head><meta charset="UTF-8">' \
-              '<meta http-equiv="refresh" content="0; url=/notion-notify/web/'"$page"'/">' \
-              '<title>ย้ายหน้าเว็บแล้ว</title></head>' \
-              '<body style="font-family:sans-serif;padding:40px;text-align:center">' \
-              '<p>หน้านี้ย้ายไปที่ใหม่ — <a href="/notion-notify/web/'"$page"'/">กดที่นี่</a> ถ้าไม่ถูกพาไปอัตโนมัติ</p>' \
-              '</body></html>' > "site/$page/index.html"
-          done
           echo "deploy หน้าฟอร์ม + ตารางงานพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"
 
       - uses: actions/upload-pages-artifact@v5

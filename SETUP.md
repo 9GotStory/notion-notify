@@ -194,7 +194,7 @@
    - `LIFF_ID` = จากข้อ 11.3
    - `API_URL` = Web app URL จากข้อ 11.4 (ลงท้ายด้วย `/exec`)
 3. **Settings > Pages > Source: "GitHub Actions"** (สำคัญ — ถ้ายังเป็น "Deploy from a branch" ให้เปลี่ยน ไม่งั้น workflow deploy ไม่ได้ และหน้าที่ถูกเสิร์ฟจะเป็นไฟล์ placeholder ที่ยังไม่ถูกแทนที่ ฟอร์มจะขึ้นว่า "ระบบยังไม่พร้อมใช้งาน")
-4. `git push` — Actions จะรันเอง (ดูได้ที่แท็บ Actions) หน้าฟอร์มอยู่ที่ `https://<username>.github.io/notion-notify/web/liff-form/` และเสิร์ฟเฉพาะหน้าเว็บ ไม่โฮสต์ไฟล์ .gs ของ repo (URL เก่า `/liff-form/` มีหน้า redirect พาไปหน้าใหม่อัตโนมัติ)
+4. `git push` — Actions จะรันเอง (ดูได้ที่แท็บ Actions) หน้าฟอร์มอยู่ที่ `https://<username>.github.io/notion-notify/web/liff-form/` และเสิร์ฟเฉพาะหน้าเว็บ ไม่โฮสต์ไฟล์ .gs ของ repo
 
 **แก้ค่าภายหลัง** (เช่น เปลี่ยน deployment ของ Apps Script): แก้ใน Settings > Environments > liff แล้วไปแท็บ Actions > Deploy LIFF form > Run workflow — ไม่ต้องแก้โค้ดและไม่ต้อง commit
 
