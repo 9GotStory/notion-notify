@@ -49,6 +49,7 @@ function runUnitTests() {
     testAggregateLeavesByPersonMonth_,
     testBuildMonthlyLeaveSummary_,
     testMonthlySummaryInMessages_,
+    testScheduleLeaveRows_,
     testScheduleHelpers_,
   ];
 
@@ -1038,6 +1039,36 @@ function testMonthlySummaryInMessages_() {
   // ไม่ส่ง monthly เลย (param ที่ 6 ว่าง) → ไม่มีส่วนสรุป ผู้เรียกเดิมไม่กระทบ
   const withoutMonthly = buildLineMessage_(date, [createTestItem_()], [], 'text', null, null);
   assertFalse_(withoutMonthly.text.indexOf('สรุปวันลาประจำเดือน') !== -1);
+}
+
+function testScheduleLeaveRows_() {
+  // ใบหลายวัน 20–21 ส.ค. (fixture เดิม) พร้อม firstName จาก roster แบบเส้นทางจริง
+  const leave = Object.assign({}, createTestLeave_(), {
+    firstName: leaveFirstName_(createTestLeave_(), createTestRoster_()),
+  });
+  const rows = expandScheduleLeaveRows_(leave, '2026-08-01', '2026-09-01');
+  assertEqual_(rows.length, 2);
+  assertEqual_(rows[0].date, '2026-08-20');
+  assertEqual_(rows[0].name, 'สมศักดิ์'); // ชื่อจริง ไม่ใช่ชื่อเต็ม
+  assertEqual_(rows[0].type, 'ลากิจ');
+  assertContains_(rows[0].range, '20–21 ส.ค. 2569'); // ใบหลายวันบอกช่วงเต็มทุกวัน
+  assertEqual_(rows[0].period, ''); // เต็มวัน → ไม่มีช่วงวัน
+
+  // ใบครึ่งวันวันเดียว → 1 แถว มี period แต่ไม่มี range
+  const halfDay = expandScheduleLeaveRows_({
+    start: '2026-08-20', end: '', period: 'ครึ่งวันเช้า',
+    leaveType: 'ลาป่วย', firstName: 'สมหญิง', fullName: 'นางสาวสมหญิง ใจงาม',
+  }, '2026-08-01', '2026-09-01');
+  assertEqual_(halfDay.length, 1);
+  assertEqual_(halfDay[0].period, 'ครึ่งวันเช้า');
+  assertEqual_(halfDay[0].range, '');
+
+  // ใบเริ่มก่อนหน้าต่าง (คร่อมเดือน) → เริ่มนับแต่วันแรกของหน้าต่าง และหั่นที่ปลายหน้าต่าง
+  const crossing = expandScheduleLeaveRows_({
+    start: '2026-07-28', end: '2026-08-03', period: 'เต็มวัน',
+    leaveType: 'ลาป่วย', firstName: 'สมชื่น',
+  }, '2026-08-01', '2026-09-01');
+  assertEqual_(crossing.map(r => r.date).join(','), '2026-08-01,2026-08-02,2026-08-03');
 }
 
 function assertTrue_(condition, message) {

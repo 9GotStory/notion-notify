@@ -466,7 +466,18 @@ function apiSchedule_(body) {
   items.sort((a, b) => a.date === b.date
     ? a.title.localeCompare(b.title, 'th')
     : (a.date < b.date ? -1 : 1));
-  const result = { ok: true, month: month, full: full, items: items };
+
+  // ส่วนผู้ลา (ใบอนุมัติแล้วเท่านั้น): ส่งเฉพาะโหมดเจ้าหน้าที่ — ชื่อบุคลากรเป็นข้อมูลภายใน
+  // เหมือนผู้รับผิดชอบ/รายละเอียด/หมายเหตุ (โหมดสาธารณะได้ items เท่านั้น จึงไม่ต้องกังวลเรื่อง cache รั่ว)
+  const leaves = [];
+  if (full) {
+    getApprovedLeavesForRange_(new Date(), settings.leave_database_id, bounds.from, bounds.to)
+      .forEach(leave => expandScheduleLeaveRows_(leave, bounds.from, bounds.to).forEach(row => leaves.push(row)));
+    leaves.sort((a, b) => a.date === b.date
+      ? a.name.localeCompare(b.name, 'th')
+      : (a.date < b.date ? -1 : 1));
+  }
+  const result = { ok: true, month: month, full: full, items: items, leaves: leaves };
   try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }
   return result;
 }

@@ -499,7 +499,12 @@
   function downloadReportCsv_() {
     if (!lastReport || !lastReport.rows) { showToast('ยังไม่มีรายงานให้บันทึก กด "แสดง" ก่อน', true); return; }
     const res = lastReport;
-    const quote = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+    // กัน CSV injection: ค่าที่ Excel ตีความเป็นสูตร (= + - @) ใส่ ' นำหน้าให้เป็นข้อความเสมอ
+    const quote = v => {
+      let s = String(v == null ? '' : v);
+      if (/^[=+\-@]/.test(s)) s = "'" + s;
+      return '"' + s.replace(/"/g, '""') + '"';
+    };
     const lines = [];
     lines.push([quote('รายงานวันลา ' + res.monthLabel)].concat(res.types.map(() => '')).concat(['']).join(','));
     lines.push(['ชื่อ', 'กลุ่มงาน'].concat(res.types).concat(['รวม']).map(quote).join(','));

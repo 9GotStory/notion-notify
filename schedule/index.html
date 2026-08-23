@@ -10,7 +10,8 @@
 <!--
   หน้าดูตารางงาน (ปฏิทินการปฏิบัติงานจาก Notion) — mobile first
   โหมดสองระดับ: สาธารณะ (มีลิงก์ก็ดูได้ — เห็นงาน/เวลา/สถานที่)
-  กับเจ้าหน้าที่ (เข้าสู่ระบบผ่าน LINE และลงทะเบียนแล้ว — เห็นผู้รับผิดชอบ/รายละเอียด/หมายเหตุเพิ่ม)
+  กับเจ้าหน้าที่ (เข้าสู่ระบบผ่าน LINE และลงทะเบียนแล้ว — เห็นผู้รับผิดชอบ/รายละเอียด/หมายเหตุ
+  และผู้ลา (ใบอนุมัติแล้ว) เพิ่ม — ชื่อบุคลากรเป็นข้อมูลภายในจึงไม่ส่งให้โหมดสาธารณะ)
 
   ใช้ทรัพย์กรรมชุดเดียวกับฟอร์มลา (liff-form/): Tailwind คอมไพล์ + LIFF SDK same-origin
   ส่วน LIFF ของหน้านี้เป็น "แอป LIFF ตัวที่สอง" (endpoint /schedule/) — ถ้ายังไม่ได้สร้าง
@@ -53,7 +54,7 @@
 
   <!-- แถบเชิญเจ้าหน้าที่ล็อกอิน (โชว์เฉพาะมุมมองทั่วไปที่มี LIFF ให้ใช้) -->
   <div id="loginCta" class="hidden bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4 text-sm">
-    <p class="text-sky-800">เจ้าหน้าที่ที่เข้าสู่ระบบด้วย LINE จะเห็นผู้รับผิดชอบและรายละเอียดเพิ่มเติม</p>
+    <p class="text-sky-800">เจ้าหน้าที่ที่เข้าสู่ระบบด้วย LINE จะเห็นผู้รับผิดชอบ รายละเอียด และผู้ลาเพิ่มเติม</p>
     <button id="btnLogin" type="button" class="mt-2 px-4 py-2 rounded-xl font-semibold text-xs text-white bg-primary">เข้าสู่ระบบด้วย LINE</button>
   </div>
 
@@ -173,6 +174,26 @@
     $('btnToday').disabled = loading;
   }
 
+  // การ์ดผู้ลา (มุมมองเจ้าหน้าที่เท่านั้น) — โทนอำพันแยกจากการ์ดงานทันทีที่เห็น
+  // รูปแบบเดียวกับ itemCard: หัวเรื่อง + แถวย่อย (ช่วงวันที่ของใบหลายวัน / ครึ่งวัน)
+  function leaveCard(row) {
+    const rows = [];
+    if (row.range) rows.push(['ช่วงวันที่', row.range]); // ลาหลายวัน — บอกช่วงเต็มของใบนี้ทุกวันที่คร่อม
+    if (row.period) rows.push(['ช่วงวัน', row.period]);
+    const subRows = rows.map(r =>
+      '<div class="flex items-baseline gap-2 mt-1"><span class="text-xs font-semibold text-amber-700 shrink-0">' +
+      escapeHtml(r[0]) + ':</span><span class="text-xs text-amber-800 min-w-0">' + escapeHtml(r[1]) + '</span></div>'
+    ).join('');
+    return (
+      '<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-2">' +
+        '<div class="flex items-baseline gap-2">' +
+          '<span class="text-xs font-bold text-amber-700 shrink-0">🏖️ ลา</span>' +
+          '<span class="text-sm font-bold text-slate-800 min-w-0">' + escapeHtml(row.name) + ' — ' + escapeHtml(row.type) + '</span>' +
+        '</div>' + subRows +
+      '</div>'
+    );
+  }
+
   function itemCard(item) {
     const rows = [];
     if (item.range) rows.push(['ช่วงวันที่', item.range]); // งานหลายวัน — บอกช่วงเต็มของรายการนี้
@@ -200,7 +221,14 @@
     (data.items || []).forEach(item => {
       (byDate[item.date] = byDate[item.date] || []).push(item);
     });
-    const dates = Object.keys(byDate).sort();
+    // ผู้ลาถูกส่งมาเฉพาะมุมมองเจ้าหน้าที่ — วันที่มีแต่คนลาไม่มีงานก็ต้องมีหัวข้อวันโผล่ด้วย
+    const leavesByDate = {};
+    if (state.full) {
+      (data.leaves || []).forEach(row => {
+        (leavesByDate[row.date] = leavesByDate[row.date] || []).push(row);
+      });
+    }
+    const dates = Object.keys(Object.assign({}, byDate, leavesByDate)).sort();
 
     const html = dates.length
       ? dates.map(date => {
@@ -212,7 +240,8 @@
                   escapeHtml(dayLabel(date)) + '</h2>' +
                 (isToday ? '<span class="px-2 py-0.5 rounded-full bg-primary text-white text-[10px] font-bold">วันนี้</span>' : '') +
               '</div>' +
-              byDate[date].map(itemCard).join('') +
+              (byDate[date] || []).map(itemCard).join('') +
+              (leavesByDate[date] || []).map(leaveCard).join('') +
             '</section>'
           );
         }).join('')

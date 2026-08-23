@@ -1589,6 +1589,63 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
     .sort((a, b) => (a.firstName || a.fullName).localeCompare(b.firstName || b.fullName, 'th'));
 }
 
+// ---------- ผู้ลาในหน้าตารางงาน /schedule/ (โหมดเจ้าหน้าที่เท่านั้น — ชื่อบุคลากรเป็นข้อมูลภายใน) ----------
+
+/**
+ * ใบลาสถานะ "อนุมัติ" ที่ช่วงวันคร่อม [fromStr, toStr) — สำหรับแสดงในหน้าตารางงาน
+ * แสดงเฉพาะใบอนุมัติแล้วเหมือนสรุปเช้า (ใบที่รออนุมัติไม่เปิดเผย)
+ * คืน [] เงียบๆ ถ้ายังไม่ตั้ง leave_database_id หรืออ่านไม่สำเร็จ (หน้าตารางงานต้องไม่พังเพราะระบบลา)
+ * ใบแต่ละใบจะมี firstName ติดมาด้วย (จากชีต Staff ตาม userId — เหมือนส่วน "ผู้ลาวันนี้")
+ */
+function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr) {
+  const dbId = String(leaveDatabaseId || '').trim();
+  if (!dbId || dbId === 'your_leave_database_id') return [];
+  try {
+    // Notion date filter เทียบวันเริ่มเท่านั้น — ต้องขยายหน้าต่างย้อนหลังแบบเดียวกับ query ปฏิทินงาน
+    // เพื่อเก็บใบลายาวที่เริ่มก่อนเดือนที่ดูแต่ยังคร่อมอยู่ (กรอง overlap จริงอีกทีที่ตัวขยายรายวัน)
+    const payload = {
+      filter: {
+        and: [
+          { property: PROPS_LEAVE.status, select: { equals: LEAVE_STATUS.approved } },
+          { property: PROPS_LEAVE.date, date: { on_or_after: shiftDateStr_(fromStr, -RANGE_PADDING_DAYS) + 'T00:00:00+07:00' } },
+          { property: PROPS_LEAVE.date, date: { before: toStr + 'T00:00:00+07:00' } },
+        ],
+      },
+      page_size: 100,
+    };
+    const leaves = queryNotionPages_(resolveLeaveDataSourceId_(dbId), payload).map(parseLeavePage_);
+    let roster = null;
+    try { roster = readStaffRoster_(); } catch (err) { /* ไม่มีชีต Staff → ใช้ชื่อเต็มแทน */ }
+    return leaves
+      .filter(leave => leave.start)
+      .map(leave => Object.assign({}, leave, { firstName: leaveFirstName_(leave, roster) }));
+  } catch (err) {
+    logResult_(now, 'error', 'ดึงผู้ลาสำหรับหน้าตารางงานไม่สำเร็จ: ' + err);
+    return [];
+  }
+}
+
+/** ขยายใบลาหนึ่งใบเป็นแถวรายวันทุกวันที่ครอบคลุม ภายในหน้าต่าง [fromStr, toStr) เท่านั้น (pure)
+ *  แบบเดียวกับ expandScheduleRows_ ของงานปฏิทินใน Code.gs — รวมถึงเพดาน 370 วันกันลูปยาวผิดปกติ */
+function expandScheduleLeaveRows_(leave, fromStr, toStr) {
+  const rows = [];
+  if (!leave.start) return rows;
+  const lastDay = leave.end || leave.start;
+  let cursor = leave.start < fromStr ? fromStr : leave.start;
+  for (let i = 0; i < 370 && cursor <= lastDay && cursor < toStr; i++) {
+    rows.push({
+      date: cursor,
+      name: leave.firstName || leave.fullName,
+      type: leave.leaveType,
+      // ใบหลายวันแสดงช่วงเต็มทุกวัน (เหมือนงานหลายวัน) / ครึ่งวันแสดงเฉพาะใบวันเดียว
+      range: lastDay !== leave.start ? leaveDateLabel_(leave.start, lastDay) : '',
+      period: (leave.period === 'ครึ่งวันเช้า' || leave.period === 'ครึ่งวันบ่าย') ? leave.period : '',
+    });
+    cursor = shiftDateStr_(cursor, 1);
+  }
+  return rows;
+}
+
 // ---------- สรุปวันลารายเดือน (แนบท้ายข้อความเช้าวันทำการแรกของแต่ละเดือน) ----------
 
 // เดือนก่อนหน้าจาก 'YYYY-MM' — pure
