@@ -90,22 +90,27 @@ function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr) {
   }
 }
 
-/** ขยายใบลาหนึ่งใบเป็นแถวรายวันทุกวันที่ครอบคลุม ภายในหน้าต่าง [fromStr, toStr) เท่านั้น (pure)
- *  แบบเดียวกับ expandScheduleRows_ ของงานปฏิทินใน Calendar.gs — รวมถึงเพดาน 370 วันกันลูปยาวผิดปกติ */
-function expandScheduleLeaveRows_(leave, fromStr, toStr) {
+/** ขยายใบลาหนึ่งใบเป็นแถวรายวัน ภายในหน้าต่าง [fromStr, toStr) เฉพาะ "วันที่นับเป็นวันลา" (pure)
+ *  = วันทำการเท่านั้น (ข้ามเสาร์-อาทิตย์และวันหยุดใน holidaySet จากชีต Holidays) ให้ตรงกับวิธีนับ
+ *  จำนวนวันทำการของใบลา — ไม่ใช่ทุกวันปฏิทินแบบงานปฏิทิน เพราะวันหยุดไม่เคยมีงาน การ์ดลาในวันหยุด
+ *  จึงทำให้เกิดหัวข้อวันเปล่าๆ (มีเพดาน 370 วันกันลูปยาวผิดปกติเหมือน expandScheduleRows_) */
+function expandScheduleLeaveRows_(leave, fromStr, toStr, holidaySet) {
   const rows = [];
   if (!leave.start) return rows;
+  const holidays = holidaySet || new Set();
   const lastDay = leave.end || leave.start;
   let cursor = leave.start < fromStr ? fromStr : leave.start;
   for (let i = 0; i < 370 && cursor <= lastDay && cursor < toStr; i++) {
-    rows.push({
-      date: cursor,
-      name: leave.firstName || leave.fullName,
-      type: leave.leaveType,
-      // ใบหลายวันแสดงช่วงเต็มทุกวัน (เหมือนงานหลายวัน) / ครึ่งวันแสดงเฉพาะใบวันเดียว
-      range: lastDay !== leave.start ? leaveDateLabel_(leave.start, lastDay) : '',
-      period: (leave.period === 'ครึ่งวันเช้า' || leave.period === 'ครึ่งวันบ่าย') ? leave.period : '',
-    });
+    if (!isWeekendDateStr_(cursor) && !holidays.has(cursor)) {
+      rows.push({
+        date: cursor,
+        name: leave.firstName || leave.fullName,
+        type: leave.leaveType,
+        // ใบหลายวันแสดงช่วงเต็มทุกวัน (เหมือนงานหลายวัน) / ครึ่งวันแสดงเฉพาะใบวันเดียว
+        range: lastDay !== leave.start ? leaveDateLabel_(leave.start, lastDay) : '',
+        period: (leave.period === 'ครึ่งวันเช้า' || leave.period === 'ครึ่งวันบ่าย') ? leave.period : '',
+      });
+    }
     cursor = shiftDateStr_(cursor, 1);
   }
   return rows;

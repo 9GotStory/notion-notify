@@ -1042,11 +1042,11 @@ function testMonthlySummaryInMessages_() {
 }
 
 function testScheduleLeaveRows_() {
-  // ใบหลายวัน 20–21 ส.ค. (fixture เดิม) พร้อม firstName จาก roster แบบเส้นทางจริง
+  // ใบหลายวัน 20–21 ส.ค. (พฤ–ศ วันทำการทั้งคู่) พร้อม firstName จาก roster แบบเส้นทางจริง
   const leave = Object.assign({}, createTestLeave_(), {
     firstName: leaveFirstName_(createTestLeave_(), createTestRoster_()),
   });
-  const rows = expandScheduleLeaveRows_(leave, '2026-08-01', '2026-09-01');
+  const rows = expandScheduleLeaveRows_(leave, '2026-08-01', '2026-09-01', new Set());
   assertEqual_(rows.length, 2);
   assertEqual_(rows[0].date, '2026-08-20');
   assertEqual_(rows[0].name, 'สมศักดิ์'); // ชื่อจริง ไม่ใช่ชื่อเต็ม
@@ -1058,17 +1058,32 @@ function testScheduleLeaveRows_() {
   const halfDay = expandScheduleLeaveRows_({
     start: '2026-08-20', end: '', period: 'ครึ่งวันเช้า',
     leaveType: 'ลาป่วย', firstName: 'สมหญิง', fullName: 'นางสาวสมหญิง ใจงาม',
-  }, '2026-08-01', '2026-09-01');
+  }, '2026-08-01', '2026-09-01', new Set());
   assertEqual_(halfDay.length, 1);
   assertEqual_(halfDay[0].period, 'ครึ่งวันเช้า');
   assertEqual_(halfDay[0].range, '');
 
+  // แสดงเฉพาะวันทำการ: ใบ 21–24 ส.ค. (ศ–จ คร่อมเสาร์อาทิตย์ 22–23) → เหลือ 21 กับ 24 เท่านั้น
+  const spansWeekend = expandScheduleLeaveRows_({
+    start: '2026-08-21', end: '2026-08-24', period: 'เต็มวัน',
+    leaveType: 'ลาป่วย', firstName: 'ธนกร',
+  }, '2026-08-01', '2026-09-01', new Set());
+  assertEqual_(spansWeekend.map(r => r.date).join(','), '2026-08-21,2026-08-24');
+
+  // วันหยุดราชการ (จาก holidaySet) ก็ข้ามเหมือนเสาร์-อาทิตย์ — ตรงกับวิธีนับวันทำการของใบลา
+  const withHoliday = expandScheduleLeaveRows_({
+    start: '2026-08-21', end: '2026-08-24', period: 'เต็มวัน',
+    leaveType: 'ลาป่วย', firstName: 'ธนกร',
+  }, '2026-08-01', '2026-09-01', new Set(['2026-08-24']));
+  assertEqual_(withHoliday.map(r => r.date).join(','), '2026-08-21');
+
   // ใบเริ่มก่อนหน้าต่าง (คร่อมเดือน) → เริ่มนับแต่วันแรกของหน้าต่าง และหั่นที่ปลายหน้าต่าง
+  // (1–2 ส.ค. 2569 เป็นเสาร์-อาทิตย์ จึงเหลือแค่จันทร์ที่ 3)
   const crossing = expandScheduleLeaveRows_({
     start: '2026-07-28', end: '2026-08-03', period: 'เต็มวัน',
     leaveType: 'ลาป่วย', firstName: 'สมชื่น',
-  }, '2026-08-01', '2026-09-01');
-  assertEqual_(crossing.map(r => r.date).join(','), '2026-08-01,2026-08-02,2026-08-03');
+  }, '2026-08-01', '2026-09-01', new Set());
+  assertEqual_(crossing.map(r => r.date).join(','), '2026-08-03');
 }
 
 function assertTrue_(condition, message) {

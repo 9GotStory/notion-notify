@@ -181,7 +181,7 @@ function apiSchedule_(body) {
   const leaves = [];
   if (full) {
     getApprovedLeavesForRange_(new Date(), settings.leave_database_id, bounds.from, bounds.to)
-      .forEach(leave => expandScheduleLeaveRows_(leave, bounds.from, bounds.to).forEach(row => leaves.push(row)));
+      .forEach(leave => expandScheduleLeaveRows_(leave, bounds.from, bounds.to, readHolidaySet_()).forEach(row => leaves.push(row)));
     leaves.sort((a, b) => a.date === b.date
       ? a.name.localeCompare(b.name, 'th')
       : (a.date < b.date ? -1 : 1));
