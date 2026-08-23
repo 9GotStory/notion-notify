@@ -62,8 +62,8 @@ jobs:
           # ปักเวอร์ชันเดียว (แทน edge/2 ล่าสุดอัตโนมัติ) เพื่อให้พฤติกรรม login/token นิ่งระยะยาว
           # ไม่โดน breaking change ที่ปล่อยมาเงียบๆ — จะอัปเกรดให้แก้เลขเวอร์ชันตรงนี้จุดเดียว
           # (เช็ครุ่นล่าสุดได้ที่ https://developers.line.biz/en/reference/liff/ )
-          curl -fsSL "https://static.line-scdn.net/liff/edge/versions/2.30.0/sdk.js" -o site/liff-form/sdk.js
-          if [ ! -s site/liff-form/sdk.js ]; then
+          curl -fsSL "https://static.line-scdn.net/liff/edge/versions/2.30.0/sdk.js" -o site/web/liff-form/sdk.js
+          if [ ! -s site/web/liff-form/sdk.js ]; then
             echo "::error::ดาวน์โหลด LIFF SDK ไม่สำเร็จ"
             exit 1
           fi
