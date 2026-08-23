@@ -1,72 +1,131 @@
 /**
- * เว็บแอปหน้าตั้งค่าแยกต่างหาก (มี URL ของตัวเอง) สำหรับระบบแจ้งเตือนปฏิทิน
+ * JSON API ของหน้าตั้งค่าผู้ดูแล — UI อยู่บน GitHub Pages (web/admin/) เรียกผ่าน fetch
  *
- * ทำไมต้องเป็นโปรเจกต์ Apps Script "แยก" จากตัวที่ผูกกับชีต (โปรเจกต์หลักใน apps/main)
- * ไม่รวมไว้ในโปรเจกต์เดียวกัน:
- * - Webhook.gs ต้อง deploy แบบ "Who has access: Anyone" (ให้ LINE server ที่ไม่ได้ login ยิงเข้ามาได้)
- * - ถ้า doGet() ของหน้าตั้งค่านี้อยู่โปรเจกต์เดียวกัน การ deploy จะแชร์ระดับสิทธิ์เดียวกันทั้งโปรเจกต์
- *   (doGet/doPost เป็น entry point ระดับโปรเจกต์ ไม่ใช่ระดับ deployment) เท่ากับใครก็เปิดหน้าตั้งค่านี้ได้
- *   โดยไม่ต้อง login เลย ซึ่งไม่ควรเกิดกับหน้าที่แก้ค่าระบบได้
- * - แยกโปรเจกต์ทำให้หน้านี้ deploy แบบจำกัดสิทธิ์ได้อิสระ โดยไม่กระทบ Webhook
+ * โมเดล: deployment นี้เป็น API ล้วน deploy แบบ "Execute as: Me + Anyone (anonymous)"
+ * ทุกคำขอต้องมี token ตรงกับ Script Property ADMIN_TOKEN (fail-closed — ยังไม่ตั้ง = ปฏิเสธทุกคำขอ)
+ * เรียกแบบ GET + query params เท่านั้น (ตามข้อจำกัด redirect 302 ของ /exec — ดูคอมเมนต์ใน Webhook.gs โปรเจกต์หลัก)
+ * เปิด URL นี้ด้วย browser เอง (ไม่มี apiAction) =  meta-refresh ไปหน้า admin บน GitHub Pages
  *
- * สำคัญ: deployment ของหน้านี้ต้องตั้ง "Execute as: User accessing the web app"
- * (ไม่ใช่ "Execute as: Me") — เอกสารทางการของ Google ระบุตรงๆ ว่า Session.getActiveUser().getEmail()
- * จะได้ค่าว่างเปล่าสำหรับเว็บแอปที่ deploy แบบ "execute as me" (เว้นแต่ผู้เข้าชมอยู่ Google Workspace
- * domain เดียวกับเจ้าของสคริปต์) ถ้าตั้งผิดเป็น "Me" ฟังก์ชัน isAllowedEditor_() ด้านล่างจะเช็คอีเมลว่าง
- * เทียบกับ ALLOWED_EDITORS ตลอด ทำให้ไม่มีใครผ่านเงื่อนไขได้เลย รวมถึงเจ้าของระบบเอง
- * ผลตามมาของการตั้งเป็น "User accessing the web app": สคริปต์จะทำงานภายใต้สิทธิ์ของคนที่กำลังเข้าเว็บ
- * ไม่ใช่สิทธิ์ของเจ้าของสคริปต์ ดังนั้นทุกคนใน ALLOWED_EDITORS ต้องได้รับสิทธิ์ Editor บนสเปรดชีตหลัก
- * โดยตรงด้วย (แชร์ชีตให้แต่ละคน) ไม่งั้น SpreadsheetApp.openById จะเปิดไม่ได้ ดูขั้นตอนเต็มใน SETUP.md
- *
- * ผลที่ตามมาอีกข้อ: โปรเจกต์นี้ไม่ได้ผูกกับสเปรดชีตโดยตรง (ต้องระบุ SPREADSHEET_ID เอง)
- * และไม่มี LINE_CHANNEL_ACCESS_TOKEN อยู่ใน Script Properties ของโปรเจกต์นี้ (ตั้งใจไม่ให้มี
- * เพื่อลดจุดที่ secret รั่วได้ถ้าหน้านี้มีช่องโหว่) หน้านี้จึงจัดการได้แค่ Settings/Holidays/Logs
- * ส่วน "ทดสอบส่งจริง" ยังคงทำผ่านเมนูในชีต (testSendNow ใน Config.gs ของโปรเจกต์หลัก) เท่านั้น
+ * ทำไมต้องเป็นโปรเจกต์แยกจากโปรเจกต์หลัก: doGet/doPost เป็น entry point ระดับโปรเจกต์ การแยกไว้ทำให้
+ * webhook หลัก (ต้อง anonymous ให้ LINE ยิงเข้า) กับ API นี้ (มี token คุมทุกคำขอ) แยกระดับ deployment กันได้
+ * โปรเจกต์นี้ไม่มี LINE_CHANNEL_ACCESS_TOKEN (ตั้งใจ — แม้ ADMIN_TOKEN รั่ว เสียเพียงสิทธิ์แก้ชีต config)
  */
 
 const SPREADSHEET_ID = '1c4SI6mF1B-qymkIPtdQNprR6cxa4PlWeL5fcjzH_0Kg'; // เอาจาก URL ของชีต ส่วนระหว่าง /d/ กับ /edit
+const ADMIN_PAGE_URL = 'https://9gotstory.github.io/notion-notify/web/admin/';
+const MAX_JSON_PARAM_LENGTH = 5000; // กัน URL ยาวเกินที่ /exec รับได้ (~8KB) — payload จริง (settings/approvers) < 2KB
+
+// ---------- Router ----------
 
 function doGet(e) {
-  const email = Session.getActiveUser().getEmail();
-  // กันช่องโหว่กรณีไฟล์นี้ไปปนในโปรเจกต์เดียวกับ webhook (ซึ่ง deploy แบบ "execute as: Me + Anyone"):
-  // ผู้เข้าชมแบบไม่ login จะได้อีเมลว่างเสมอ และถ้า ALLOWED_EDITORS ยังไม่ได้ตั้งค่า isAllowedEditor_
-  // จะปล่อยผ่านทุกคน (= ใครมี URL ก็แก้ Settings/ลบวันหยุดได้) จึงตัดทันทีที่ไม่มีอีเมล
-  // หน้าตั้งค่าใช้ได้เฉพาะจากโปรเจกต์แยกตาม SETUP.md ข้อ 10 (deploy แบบ execute as user เท่านั้น)
-  if (!email) {
-    return HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:60px 24px;text-align:center;color:#B3261E">' +
-      '<p style="font-size:16px;font-weight:600">หน้าตั้งค่าไม่สามารถใช้จาก deployment นี้ได้</p>' +
-      '<p style="font-size:13px;color:#666">deployment นี้ใช้สำหรับ webhook ของ LINE และระบบลางานเท่านั้น — ' +
-      'แก้ไขการตั้งค่าได้ที่ Google Sheet โดยตรง หรือใช้หน้าเว็บตั้งค่าจากโปรเจกต์แยกตาม SETUP.md ข้อ 10</p></div>'
-    );
+  const params = (e && e.parameter) || {};
+  if (params.apiAction) {
+    const result = handleAdminApiRequest_(params);
+    // JSONP สำรองกรณี CORS โดนบล็อก — รูปแบบเดียวกับ Webhook.gs ของโปรเจกต์หลัก
+    if (params.callback && /^[A-Za-z0-9_.]{1,64}$/.test(params.callback)) {
+      return ContentService
+        .createTextOutput(params.callback + '(' + JSON.stringify(result) + ');')
+        .setMimeType(ContentService.MimeType.JAVASCRIPT);
+    }
+    return jsonOutput_(result);
   }
-  if (!isAllowedEditor_(email)) {
-    return HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:60px 24px;text-align:center;color:#B3261E">' +
-      '<p style="font-size:16px;font-weight:600">ไม่มีสิทธิ์เข้าถึงหน้านี้</p>' +
-      '<p style="font-size:13px;color:#666">ติดต่อผู้ดูแลระบบให้เพิ่มอีเมลนี้ใน ALLOWED_EDITORS: ' +
-      (email || '(ไม่พบอีเมล — เช็คว่า deployment ตั้ง Execute as เป็น "User accessing the web app" หรือยัง)') + '</p></div>'
-    );
-  }
-  if (SPREADSHEET_ID.indexOf('ใส่ Spreadsheet ID') === 0) {
-    return HtmlService.createHtmlOutput(
-      '<div style="font-family:sans-serif;padding:60px 24px;text-align:center;color:#B3261E">' +
-      '<p style="font-size:16px;font-weight:600">ยังไม่ได้ตั้งค่า SPREADSHEET_ID</p>' +
-      '<p style="font-size:13px;color:#666">แก้ค่าคงที่ SPREADSHEET_ID ที่บรรทัดบนสุดของ WebApp.gs ให้เป็น ID จริงของสเปรดชีตก่อน</p></div>'
-    );
-  }
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('ระบบแจ้งเตือนปฏิทิน')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+  // เปิดด้วย browser เอง — หน้า UI ย้ายไป GitHub Pages แล้ว พาตามไป (ลิงก์ที่คน bookmark ไว้ไม่ตาย)
+  return HtmlService.createHtmlOutput(
+    '<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">' +
+    '<meta http-equiv="refresh" content="0; url=' + ADMIN_PAGE_URL + '">' +
+    '<title>ระบบแจ้งเตือนปฏิทิน — หน้าตั้งค่า</title></head>' +
+    '<body style="font-family:sans-serif;padding:48px 24px;text-align:center;color:#333;line-height:1.8">' +
+    '<p style="font-size:16px;font-weight:600">หน้าตั้งค่าย้ายไปที่ใหม่แล้ว — กำลังพาไป</p>' +
+    '<p style="font-size:14px"><a href="' + ADMIN_PAGE_URL + '" style="color:#0F6E56">' + ADMIN_PAGE_URL + '</a></p>' +
+    '<p style="font-size:12px;color:#999">URL นี้เป็น endpoint ของ API (เรียกพร้อม apiAction + token)</p>' +
+    '</body></html>'
+  );
 }
 
-// ว่าง (ยังไม่ตั้ง ALLOWED_EDITORS) = ยังไม่ล็อกสิทธิ์ ใครมี Google account ที่ deployment อนุญาตก็เข้าได้
-// แนะนำให้ตั้งค่านี้ทันทีหลัง deploy ครั้งแรก ผ่าน Project Settings > Script Properties
-function isAllowedEditor_(email) {
-  const allowList = PropertiesService.getScriptProperties().getProperty('ALLOWED_EDITORS') || '';
-  if (!allowList.trim()) return true;
-  const allowed = allowList.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  return allowed.includes(String(email).toLowerCase());
+function jsonOutput_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// ตรวจ token ทุกคำขอ — fail-closed ทุกกรณี (คืน error object ถ้าไม่ผ่าน, null ถ้าผ่าน)
+function requireAdminToken_(params) {
+  const expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '').trim();
+  if (!expected) {
+    return {
+      ok: false, code: 'UNCONFIGURED',
+      error: 'ยังไม่ได้ตั้ง ADMIN_TOKEN — เปิดโปรเจกต์ Apps Script นี้ > Project Settings > Script Properties > เพิ่มคีย์ ADMIN_TOKEN (32 ตัวอักษร) แล้วลองใหม่',
+    };
+  }
+  const given = String(params.token || '');
+  if (given.length !== expected.length || given !== expected) {
+    return { ok: false, code: 'UNAUTHORIZED', error: 'token ไม่ถูกต้อง — ตรวจอีกครั้ง หรือติดต่อผู้ดูแลระบบ' };
+  }
+  return null;
+}
+
+// แปลง param ที่เป็น JSON string (object/array ผ่าน GET ได้) — throw เป็นข้อความไทยให้ router ครอบเป็น {ok:false}
+function parseJsonParam_(raw, shape) {
+  const text = String(raw || '');
+  if (!text) throw new Error('ขาดข้อมูล (พารามิเตอร์ data)');
+  if (text.length > MAX_JSON_PARAM_LENGTH) throw new Error('ข้อมูลยาวเกินกำหนด');
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (err) {
+    throw new Error('รูปแบบข้อมูล (JSON) ไม่ถูกต้อง');
+  }
+  if (shape === 'array' && !Array.isArray(parsed)) throw new Error('ต้องส่งข้อมูลเป็นรายการ (array)');
+  if (shape === 'object' && (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null)) {
+    throw new Error('ต้องส่งข้อมูลเป็น object');
+  }
+  return parsed;
+}
+
+// api_get* แบบหลายฟิลด์ (balances/quota_profiles) เดิมไม่มี ok เพราะ google.script.run แยก success/failure เอง
+// — ตอนเป็น JSON API ต้องมี ok ทุก response จึงห่อให้ตรงนี้
+function withOk_(result) {
+  return Object.assign({ ok: true }, result || {});
+}
+
+// แผนที่ action → adapter: แปลง query params (string ทั้งหมด) เป็น signature เดิมของ api_*
+// (api_ เดิมไม่แตะเลย — เป็นจุดเดียวที่รู้เรื่อง HTTP)
+const ADMIN_API = {
+  get_overview: () => api_getOverview_(),
+  get_settings: () => withOk_({ settings: api_getSettings() }),
+  save_settings: p => api_saveSettings(parseJsonParam_(p.data, 'object')),
+  get_holidays: () => withOk_({ holidays: api_getHolidays() }),
+  add_holiday: p => api_addHoliday(p.date, p.name, p.type),
+  delete_holiday: p => api_deleteHoliday(p.row),
+  get_logs: p => withOk_({ logs: api_getLogs(p.limit) }),
+  get_leave_report: p => api_getLeaveReport(p.year, p.month),
+  get_balances: () => withOk_(api_getBalances()),
+  add_balance: p => api_addBalance(p.yearBE, p.name, p.leaveType, p.carryIn, p.usedExtra, p.reason),
+  update_balance: p => api_updateBalance(p.row, p.yearBE, p.name, p.leaveType, p.carryIn, p.usedExtra, p.reason),
+  delete_balance: p => api_deleteBalance(p.row),
+  get_quota_profiles: () => withOk_(api_getQuotaProfiles()),
+  add_quota_profile: p => api_addQuotaProfile(p.yearBE, p.employmentType, p.leaveType, p.quota, p.note),
+  update_quota_profile: p => api_updateQuotaProfile(p.row, p.yearBE, p.employmentType, p.leaveType, p.quota, p.note),
+  delete_quota_profile: p => api_deleteQuotaProfile(p.row),
+  set_staff_employment_type: p => api_setStaffEmploymentType(p.staffKey, p.employmentType),
+  get_approvers: () => api_getApprovers_(),
+  save_approvers: p => api_saveApprovers_(parseJsonParam_(p.data, 'array')),
+};
+
+function handleAdminApiRequest_(params) {
+  if (SPREADSHEET_ID.indexOf('ใส่ Spreadsheet ID') === 0) {
+    return { ok: false, error: 'ยังไม่ได้ตั้งค่า SPREADSHEET_ID ใน WebApp.gs' };
+  }
+  const authError = requireAdminToken_(params);
+  if (authError) return authError;
+  const handler = ADMIN_API[params.apiAction];
+  if (!handler) return { ok: false, error: 'ไม่รู้จัก action: ' + params.apiAction };
+  try {
+    return handler(params);
+  } catch (err) {
+    // ทุก exception ฝั่งเซิร์ฟเวอร์กลายเป็น {ok:false,error} — กัน client ได้ HTML error page ของ Apps Script แทน JSON
+    return { ok: false, error: (err && err.message) ? err.message : String(err) };
+  }
 }
 
 function getSheet_(name) {
@@ -483,6 +542,87 @@ function api_setStaffEmploymentType(staffKey, employmentType) {
     }
   }
   return { ok: false, error: 'ไม่พบชื่อนี้ในชีต Staff' };
+}
+
+// ---------- ภาพรวม + ผู้อนุมัติ (endpoint ใหม่ของหน้า admin) ----------
+
+// จำนวนแถวข้อมูลของชีต (ข้อมูลเริ่มแถว 3 เหมือนกันทุกชีต) — ใช้ทำตัวเลขสรุปหน้าภาพรวม
+function countDataRows_(name) {
+  return Math.max(0, getSheet_(name).getLastRow() - 2);
+}
+
+/** ข้อมูลหน้า "ภาพรวม" — ใช้เป็นการตรวจ token ตอน login ฝั่ง client ด้วย (เรียกผ่าน = token ถูก) */
+function api_getOverview_() {
+  const logs = api_getLogs(1);
+  const settings = api_getSettings();
+  const staff = readReportStaff_();
+  const today = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const upcomingHolidays = api_getHolidays().filter(h => String(h.date) >= today).length;
+  return withOk_({
+    log: logs.length ? logs[0] : null,
+    counts: {
+      staff: staff.length,
+      registered: staff.filter(s => s.lineUserId && String(s.lineUserId).trim()).length,
+      groups: countDataRows_('Approvers'),
+      upcomingHolidays: upcomingHolidays,
+      quotaProfiles: countDataRows_('QuotaProfiles'),
+      balances: countDataRows_('LeaveBalances'),
+    },
+    settings: {
+      enabled: settings.enabled,
+      notify_time: settings.notify_time,
+      message_format: settings.message_format,
+    },
+  });
+}
+
+/** รายการผู้อนุมัติรายกลุ่มงาน (ชีต Approvers: กลุ่มงาน | รายชื่อคั่นจุลภาค | ส่งต่อ หัวหน้า สสอ. = TRUE)
+ *  staffKeys ให้ฝั่งหน้าเว็บทำ datalist ช่วยพิมพ์ชื่อให้ตรงกับทำเนียบ */
+function api_getApprovers_() {
+  const sheet = getSheet_('Approvers');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 3).getValues() : [];
+  const approvers = [];
+  data.forEach((row, i) => {
+    const group = String(row[0] || '').trim();
+    const names = String(row[1] || '').trim();
+    if (!group && !names) return;
+    approvers.push({
+      row: 3 + i,
+      group: group,
+      names: names,
+      forward: String(row[2] || '').trim().toUpperCase() === 'TRUE',
+    });
+  });
+  const staffKeys = readReportStaff_().map(s => s.key).sort((a, b) => a.localeCompare(b, 'th'));
+  return withOk_({ approvers: approvers, staffKeys: staffKeys });
+}
+
+/** บันทึกตารางผู้อนุมัติทั้งตาราง (replace แถว 3 ลงไป) — เลี่ยงการ track เลขแถวรายแถว
+ *  ตารางเล็ก (หลักสิบแถว) validate ครบทุกแถวก่อนเขียน แถวไหนพังจะไม่มีอะไรถูกแตะเลย */
+function api_saveApprovers_(rows) {
+  if (!Array.isArray(rows) || rows.length > 50) {
+    return { ok: false, error: 'รายการต้องเป็น array ไม่เกิน 50 แถว' };
+  }
+  const seen = new Set();
+  const values = [];
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] || {};
+    const group = String(r.group || '').trim();
+    const names = String(r.names || '').trim();
+    if (!group) return { ok: false, error: 'แถวที่ ' + (i + 1) + ': กรุณากรอกชื่อกลุ่มงาน' };
+    if (group.length > 100) return { ok: false, error: 'แถวที่ ' + (i + 1) + ': ชื่อกลุ่มงานยาวเกิน 100 ตัวอักษร' };
+    if (seen.has(group)) return { ok: false, error: 'ชื่อกลุ่มงานซ้ำกัน: ' + group };
+    seen.add(group);
+    if (!names) return { ok: false, error: 'แถวที่ ' + (i + 1) + ' (' + group + '): กรุณากรอกชื่อผู้อนุมัติอย่างน้อยหนึ่งคน' };
+    if (names.length > 500) return { ok: false, error: 'แถวที่ ' + (i + 1) + ' (' + group + '): รายชื่อยาวเกิน 500 ตัวอักษร' };
+    values.push([group, names, r.forward ? 'TRUE' : '']);
+  }
+  const sheet = getSheet_('Approvers');
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 3) sheet.getRange(3, 1, lastRow - 2, 3).clearContent();
+  if (values.length) sheet.getRange(3, 1, values.length, 3).setValues(values);
+  return { ok: true };
 }
 
 /** ตารางสรุปวันลา "อนุมัติแล้ว" รายคน×ประเภท ตามปี (+เดือนถ้าเลือก) — นับตามวันเริ่มของใบ

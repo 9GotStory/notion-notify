@@ -3,10 +3,11 @@
    (คอมไพล์ด้วย: npx @tailwindcss/cli@4 -i src/styles.css -o styles.css --minify รันจากในโฟลเดอร์ web/liff-form) */
 @import "tailwindcss";
 
-/* หน้าตารางงาน (schedule/) ใช้ CSS ชุดนี้ด้วย — ประกาศให้ Tailwind สแกนคลาส
-   ใน schedule/index.html ด้วย ไม่งั้นคลาสที่ใช้เฉพาะหน้านั้นจะหายไปตอนคอมไพล์
-   (path นับจากตำแหน่งไฟล์ CSS นี้ = web/liff-form/src/ จึงต้องขึ้น 2 ชั้นถึง web/schedule/) */
+/* หน้าตารางงาน (schedule/) และหน้าผู้ดูแล (admin/) ใช้ CSS ชุดนี้ด้วย — ประกาศให้ Tailwind
+   สแกนคลาสใน index.html และ js/*.js ของทั้งสองหน้า ไม่งั้นคลาสที่ใช้เฉพาะหน้านั้นจะหายไปตอนคอมไพล์
+   (path นับจากตำแหน่งไฟล์ CSS นี้ = web/liff-form/src/ จึงต้องขึ้น 2 ชั้นถึง web/schedule/ และ web/admin/) */
 @source "../../schedule";
+@source "../../admin";
 
 @theme {
   --color-primary: #0F6E56;
