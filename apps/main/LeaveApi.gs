@@ -81,17 +81,29 @@ function apiSession_(body) {
       ok: true, registered: true,
       name: staffDisplayName_(staff), groupName: staff.groupName, position: staff.position,
       // ยอดวันลาที่ใช้ไปแล้วของปีนี้ (จากใบลาจริงใน Notion) เพื่อแสดงบนฟอร์ม — null ถ้ายังไม่ตั้งค่า/อ่านไม่ได้
-      usage: buildUsageSummary_(getLeaveUsageForYear_(settings.leave_database_id, staff.lineUserId, new Date())),
+      usage: buildUsageSummaryWithBalances_(
+        getLeaveUsageForYear_(settings.leave_database_id, staff.lineUserId, new Date()),
+        readLeaveBalances_(),
+        Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')),
+        baseQuotaMap_(readQuotaProfiles_(), staff.employmentType,
+          Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')))),
       leaveYear: String(Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')) + 543),
     }, common, leaveStatus);
   }
   const config = readApproversConfig_();
+  // ตัวเลือกประเภทบุคลากร = รายการใน Settings รวมกับที่ปรากฏในชีต QuotaProfiles (ใครตั้งโควตาไว้ก็ขึ้น dropdown เลย)
+  const employmentTypes = optionList_(settings.employment_type_options,
+    'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ');
+  readQuotaProfiles_().forEach(p => {
+    if (p.employmentType && !employmentTypes.includes(p.employmentType)) employmentTypes.push(p.employmentType);
+  });
   return Object.assign({
     ok: true, registered: false,
     options: Object.assign({
       prefixes: optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ'),
       groups: config.map(c => c.groupName), // รายชื่อกลุ่มงาน = คอลัมน์แรกของชีต Approvers
       positions: optionList_(settings.position_options, 'อื่นๆ'),
+      employmentTypes: employmentTypes,
     }, common),
   }, leaveStatus);
 }
@@ -105,9 +117,11 @@ function apiBind_(body) {
   const lastName = String(body.lastName || '').trim().substring(0, 50);
   const groupName = String(body.groupName || '').trim();
   const position = String(body.position || '').trim().substring(0, 50);
+  const employmentType = String(body.employmentType || '').trim().substring(0, 50);
   if (!firstName || !lastName) throw new Error('กรุณากรอกชื่อและสกุล');
   if (!prefix) throw new Error('กรุณาเลือกคำนำหน้าชื่อ');
   if (!position) throw new Error('กรุณาเลือกตำแหน่ง');
+  if (!employmentType) throw new Error('กรุณาเลือกประเภทบุคลากร');
   // ชื่อ/สกุลเป็น key ที่นำไปเทียบกับ cell รายชื่อ (คั่นจุลภาค) ในชีต Approvers —
   // มีจุลภาคปนมาจะทำให้การจับคู่ผู้อนุมัติพังทั้งสาย จึงบล็อกตั้งแต่ต้นทาง
   if (firstName.indexOf(',') !== -1 || lastName.indexOf(',') !== -1) {
@@ -122,6 +136,11 @@ function apiBind_(body) {
   if (!positions.includes(position) && !positions.includes('อื่นๆ')) throw new Error('ตำแหน่งไม่ถูกต้อง');
   if (!groupName || !config.some(c => c.groupName === groupName)) {
     throw new Error('กลุ่มงานไม่ถูกต้อง หรือยังไม่ได้ตั้งค่าในระบบ — ตรวจอีกครั้งหรือติดต่อผู้ดูแล');
+  }
+  const employmentTypes = optionList_(settings.employment_type_options,
+    'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ');
+  if (!employmentTypes.includes(employmentType) && !employmentTypes.includes('อื่นๆ')) {
+    throw new Error('ประเภทบุคลากรไม่ถูกต้อง');
   }
 
   const lock = LockService.getScriptLock();
@@ -142,14 +161,14 @@ function apiBind_(body) {
     const sheet = SpreadsheetApp.getActive().getSheetByName('Staff');
     if (sameName) {
       // มีแถวชื่อนี้อยู่ก่อนแต่ยังไม่ผูกบัญชี → เติมข้อมูลให้ครบในแถวเดิม (ไม่สร้างซ้ำ)
-      sheet.getRange(sameName.row, 1, 1, 8).setValues([[
+      sheet.getRange(sameName.row, 1, 1, 9).setValues([[
         prefix, firstName, lastName, groupName, position,
-        profile.userId, profile.displayName, todayStr,
+        profile.userId, profile.displayName, todayStr, employmentType,
       ]]);
     } else {
       sheet.appendRow([
         prefix, firstName, lastName, groupName, position,
-        profile.userId, profile.displayName, todayStr,
+        profile.userId, profile.displayName, todayStr, employmentType,
       ]);
     }
 
@@ -225,12 +244,17 @@ function apiSubmit_(body) {
   const period = input.period;
 
   // คำนวณตามระเบียบฯ: ฐานวันทำการ + ครึ่งวัน = 0.5 + คำเตือนจากยอดใช้จริงของปีนี้ (เตือนอย่างเดียว ไม่บล็อก)
+  // ยอดใช้/สิทธิ์รวม "รายการปรับ" จากสมุด LeaveBalances ด้วย (ยกมาเข้าโควตา / ใช้เพิ่มเข้ายอดใช้)
   const workDays = computeWorkDays_(range.start, range.end, readHolidaySet_(), period);
-  const usage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date());
-  const warnings = buildLeaveWarnings_(leaveType, workDays, usage);
+  const rawUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date());
+  const year = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'));
+  const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
+    baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year));
+  const effectiveQuota = summary && summary[leaveType] ? summary[leaveType].quota : null;
+  const warnings = buildLeaveWarnings_(leaveType, workDays, summary ? usageFromSummary_(summary) : null, effectiveQuota);
   appendAssigneeConflictWarning_(settings, staff.firstName, range.start, range.end, warnings);
-  const usedLabel = usage && LEAVE_QUOTAS[leaveType] != null
-    ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((usage[leaveType] || 0) + workDays) + ' / ' + LEAVE_QUOTAS[leaveType] + ' วันทำการ'
+  const usedLabel = summary && effectiveQuota != null
+    ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((summary[leaveType].used || 0) + workDays) + ' / ' + effectiveQuota + ' วันทำการ'
     : '';
   const systemNote = [usedLabel].concat(warnings).filter(Boolean).join('\n');
 
@@ -403,8 +427,9 @@ function apiMyLeaves_(body) {
       // กันเคส property "ผู้ยื่น (ระบบ)" ถูกแก้ใน Notion จนดึงใบของคนอื่นมาแสดง
       .filter(leave => leave.submitterUserId === profile.userId);
     // ยอดใช้คำนวณจากชุดเดียวกันเลย (ไม่ query ซ้ำ — ก่อนหน้านี้ยิง Notion 4 คำขอ/ครั้งจนโดน rate limit
-    // ทำให้การ์ดยอดกลายเป็น "ไม่มีข้อมูล" ทั้งที่รายการด้านล่างแสดงได้)
-    usage = buildUsageSummary_(usageFromLeaves_(parsed));
+    // ทำให้การ์ดยอดกลายเป็น "ไม่มีข้อมูล" ทั้งที่รายการด้านล่างแสดงได้) แล้วรวมรายการปรับจากสมุด LeaveBalances
+    usage = buildUsageSummaryWithBalances_(usageFromLeaves_(parsed), readLeaveBalances_(), year,
+      baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year));
     leaves = parsed.map(leave => buildMyLeaveRow_(leave, todayStr));
   }
 
@@ -548,12 +573,17 @@ function apiUpdateLeave_(body) {
     }
 
     // คำนวณใหม่ทั้งใบ: หักใบเดิมออกจากยอดใช้ก่อน (usage นับใบรออนุมัติรวมอยู่แล้ว)
+    // แล้วรวม "รายการปรับ" จากสมุด LeaveBalances เข้ายอดใช้/สิทธิ์เหมือนตอนยื่นใหม่
     const workDays = computeWorkDays_(input.start, input.end, readHolidaySet_(), input.period);
-    const usage = subtractLeaveFromUsage_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date()), leavePage);
-    const warnings = buildLeaveWarnings_(input.leaveType, workDays, usage);
+    const rawUsage = subtractLeaveFromUsage_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date()), leavePage);
+    const year = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'));
+    const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
+    baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year));
+    const effectiveQuota = summary && summary[input.leaveType] ? summary[input.leaveType].quota : null;
+    const warnings = buildLeaveWarnings_(input.leaveType, workDays, summary ? usageFromSummary_(summary) : null, effectiveQuota);
     appendAssigneeConflictWarning_(settings, staff.firstName, input.start, input.end, warnings);
-    const usedLabel = usage && LEAVE_QUOTAS[input.leaveType] != null
-      ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((usage[input.leaveType] || 0) + workDays) + ' / ' + LEAVE_QUOTAS[input.leaveType] + ' วันทำการ'
+    const usedLabel = summary && effectiveQuota != null
+      ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((summary[input.leaveType].used || 0) + workDays) + ' / ' + effectiveQuota + ' วันทำการ'
       : '';
     const systemNote = [usedLabel].concat(warnings).filter(Boolean).join('\n');
     const oldUserIds = leavePage.currentApprover ? (leavePage.currentApprover.userIds || []) : [];

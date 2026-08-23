@@ -112,6 +112,13 @@
         <input id="regPositionOther" type="text" placeholder="พิมพ์ตำแหน่งของท่าน" maxlength="50"
                class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
       </div>
+      <div>
+        <label for="regEmpType" class="block text-sm font-semibold text-slate-600 mb-1.5">ประเภทบุคลากร</label>
+        <select id="regEmpType" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+          <option value="">— เลือกประเภท —</option>
+        </select>
+        <p class="text-xs text-slate-400 mt-1.5">ใช้กำหนดสิทธิ์วันลาตามสถานะของท่าน (เช่น ข้าราชการ / ลูกจ้างชั่วคราว) — หากไม่แน่ใจให้ถามผู้ดูแลก่อนยืนยัน</p>
+      </div>
       <p id="regNoGroups" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
         ผู้ดูแลยังไม่ได้ตั้งค่ารายชื่อกลุ่มงานในระบบ — ติดต่อผู้ดูแลก่อนลงทะเบียน
       </p>
@@ -209,7 +216,7 @@
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
       <p class="text-sm font-semibold text-slate-600 mb-1">ยอดวันลา ปี <span id="mineYear"></span></p>
       <div id="mineUsage" class="divide-y divide-slate-100 text-sm"></div>
-      <p class="text-xs text-slate-400 mt-3">* ยอด "ใช้ไปแล้ว" รวมใบที่กำลังรออนุมัติด้วย</p>
+      <p class="text-xs text-slate-400 mt-3">* ยอด "ใช้ไปแล้ว" รวมใบที่กำลังรออนุมัติด้วย และแถวที่มี <span class="text-sky-700">*</span> รวมยอดยกมา/รายการปรับของผู้ดูแลแล้ว</p>
     </div>
 
     <p class="text-sm font-semibold text-slate-600 mb-2">ใบลาของฉัน (ปีนี้)</p>
@@ -257,7 +264,7 @@
   };
 
   const state = {
-    options: { prefixes: [], groups: [], positions: [], leaveTypes: [], halfDayTypes: [] },
+    options: { prefixes: [], groups: [], positions: [], employmentTypes: [], leaveTypes: [], halfDayTypes: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
     holidays: new Set(), today: '', leaveType: '', period: 'เต็มวัน',
     user: null, sending: false, usage: null, leaveYear: '',
@@ -441,7 +448,7 @@
         await loadCalendar();
         showForm();
       } else {
-        state.options = session.options || { prefixes: [], groups: [], positions: [] };
+        state.options = session.options || { prefixes: [], groups: [], positions: [], employmentTypes: [] };
         renderRegisterForm();
         show('register');
       }
@@ -486,6 +493,7 @@
     fillSelect_($('regPrefix'), state.options.prefixes, '— เลือก —');
     fillSelect_($('regGroup'), state.options.groups, '— เลือกกลุ่มงาน —');
     fillSelect_($('regPosition'), state.options.positions, '— เลือกตำแหน่ง —');
+    fillSelect_($('regEmpType'), state.options.employmentTypes || [], '— เลือกประเภท —');
     const hasGroups = state.options.groups.length > 0;
     $('regNoGroups').classList.toggle('hidden', hasGroups);
     $('btnRegNext').disabled = !hasGroups || !state.leaveEnabled;
@@ -521,6 +529,7 @@
       lastName: $('regLastName').value.trim(),
       groupName: $('regGroup').value,
       position: position,
+      employmentType: $('regEmpType').value,
     };
   }
 
@@ -532,6 +541,7 @@
     if (!reg.firstName || !reg.lastName) { err.textContent = 'กรุณากรอกชื่อและสกุล'; err.classList.remove('hidden'); return; }
     if (!reg.groupName) { err.textContent = 'กรุณาเลือกกลุ่มงาน'; err.classList.remove('hidden'); return; }
     if (!reg.position) { err.textContent = 'กรุณาเลือกตำแหน่ง'; err.classList.remove('hidden'); return; }
+    if (!reg.employmentType) { err.textContent = 'กรุณาเลือกประเภทบุคลากร'; err.classList.remove('hidden'); return; }
     state.reg = reg;
 
     const fullName = reg.prefix + ' ' + reg.firstName + ' ' + reg.lastName;
@@ -539,6 +549,7 @@
       ['ชื่อ-สกุล', fullName],
       ['กลุ่มงาน', reg.groupName],
       ['ตำแหน่ง', reg.position],
+      ['ประเภทบุคลากร', reg.employmentType],
     ].map(([label, value]) =>
       '<div class="flex justify-between gap-4 py-2.5"><span class="text-slate-500 flex-none">' + label +
       '</span><span class="font-semibold text-right">' + escapeHtml(value) + '</span></div>'
@@ -587,6 +598,7 @@
 
   // แถวยอดวันลาต่อประเภท: รวมรายการประเภทจาก Settings ด้วย เพราะ usage จากเซิร์ฟเวอร์เติมเฉพาะ
   // ประเภทที่มีโควตา (ลาป่วยไม่จำกัดจะไม่โผล่ถ้ายังไม่เคยใช้)
+  // used/quota ที่ได้รวม "รายการปรับ" จากสมุด LeaveBalances แล้ว — แถวไหนมีการปรับจะมี * กำกับ
   function usageRows_(usage) {
     const types = (state.options.leaveTypes || []).slice();
     Object.keys(usage).forEach(t => { if (!types.includes(t)) types.push(t); });
@@ -598,6 +610,7 @@
         used: daysText_(info.used || 0),
         quota: info.quota,
         remaining: remaining,
+        adjusted: !!(info.carryIn || info.usedExtra),
       };
     });
   }
@@ -645,7 +658,7 @@
     if (state.mine.usage) {
       usageBox.innerHTML = usageRows_(state.mine.usage).map(row =>
         '<div class="flex items-center justify-between gap-3 py-2">' +
-          '<span class="text-slate-700">' + escapeHtml(row.type) + '</span>' +
+          '<span class="text-slate-700">' + escapeHtml(row.type) + (row.adjusted ? ' <span class="text-sky-700" title="รวมยอดยกมา/รายการปรับของผู้ดูแล">*</span>' : '') + '</span>' +
           '<span class="text-xs text-slate-500 flex-none">ใช้ ' + escapeHtml(row.used) +
             (row.quota != null ? ' / ' + escapeHtml(String(row.quota)) : '') +
             ' · <span class="font-semibold text-primary-dark">เหลือ ' + escapeHtml(row.remaining) + '</span></span>' +

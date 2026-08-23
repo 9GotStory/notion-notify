@@ -290,18 +290,199 @@ function parseReportLeavePage_(page) {
   };
 }
 
-// ทำเนียบ Staff แบบลีบ (เฉพาะชื่อเต็ม/กลุ่มงาน/userId) — แถวไม่มีชื่อหรือสกุลไม่นับ ตาม readStaffRoster_
+// ทำเนียบ Staff แบบลีบ (เฉพาะชื่อเต็ม/กลุ่มงาน/userId + "ชื่อ สกุล" สำหรับจับคู่กับสมุดยอดวันลา)
+// แถวไม่มีชื่อหรือสกุลไม่นับ ตาม readStaffRoster_ ของโปรเจกต์หลัก
 function readReportStaff_() {
   const sheet = getSheet_('Staff');
   const lastRow = sheet.getLastRow();
-  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 8).getDisplayValues() : [];
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 9).getDisplayValues() : [];
   return data
     .filter(row => String(row[1]).trim() && String(row[2]).trim())
     .map(row => ({
       name: [String(row[0]).trim(), String(row[1]).trim(), String(row[2]).trim()].filter(Boolean).join(' '),
+      key: (String(row[1]).trim() + ' ' + String(row[2]).trim()).replace(/\s+/g, ' '),
       group: String(row[3]).trim(),
       lineUserId: String(row[5]).trim(),
+      employmentType: String(row[8] || '').trim(),
     }));
+}
+
+// ---------- สมุดรายการปรับยอดวันลา (แท็บ "ยอดวันลา") ----------
+// โครงสร้างคอลัมน์ตรงกับ BALANCE_SHEET_COLUMNS ของโปรเจกต์หลัก: ปี (พ.ศ.) | ชื่อ สกุล | ประเภทการลา
+// | ยกมา (วันทำการ) | ใช้เพิ่ม (วันทำการ) | เหตุผล | บันทึกเมื่อ
+// ความหมาย: "ยกมา" เพิ่มเข้าสิทธิ์ของปีนั้น (เช่น พักร้อนสะสม) / "ใช้เพิ่ม" เพิ่มเข้ายอดใช้ (เช่น ลาก่อนมีระบบ)
+
+function validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra) {
+  if (!/^(25|26)\d{2}$/.test(String(yearBE || '').trim())) return 'ปี (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2569';
+  if (!String(name || '').trim()) return 'กรุณาเลือกชื่อ สกุล';
+  if (!String(leaveType || '').trim()) return 'กรุณาเลือกประเภทการลา';
+  const carry = Number(String(carryIn || '').trim()) || 0;
+  const extra = Number(String(usedExtra || '').trim()) || 0;
+  if (carry < 0 || extra < 0) return 'ตัวเลขต้องไม่ติดลบ';
+  if (carry === 0 && extra === 0) return 'กรอก "ยกมา" หรือ "ใช้เพิ่ม" อย่างน้อยหนึ่งค่า (> 0)';
+  return null;
+}
+
+function balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason) {
+  return [
+    String(yearBE).trim(),
+    String(name).trim().replace(/\s+/g, ' '),
+    String(leaveType).trim(),
+    Number(String(carryIn || '').trim()) || '',
+    Number(String(usedExtra || '').trim()) || '',
+    String(reason || '').trim(),
+    Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm'),
+  ];
+}
+
+function api_getBalances() {
+  const sheet = getSheet_('LeaveBalances');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 7).getDisplayValues() : [];
+  const rows = [];
+  data.forEach((row, i) => {
+    if (!String(row[0]).trim() && !String(row[1]).trim()) return; // แถวว่าง
+    rows.push({
+      row: 3 + i,
+      yearBE: String(row[0]).trim(),
+      name: String(row[1]).trim(),
+      leaveType: String(row[2]).trim(),
+      carryIn: String(row[3]).trim(),
+      usedExtra: String(row[4]).trim(),
+      reason: String(row[5]).trim(),
+      recordedAt: String(row[6]).trim(),
+    });
+  });
+  rows.reverse(); // ใหม่สุดอยู่บน
+  const settings = api_getSettings();
+  return {
+    balances: rows,
+    staffKeys: readReportStaff_().map(s => s.key).sort((a, b) => a.localeCompare(b, 'th')),
+    leaveTypes: String(settings.leave_type_options || '').split(',').map(s => s.trim()).filter(Boolean),
+  };
+}
+
+function api_addBalance(yearBE, name, leaveType, carryIn, usedExtra, reason) {
+  const err = validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra);
+  if (err) return { ok: false, error: err };
+  getSheet_('LeaveBalances').appendRow(balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason));
+  return { ok: true };
+}
+
+function api_updateBalance(rowNumber, yearBE, name, leaveType, carryIn, usedExtra, reason) {
+  const row = Number(rowNumber);
+  if (!row || row < 3) return { ok: false, error: 'แถวไม่ถูกต้อง' };
+  const err = validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra);
+  if (err) return { ok: false, error: err };
+  getSheet_('LeaveBalances').getRange(row, 1, 1, 7).setValues([balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason)]);
+  return { ok: true };
+}
+
+function api_deleteBalance(rowNumber) {
+  const row = Number(rowNumber);
+  if (!row || row < 3) return { ok: false, error: 'แถวไม่ถูกต้อง' };
+  getSheet_('LeaveBalances').deleteRow(row);
+  return { ok: true };
+}
+
+// ---------- โควตาตามประเภทบุคลากร (แท็บ "โควตา") ----------
+// โครงสร้างตรงกับ QUOTA_PROFILE_COLUMNS ของโปรเจกต์หลัก:
+//   ปี (พ.ศ. เว้นว่าง = ทุกปี) | ประเภทบุคลากร | ประเภทการลา | โควตา (วันทำการ/ปี) | หมายเหตุ
+// ไม่มีแถว = ใช้ค่าเริ่มต้นของระบบ (ตามระเบียบข้าราชการ) — ใส่แถวเฉพาะประเภทที่ต่างจากนั้น / โควตา 0 = ไม่มีสิทธิ์
+
+function validateQuotaProfileInput_(yearBE, employmentType, leaveType, quota) {
+  const year = String(yearBE || '').trim();
+  if (year && !/^(25|26)\d{2}$/.test(year)) return 'ปี (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2569 หรือเว้นว่าง = ทุกปี';
+  if (!String(employmentType || '').trim()) return 'กรุณาระบุประเภทบุคลากร';
+  if (!String(leaveType || '').trim()) return 'กรุณาเลือกประเภทการลา';
+  const q = Number(String(quota || '').trim());
+  if (!(q >= 0)) return 'โควตาต้องเป็นตัวเลข ≥ 0 (0 = ไม่มีสิทธิ์)';
+  return null;
+}
+
+function quotaProfileRowValues_(yearBE, employmentType, leaveType, quota, note) {
+  return [
+    String(yearBE || '').trim(),
+    String(employmentType).trim(),
+    String(leaveType).trim(),
+    Number(String(quota || '').trim()) || 0,
+    String(note || '').trim(),
+  ];
+}
+
+function api_getQuotaProfiles() {
+  const sheet = getSheet_('QuotaProfiles');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 5).getDisplayValues() : [];
+  const rows = [];
+  data.forEach((row, i) => {
+    if (!String(row[1]).trim() && !String(row[2]).trim()) return; // แถวว่าง
+    rows.push({
+      row: 3 + i,
+      yearBE: String(row[0]).trim(),
+      employmentType: String(row[1]).trim(),
+      leaveType: String(row[2]).trim(),
+      quota: String(row[3]).trim(),
+      note: String(row[4]).trim(),
+    });
+  });
+  rows.reverse(); // ใหม่สุดอยู่บน
+  const settings = api_getSettings();
+  const roster = readReportStaff_();
+  return {
+    profiles: rows,
+    employmentTypes: String(settings.employment_type_options || '')
+      .split(',').map(s => s.trim()).filter(Boolean),
+    leaveTypes: String(settings.leave_type_options || '')
+      .split(',').map(s => s.trim()).filter(Boolean),
+    staff: roster.map(s => ({
+      name: s.name, key: s.key, group: s.group,
+      employmentType: s.employmentType, registered: !!s.lineUserId,
+    })).sort((a, b) => a.name.localeCompare(b.name, 'th')),
+  };
+}
+
+function api_addQuotaProfile(yearBE, employmentType, leaveType, quota, note) {
+  const err = validateQuotaProfileInput_(yearBE, employmentType, leaveType, quota);
+  if (err) return { ok: false, error: err };
+  getSheet_('QuotaProfiles').appendRow(quotaProfileRowValues_(yearBE, employmentType, leaveType, quota, note));
+  return { ok: true };
+}
+
+function api_updateQuotaProfile(rowNumber, yearBE, employmentType, leaveType, quota, note) {
+  const row = Number(rowNumber);
+  if (!row || row < 3) return { ok: false, error: 'แถวไม่ถูกต้อง' };
+  const err = validateQuotaProfileInput_(yearBE, employmentType, leaveType, quota);
+  if (err) return { ok: false, error: err };
+  getSheet_('QuotaProfiles').getRange(row, 1, 1, 5).setValues([quotaProfileRowValues_(yearBE, employmentType, leaveType, quota, note)]);
+  return { ok: true };
+}
+
+function api_deleteQuotaProfile(rowNumber) {
+  const row = Number(rowNumber);
+  if (!row || row < 3) return { ok: false, error: 'แถวไม่ถูกต้อง' };
+  getSheet_('QuotaProfiles').deleteRow(row);
+  return { ok: true };
+}
+
+/** แก้ "ประเภทบุคลากร" ของเจ้าหน้าที่คนหนึ่ง (คอลัมน์ที่ 9 ของชีต Staff) ตาม "ชื่อ สกุล"
+ *  ใช้หลัง migration — คนที่ลงทะเบียนไว้ก่อนหน้ายังไม่มีสถานะ ผู้ดูแลเติมให้จากหน้าเว็บ */
+function api_setStaffEmploymentType(staffKey, employmentType) {
+  const key = String(staffKey || '').trim().replace(/\s+/g, ' ');
+  const type = String(employmentType || '').trim();
+  if (!key) return { ok: false, error: 'กรุณาระบุชื่อ สกุล' };
+  if (!type) return { ok: false, error: 'กรุณาเลือกประเภทบุคลากร' };
+  const sheet = getSheet_('Staff');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 2).getDisplayValues() : [];
+  for (let i = 0; i < data.length; i++) {
+    const rowKey = (String(data[i][0]).trim() + ' ' + String(data[i][1]).trim()).replace(/\s+/g, ' ');
+    if (rowKey === key) {
+      sheet.getRange(3 + i, 9).setValue(type);
+      return { ok: true };
+    }
+  }
+  return { ok: false, error: 'ไม่พบชื่อนี้ในชีต Staff' };
 }
 
 /** ตารางสรุปวันลา "อนุมัติแล้ว" รายคน×ประเภท ตามปี (+เดือนถ้าเลือก) — นับตามวันเริ่มของใบ

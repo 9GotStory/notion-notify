@@ -47,6 +47,7 @@ function onOpen() {
     .addItem('ทดสอบส่งตอนนี้', 'testSendNow')
     .addItem('ทดสอบการ์ดใบลา', 'testLeaveCardNow')
     .addItem('ทดสอบสรุปรายเดือน', 'testMonthlyLeaveSummaryNow')
+    .addItem('ร่างยอดยกมาปีถัดไป', 'draftCarryOverNextYear')
     .addItem('รัน Unit Tests', 'runUnitTests')
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
     .addSeparator()
@@ -70,6 +71,14 @@ function setupSheet() {
   ensureSheet_(ss, 'Logs', 'บันทึกการทำงานของระบบ (เขียนอัตโนมัติ ไม่ต้องแก้ไข)', ['เวลาที่บันทึก', 'วันที่', 'สถานะ', 'รายละเอียด'], status);
   ensureSheet_(ss, 'Approvers', 'ผู้อนุมัติระบบลางาน — กลุ่มงานไหน ใครอนุมัติ ส่งต่อ หัวหน้า สสอ. ไหม', APPROVERS_SHEET_COLUMNS, status);
   ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ — เพิ่มอัตโนมัติเมื่อแต่ละคนลงทะเบียนผ่านฟอร์มเอง', STAFF_SHEET_COLUMNS, status);
+  ensureSheet_(ss, 'LeaveBalances', 'สมุดรายการปรับยอดวันลา — ยอดที่แสดงทุกจุด = ใบลาจริง + รายการในนี้ (จัดการผ่านหน้าเว็บตั้งค่าหรือแก้ตรงนี้)', BALANCE_SHEET_COLUMNS, status);
+  ensureSheet_(ss, 'QuotaProfiles', 'โควตาสิทธิ์ตามประเภทบุคลากร (ว่างทั้งชีต = ทุกคนใช้ค่าเริ่มต้นตามระเบียบราชการ)', QUOTA_PROFILE_COLUMNS, status);
+  // migration: ชีต Staff ที่สร้างก่อนมีคอลัมน์ "ประเภทบุคลากร" — เติมหัวคอลัมน์ที่ 9 ให้ (ต่อท้าย ไม่ขยับของเดิม)
+  const staffSheet = ss.getSheetByName('Staff');
+  if (staffSheet && !String(staffSheet.getRange(2, 9).getDisplayValue()).trim()) {
+    staffSheet.getRange(2, 9).setValue('ประเภทบุคลากร');
+    status.push('เติมหัวคอลัมน์ "ประเภทบุคลากร" (คอลัมน์ I) ให้ชีต Staff');
+  }
 
   // บังคับรูปแบบวันที่ให้แสดงเป็น yyyy-MM-dd — โค้ดอ่านค่าตามที่แสดงบนจอ (readHolidaySet_)
   // ถ้าปล่อยให้ Sheet จัดรูปแบบภาษาไทย วันหยุดจะหลุดจากการนับวันทำการของใบลา
@@ -96,6 +105,7 @@ function setupSheet() {
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['monthly_leave_summary_enabled', 'TRUE', 'สรุปวันลารายเดือน (FALSE = ปิด): วันทำการแรกของแต่ละเดือน แนบสรุปใบลาที่อนุมัติของเดือนก่อนท้ายข้อความเช้า — รวมข้อความเดียวกัน ไม่เพิ่มโควตา LINE'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
+    ['employment_type_options', 'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ', 'ตัวเลือกประเภทบุคลากรในฟอร์มลงทะเบียน (คั่นจุลภาค) — ใช้จับคู่โควตาจากชีต QuotaProfiles'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
     ['position_options', 'นักวิชาการสาธารณสุข,นักวิชาการอนามัย,นักวิชาการคอมพิวเตอร์,นักบริหารงานสาธารณสุข,พยาบาลวิชาชีพ,พยาบาลช่วยแพทย์,เจ้าพนักงานธุรการ,ลูกจ้างชั่วคราว,อื่นๆ', 'ตัวเลือกตำแหน่งในฟอร์มลงทะเบียน (แก้ให้ตรงหน่วยงานได้เลย คั่นด้วยจุลภาค)'],
   ].forEach(row => {
@@ -383,6 +393,51 @@ function testMonthlyLeaveSummaryNow() {
   } catch (err) {
     logResult_(new Date(), 'error (manual test)', String(err));
     SpreadsheetApp.getUi().alert('ทดสอบสรุปรายเดือนไม่สำเร็จ: ' + err);
+  }
+}
+
+// ร่างยอด "ลาพักร้อนยกมา" ของปีถัดไปให้ผู้ดูแลอ่าน — ตั้งใจไม่บันทึกอัตโนมัติ
+// (การตัดสินใจสะสมตามระเบียบจริงของแต่ละคนเป็นของผู้ดูแล ระบบช่วยคำนวณตัวเลขตั้งต้นเท่านั้น)
+// ใช้ query ใบลาทั้งปีครั้งเดียว (getActiveLeavesForYear_) — ไม่วนรายคน กันกระหน่ำ rate limit ของ Notion
+function draftCarryOverNextYear() {
+  try {
+    const settings = getSettings_();
+    const now = new Date();
+    const year = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy'));
+    const roster = readStaffRoster_();
+    const balances = readLeaveBalances_();
+    const profiles = readQuotaProfiles_();
+    const leaves = getActiveLeavesForYear_(now, settings.leave_database_id, year);
+
+    const lines = [];
+    roster.forEach(staff => {
+      const myLeaves = leaves.filter(leave => leave.submitterUserId === staff.lineUserId);
+      const summary = buildUsageSummaryWithBalances_(usageFromLeaves_(myLeaves), balances, year,
+        baseQuotaMap_(profiles, staff.employmentType, year));
+      const cell = summary && summary['ลาพักร้อน'];
+      if (!cell || cell.quota == null) return;
+      const remaining = Math.max(0, cell.quota - cell.used);
+      // ระเบียบให้สะสมได้ไม่เกินสิทธิ์รายปี และรวมทุกปีไม่เกิน 45 วันทำการ — ระบบหน่องที่รายปีไว้ก่อน
+      // ส่วนกรณีสะสมหลายปีให้ผู้ดูแลปรับตัวเลขขึ้นเองตามสถานะจริงของแต่ละคน (ใช้โควตาตามประเภทบุคลากรของคนนั้น)
+      const baseQuota = Math.max(0, cell.quota - (cell.carryIn || 0));
+      const carry = Math.min(remaining, baseQuota);
+      if (carry > 0) {
+        lines.push('• ' + staffKey_(staff) + ' — ยกมา ' + workDaysLabel_(carry) +
+          ' (เหลือสิ้นปี ' + workDaysLabel_(remaining) + ', ใช้ไป ' + workDaysLabel_(cell.used) + ')');
+      }
+    });
+
+    const text = lines.length
+      ? 'ร่างรายการ "ยกมา" ลาพักร้อน ปี ' + (year + 1 + 543) + ' (ยังไม่ได้บันทึก):\n\n' + lines.join('\n') +
+        '\n\nบันทึกจริงที่: หน้าเว็บตั้งค่า > แท็บ "ยอดวันลา" หรือเพิ่มแถวในชีต LeaveBalances เอง' +
+        '\nหมายเหตุ: ระบบหน่องยกมาไว้ไม่เกินสิทธิ์รายปี (' + LEAVE_QUOTAS['ลาพักร้อน'] + ' วันทำการ) — กรณีสะสมหลายปี (รวมไม่เกิน 45) ปรับตัวเลขเองตามระเบียบจริง'
+      : 'ไม่มีใครเหลือวันลาพักร้อนให้ยกมาในปี ' + (year + 543) +
+        (String(settings.leave_database_id || '').trim() === 'your_leave_database_id' ? ' (หรือยังไม่ได้ตั้งค่า leave_database_id)' : '');
+    SpreadsheetApp.getUi().alert(text);
+    logResult_(now, 'success (manual test)', 'ร่างยอดยกมาปี ' + (year + 1 + 543) + ': ' + lines.length + ' รายชื่อ');
+  } catch (err) {
+    logResult_(new Date(), 'error (manual test)', 'คำนวณร่างยกมาไม่สำเร็จ: ' + err);
+    try { SpreadsheetApp.getUi().alert('คำนวณร่างยกมาไม่สำเร็จ: ' + err); } catch (e2) { console.error(String(err)); }
   }
 }
 

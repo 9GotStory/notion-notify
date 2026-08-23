@@ -55,6 +55,10 @@ function runUnitTests() {
     testConflictWarningInMessages_,
     testRichTextValueLimit_,
     testUsageFromLeaves_,
+    testUsageSummaryWithBalances_,
+    testLeaveWarningsWithEffectiveQuota_,
+    testBaseQuotaMap_,
+    testUsageSummaryWithQuotaMap_,
     testScheduleHelpers_,
   ];
 
@@ -1168,6 +1172,105 @@ function testUsageFromLeaves_() {
   assertEqual_(usage['ลากิจ'], 1);
   assertEqual_(Object.keys(usage).length, 2);
   assertEqual_(Object.keys(usageFromLeaves_([])).length, 0);
+}
+
+// สมุดรายการปรับยอด: ยกมาเข้าโควตา / ใช้เพิ่มเข้ายอดใช้ / เทียบปี พ.ศ.-ค.ศ. / ไม่มีรายการ = เหมือนเดิม
+function testUsageSummaryWithBalances_() {
+  const balances = [
+    { yearBE: 2569, name: 'สมศักดิ์ ใจดี', leaveType: 'ลาพักร้อน', carryIn: 5, usedExtra: 0 },
+    { yearBE: 2569, name: 'สมศักดิ์ ใจดี', leaveType: 'ลาป่วย', carryIn: 0, usedExtra: 4 },
+    { yearBE: 2568, name: 'สมศักดิ์ ใจดี', leaveType: 'ลาพักร้อน', carryIn: 3, usedExtra: 0 }, // คนละปี — ต้องถูกข้าม
+    { yearBE: 2569, name: 'สมศักดิ์ ใจดี', leaveType: 'อื่นๆ', carryIn: 1, usedExtra: 0 }, // ประเภทนอกโควตา — สร้างช่องใหม่
+  ];
+
+  // ยอดจากใบลา: ใช้พักร้อนไป 2 → สรุปต้องเป็น used 2+0, quota 10+5, carryIn 5
+  const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 2 }, balances, 2026);
+  assertEqual_(summary['ลาพักร้อน'].used, 2);
+  assertEqual_(summary['ลาพักร้อน'].quota, 15);
+  assertEqual_(summary['ลาพักร้อน'].carryIn, 5);
+  assertEqual_(summary['ลาพักร้อน'].usedExtra, 0);
+  // ลาป่วย (ไม่มีโควตา) ใช้เพิ่ม 4 → used 4, quota ยัง null
+  assertEqual_(summary['ลาป่วย'].used, 4);
+  assertEqual_(summary['ลาป่วย'].quota, null);
+  assertEqual_(summary['ลาป่วย'].usedExtra, 4);
+  // ประเภทนอกโควตา (อื่นๆ) ยกมา 1 → มีช่อง แต่ quota เป็น null เพราะไม่มีสิทธิ์มาตรฐาน
+  assertEqual_(summary['อื่นๆ'].carryIn, 1);
+  assertEqual_(summary['อื่นๆ'].quota, null);
+  // ประเภทมีโควตาแต่ไม่มีรายการปรับและไม่เคยใช้ — ยังโผล่ครบตาม buildUsageSummary_ เดิม
+  assertEqual_(summary['ลากิจ'].used, 0);
+  assertEqual_(summary['ลากิจ'].quota, 10);
+
+  // ไม่มีรายการปรับเลย = ผลเหมือน buildUsageSummary_ เดิมเป๊ะ
+  const plain = buildUsageSummaryWithBalances_({ 'ลากิจ': 3 }, [], 2026);
+  assertEqual_(plain['ลากิจ'].quota, 10);
+  assertEqual_(plain['ลากิจ'].used, 3);
+
+  // ใบลาอ่านไม่ได้ (null) แต่มีรายการปรับ → ยังสรุปได้จากฐานโควตา ไม่เป็น null เปล่า
+  const fromBalancesOnly = buildUsageSummaryWithBalances_(null, balances, 2026);
+  assertEqual_(fromBalancesOnly['ลาพักร้อน'].quota, 15);
+
+  // ไม่มีทั้งคู่ → null (หน้า "ของฉัน" แสดง "ยังไม่มีข้อมูล" ตามเดิม)
+  assertEqual_(buildUsageSummaryWithBalances_(null, [], 2026), null);
+}
+
+// คำเตือนสิทธิ์ต้องใช้โควตา "รวมยกมา" เมื่อส่ง effectiveQuota มา — ไม่เตือนเกินจริง
+function testLeaveWarningsWithEffectiveQuota_() {
+  // ใช้ไป 8 + ใบนี้ 2 = 10: โควตามาตรฐาน 10 → ครบพอดี (ไม่เตือนเกิน) / รวมยกมา 5 (=15) → ไม่ครด ไม่มีคำเตือนสิทธิ์
+  const standard = buildLeaveWarnings_('ลาพักร้อน', 2, { 'ลาพักร้อน': 8 });
+  assertTrue_(standard.some(w => w.indexOf('ครบสิทธิ์') !== -1), 'โควตามาตรฐานต้องเตือนครบสิทธิ์');
+  const withCarry = buildLeaveWarnings_('ลาพักร้อน', 2, { 'ลาพักร้อน': 8 }, 15);
+  assertFalse_(withCarry.some(w => w.indexOf('สิทธิ์') !== -1), 'มียกมาแล้วไม่ต้องเตือนสิทธิ์');
+  // ใช้เกินแม้รวมยกมา → ยังเตือนเกิน โดยอ้างตัวเลขโควตารวม
+  const over = buildLeaveWarnings_('ลาพักร้อน', 2, { 'ลาพักร้อน': 14 }, 15);
+  assertTrue_(over.some(w => w.indexOf('เกินสิทธิ์') !== -1 && w.indexOf('15') !== -1), 'เกินต้องเตือนด้วยโควตารวมยกมา');
+}
+
+// โควตาตามประเภทบุคลากร: แถวปีเฉพาะ > แถวทุกปี > ค่าเริ่มต้นระบบ / โควตา 0 = ไม่มีสิทธิ์ / สถานะว่าง = ค่าเริ่มต้น
+function testBaseQuotaMap_() {
+  const profiles = [
+    { yearBE: null, employmentType: 'ลูกจ้างชั่วคราวรายเดือน', leaveType: 'ลาพักร้อน', quota: 0 },      // ไม่มีสิทธิ์
+    { yearBE: null, employmentType: 'ลูกจ้างชั่วคราวรายเดือน', leaveType: 'ลาป่วย', quota: 30 },        // ตามกฎหมายแรงงาน
+    { yearBE: null, employmentType: 'ลูกจ้างชั่วคราวรายเดือน', leaveType: 'ลากิจ', quota: 3 },
+    { yearBE: 2569, employmentType: 'ข้าราชการ', leaveType: 'ลาพักร้อน', quota: 5 },                     // เข้ากลางปี ปี 2569 เท่านั้น
+    { yearBE: null, employmentType: 'ข้าราชการ', leaveType: 'ลาพักร้อน', quota: 10 },                    // ทุกปี
+    { yearBE: 2570, employmentType: 'ข้าราชการ', leaveType: 'ลาพักร้อน', quota: 8 },                     // อนาคต
+  ];
+
+  // ลูกจ้างชั่วคราว: พักร้อน 0 (ไม่มีสิทธิ์) ลาป่วย 30 ลากิจ 3 และประเภทอื่นที่ไม่มีแถว = ค่าเริ่มต้น
+  const contract = baseQuotaMap_(profiles, 'ลูกจ้างชั่วคราวรายเดือน', 2026);
+  assertEqual_(contract['ลาพักร้อน'], 0);
+  assertEqual_(contract['ลาป่วย'], 30);
+  assertEqual_(contract['ลากิจ'], 3);
+  assertEqual_(contract['ลาคลอด'], 90); // ไม่มีแถว = ค่าเริ่มต้น
+
+  // ข้าราชการปี 2569 (2026): แถวปีเฉพาะ (5) ชนะแถวทุกปี (10) / ปีอื่น (2025) ใช้แถวทุกปี
+  assertEqual_(baseQuotaMap_(profiles, 'ข้าราชการ', 2026)['ลาพักร้อน'], 5);
+  assertEqual_(baseQuotaMap_(profiles, 'ข้าราชการ', 2025)['ลาพักร้อน'], 10);
+
+  // สถานะว่าง (ยังไม่ระบุ) = ค่าเริ่มต้นทั้งชุด / ไม่มี profiles เลยก็คืนค่าเริ่มต้น
+  const blank = baseQuotaMap_(profiles, '', 2026);
+  assertEqual_(blank['ลาพักร้อน'], 10);
+  assertEqual_(baseQuotaMap_([], 'ข้าราชการ', 2026)['ลากิจ'], 10);
+}
+
+// สรุปยอดต้องใช้โควตาตามประเภทบุคลากรของคนนั้นเป็นฐาน — ก่อนรวมยกมาจากสมุดรายการปรับ
+function testUsageSummaryWithQuotaMap_() {
+  const quotaMap = baseQuotaMap_([
+    { yearBE: null, employmentType: 'ลูกจ้างชั่วคราวรายเดือน', leaveType: 'ลาพักร้อน', quota: 0 },
+  ], 'ลูกจ้างชั่วคราวรายเดือน', 2026);
+  const balances = [
+    { yearBE: 2569, name: 'ธนกร ใจดี', leaveType: 'ลาพักร้อน', carryIn: 2, usedExtra: 0 },
+  ];
+
+  const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 1 }, balances, 2026, quotaMap);
+  assertEqual_(summary['ลาพักร้อน'].quota, 2); // ฐาน 0 + ยกมา 2
+  assertEqual_(summary['ลาพักร้อน'].used, 1);
+  assertEqual_(summary['ลากิจ'].quota, 10); // ประเภทที่แถวไม่มี = ค่าเริ่มต้น
+
+  // คำเตือนสิทธิ์ต้องเห็นโควตารวมของคนนั้น (2) ไม่ใช่ค่าเริ่มต้น (10) — ใช้ 1 + ยื่นอีก 1 = ครบ
+  const warnings = buildLeaveWarnings_('ลาพักร้อน', 1, { 'ลาพักร้อน': 1 },
+    summary['ลาพักร้อน'].quota);
+  assertTrue_(warnings.some(w => w.indexOf('ครบสิทธิ์ 2') !== -1), 'เตือนครบสิทธิ์ตามโควตาของคนนั้น');
 }
 
 function assertTrue_(condition, message) {

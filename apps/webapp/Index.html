@@ -52,6 +52,8 @@
       <button type="button" data-tab="holidays" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">วันหยุด</button>
       <button type="button" data-tab="logs" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ประวัติการส่ง</button>
       <button type="button" data-tab="report" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">รายงานวันลา</button>
+      <button type="button" data-tab="balances" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ยอดวันลา</button>
+      <button type="button" data-tab="quotas" class="tab-btn flex-1 py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">โควตา</button>
     </nav>
 
     <!-- ===== Settings ===== -->
@@ -183,6 +185,127 @@
         <p id="reportEmpty" class="hidden text-center text-slate-500 text-sm py-8"></p>
         <p id="reportError" class="hidden text-sm text-red-700 bg-red-50 border-t border-red-200 p-4"></p>
       </div>
+      <p class="text-xs text-slate-500 mt-3">ตารางนี้นับจากใบลาจริงเท่านั้น — ยอด "ยกมา/ใช้เพิ่ม" ของแต่ละคนอยู่ที่แท็บ <b>ยอดวันลา</b> (ระบบหน้า LIFF และคำเตือนสิทธิ์รวมรายการเหล่านั้นเข้ายอดแล้ว)</p>
+    </section>
+
+    <!-- ===== สมุดรายการปรับยอดวันลา (ยกมา/ใช้เพิ่ม รายคนต่อปี) ===== -->
+    <section id="tab-balances" class="hidden">
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label for="b-year" class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ.)</label>
+            <input id="b-year" type="number" inputmode="numeric" placeholder="เช่น 2569" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+          <div>
+            <label for="b-name" class="block text-xs font-semibold text-slate-500 mb-1.5">ชื่อ สกุล</label>
+            <select id="b-name" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select>
+          </div>
+          <div>
+            <label for="b-type" class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>
+            <select id="b-type" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label for="b-carry" class="block text-xs font-semibold text-slate-500 mb-1.5">ยกมา (+สิทธิ์)</label>
+              <input id="b-carry" type="number" step="0.5" min="0" placeholder="0" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            </div>
+            <div>
+              <label for="b-extra" class="block text-xs font-semibold text-slate-500 mb-1.5">ใช้เพิ่ม (+ยอดใช้)</label>
+              <input id="b-extra" type="number" step="0.5" min="0" placeholder="0" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            </div>
+          </div>
+          <div class="sm:col-span-2">
+            <label for="b-reason" class="block text-xs font-semibold text-slate-500 mb-1.5">เหตุผล</label>
+            <input id="b-reason" type="text" maxlength="200" placeholder="เช่น พักร้อนสะสมจากปีก่อน / ลาก่อนใช้ระบบ" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button type="button" id="btnSaveBalance" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">เพิ่มรายการ</button>
+          <button type="button" id="btnCancelEditBalance" class="hidden h-[38px] px-4 rounded-lg font-semibold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิกการแก้ไข</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-3">"ยอดที่แสดงทุกจุดของระบบ" = ผลรวมจากใบลาจริงใน Notion + รายการในสมุดนี้ — ใบลายังเป็นฐานหลัก รายการนี้ใช้ปรับเฉพาะเรื่องที่ระบบคำนวณเองไม่ได้ (ยกมาข้ามปี, ยอดก่อนใช้ระบบ, กรณีพิเศษ)</p>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-slate-500 font-semibold">
+                <th class="px-4 py-2.5">ปี</th><th class="px-4 py-2.5">ชื่อ สกุล</th><th class="px-4 py-2.5">ประเภท</th>
+                <th class="px-4 py-2.5 text-right">ยกมา</th><th class="px-4 py-2.5 text-right">ใช้เพิ่ม</th>
+                <th class="px-4 py-2.5">เหตุผล</th><th class="px-4 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody id="balanceBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+        <p id="balanceEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีรายการปรับยอด</p>
+      </div>
+    </section>
+
+    <!-- ===== โควตาตามประเภทบุคลากร + สถานะของเจ้าหน้าที่แต่ละคน ===== -->
+    <section id="tab-quotas" class="hidden">
+      <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+        <p class="text-sm font-semibold text-slate-600 mb-1">โควตาสิทธิ์ตามประเภทบุคลากร</p>
+        <p class="text-xs text-slate-500 mb-3">เพิ่มเฉพาะประเภท/ประเภทการลาที่ <b>ต่างจากค่าเริ่มต้น</b> (ตามระเบียบข้าราชการ: ลากิจ 10 · พักร้อน 10 · คลอด 90 · บวช 15 · ช่วยเหลือภริยาคลอด 15 — ลาป่วยไม่จำกัด) · โควตา <b>0 = ไม่มีสิทธิ์</b> · ปีเว้นว่าง = ใช้ทุกปี ใส่ปี (เช่น 2569) = เฉพาะปีนั้น</p>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div>
+            <label for="q-year" class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ. ว่าง = ทุกปี)</label>
+            <input id="q-year" type="number" inputmode="numeric" placeholder="เช่น 2569" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+          <div>
+            <label for="q-emptype" class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทบุคลากร</label>
+            <select id="q-emptype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select>
+          </div>
+          <div>
+            <label for="q-leavetype" class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>
+            <select id="q-leavetype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select>
+          </div>
+          <div>
+            <label for="q-quota" class="block text-xs font-semibold text-slate-500 mb-1.5">โควตา (วันทำการ/ปี)</label>
+            <input id="q-quota" type="number" step="0.5" min="0" placeholder="เช่น 10 หรือ 0 = ไม่มีสิทธิ์" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+          <div class="sm:col-span-2">
+            <label for="q-note" class="block text-xs font-semibold text-slate-500 mb-1.5">หมายเหตุ</label>
+            <input id="q-note" type="text" maxlength="200" placeholder="เช่น ตาม พ.ร.บ.คุ้มครองแรงงาน / เข้ากลางปี" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+          </div>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button type="button" id="btnSaveQuota" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">เพิ่มโควตา</button>
+          <button type="button" id="btnCancelEditQuota" class="hidden h-[38px] px-4 rounded-lg font-semibold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิกการแก้ไข</button>
+        </div>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-4">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-slate-500 font-semibold">
+                <th class="px-4 py-2.5">ปี</th><th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5">ประเภทการลา</th>
+                <th class="px-4 py-2.5 text-right">โควตา</th><th class="px-4 py-2.5">หมายเหตุ</th><th class="px-4 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody id="quotaBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+        <p id="quotaEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีโควตาพิเศษ — ทุกคนใช้ค่าเริ่มต้นตามระเบียบข้าราชการ</p>
+      </div>
+
+      <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <p class="text-sm font-semibold text-slate-600 px-4 pt-4">สถานะของเจ้าหน้าที่แต่ละคน</p>
+        <p class="text-xs text-slate-500 px-4 py-2">ระบุประเภทบุคลากรเพื่อใช้โควตาข้างบน — คนที่ยังไม่ระบุ (ว่าง) ใช้ค่าเริ่มต้นตามระเบียบข้าราชการ</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-left text-xs text-slate-500 font-semibold">
+                <th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">กลุ่มงาน</th>
+                <th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody id="staffBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
   </div>
@@ -233,10 +356,12 @@
       });
       btn.classList.add('bg-primary', 'text-white');
       btn.classList.remove('text-slate-500');
-      ['settings', 'holidays', 'logs', 'report'].forEach(name => {
+      ['settings', 'holidays', 'logs', 'report', 'balances', 'quotas'].forEach(name => {
         $('tab-' + name).classList.toggle('hidden', name !== btn.dataset.tab);
       });
       if (btn.dataset.tab === 'logs') loadLogs();
+      if (btn.dataset.tab === 'quotas' && !quotasLoaded) loadQuotas(); // เปิดครั้งแรกโหลดเลย ครั้งถัดไปใช้ของเดิม
+      if (btn.dataset.tab === 'balances' && !balancesLoaded) loadBalances(); // เปิดครั้งแรกโหลดเลย ครั้งถัดไปใช้ของเดิม
       if (btn.dataset.tab === 'report' && !reportLoaded) loadReport(); // เปิดครั้งแรกโหลดเลย ครั้งถัดไปใช้ของเดิม
     });
   });
@@ -526,6 +651,289 @@
   $('btnRunReport').addEventListener('click', loadReport);
   $('btnReportCsv').addEventListener('click', downloadReportCsv_);
   $('btnReportCsv').disabled = true;
+
+  // ---------- สมุดรายการปรับยอดวันลา ----------
+  let balancesLoaded = false; // โหลดอัตโนมัติเมื่อเปิดแท็บครั้งแรกเท่านั้น
+  let editingBalanceRow = null; // แถวที่กำลังแก้ไข (null = โหมดเพิ่มใหม่)
+  let balanceCache = []; // เก็บรายการล่าสุดไว้ใช้ตอนกดแก้ไข
+
+  function loadBalances() {
+    balancesLoaded = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        balanceCache = res.balances || [];
+        // เติม dropdown ชื่อ (จากทำเนียบ Staff) และประเภทลา (จาก Settings) ครั้งแรกเท่านั้น — กันโดนเขียนทับของที่กำลังแก้
+        const nameSel = $('b-name');
+        if (nameSel.options.length <= 1) {
+          (res.staffKeys || []).forEach(k => {
+            const o = document.createElement('option'); o.value = k; o.textContent = k; nameSel.appendChild(o);
+          });
+        }
+        const typeSel = $('b-type');
+        if (typeSel.options.length <= 1) {
+          (res.leaveTypes || []).forEach(t => {
+            const o = document.createElement('option'); o.value = t; o.textContent = t; typeSel.appendChild(o);
+          });
+        }
+        renderBalances(balanceCache);
+      })
+      .withFailureHandler(onError)
+      .api_getBalances();
+  }
+
+  function renderBalances(list) {
+    const body = $('balanceBody');
+    body.innerHTML = (list || []).map(b =>
+      '<tr>' +
+        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + escapeHtml(b.yearBE) + '</td>' +
+        '<td class="px-4 py-2.5 whitespace-nowrap">' + escapeHtml(b.name) + '</td>' +
+        '<td class="px-4 py-2.5">' + escapeHtml(b.leaveType) + '</td>' +
+        '<td class="px-4 py-2.5 text-right font-mono text-xs">' + (escapeHtml(b.carryIn) || '—') + '</td>' +
+        '<td class="px-4 py-2.5 text-right font-mono text-xs">' + (escapeHtml(b.usedExtra) || '—') + '</td>' +
+        '<td class="px-4 py-2.5 text-slate-500">' + escapeHtml(b.reason) + '</td>' +
+        '<td class="px-4 py-2.5 text-right whitespace-nowrap"></td>' +
+      '</tr>').join('');
+    // ปุ่มแก้ไข/ลบผูกทีหลัง (แบบ renderHolidays) เพื่อให้ payload ผูกกับแถวจริง ไม่ต้องฝังใน HTML
+    (list || []).forEach((b, i) => {
+      const td = body.children[i].lastElementChild;
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'px-2.5 py-1.5 rounded-lg border border-slate-200 text-primary text-xs font-medium hover:bg-slate-50';
+      edit.textContent = 'แก้ไข';
+      edit.addEventListener('click', () => startEditBalance(b));
+      td.appendChild(edit);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'px-2.5 py-1.5 rounded-lg border border-slate-200 text-red-700 text-xs font-medium hover:bg-red-50 ml-1';
+      del.textContent = 'ลบ';
+      del.addEventListener('click', () => deleteBalance(b));
+      td.appendChild(del);
+    });
+    $('balanceEmpty').classList.toggle('hidden', (list || []).length > 0);
+  }
+
+  function startEditBalance(b) {
+    editingBalanceRow = b.row;
+    $('b-year').value = b.yearBE;
+    $('b-name').value = b.name;
+    $('b-type').value = b.leaveType;
+    $('b-carry').value = b.carryIn || '';
+    $('b-extra').value = b.usedExtra || '';
+    $('b-reason').value = b.reason || '';
+    $('btnSaveBalance').textContent = 'บันทึกการแก้ไข';
+    $('btnCancelEditBalance').classList.remove('hidden');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function resetBalanceForm() {
+    editingBalanceRow = null;
+    ['b-year', 'b-carry', 'b-extra', 'b-reason'].forEach(id => { $(id).value = ''; });
+    $('b-name').value = '';
+    $('b-type').value = '';
+    $('btnSaveBalance').textContent = 'เพิ่มรายการ';
+    $('btnCancelEditBalance').classList.add('hidden');
+  }
+
+  function deleteBalance(b) {
+    if (!confirm('ลบรายการปรับยอดนี้?\n' + b.yearBE + ' · ' + b.name + ' · ' + b.leaveType +
+      (b.carryIn ? ' · ยกมา ' + b.carryIn : '') + (b.usedExtra ? ' · ใช้เพิ่ม ' + b.usedExtra : ''))) return;
+    google.script.run
+      .withSuccessHandler(() => { showToast('ลบแล้ว'); loadBalances(); }) // โหลดใหม่เสมอกันเลขแถวเพี้ยนหลังลบ
+      .withFailureHandler(onError)
+      .api_deleteBalance(b.row);
+  }
+
+  $('btnCancelEditBalance').addEventListener('click', resetBalanceForm);
+
+  $('btnSaveBalance').addEventListener('click', () => {
+    const payload = {
+      yearBE: $('b-year').value.trim(),
+      name: $('b-name').value,
+      leaveType: $('b-type').value,
+      carryIn: $('b-carry').value.trim(),
+      usedExtra: $('b-extra').value.trim(),
+      reason: $('b-reason').value.trim(),
+    };
+    $('btnSaveBalance').disabled = true;
+    const done = () => { $('btnSaveBalance').disabled = false; };
+    const wasEditing = editingBalanceRow;
+    const call = wasEditing ? 'api_updateBalance' : 'api_addBalance';
+    const args = wasEditing ? [wasEditing, payload.yearBE, payload.name, payload.leaveType, payload.carryIn, payload.usedExtra, payload.reason]
+                            : [payload.yearBE, payload.name, payload.leaveType, payload.carryIn, payload.usedExtra, payload.reason];
+    const runner = google.script.run
+      .withSuccessHandler(res => {
+        done();
+        if (res.ok) {
+          showToast(wasEditing ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มรายการแล้ว');
+          resetBalanceForm();
+          loadBalances();
+        } else {
+          showToast(res.error || 'บันทึกไม่สำเร็จ', true);
+        }
+      })
+      .withFailureHandler(err => { done(); onError(err); });
+    runner[call].apply(runner, args);
+  });
+
+  // ---------- โควตาตามประเภทบุคลากร + สถานะรายคน ----------
+  let quotasLoaded = false;
+  let editingQuotaRow = null;
+  let quotaTypes = []; // ตัวเลือกประเภทบุคลากรสำหรับตารางรายคน
+
+  function loadQuotas() {
+    quotasLoaded = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        quotaTypes = res.employmentTypes || [];
+        const typeSel = $('q-emptype');
+        if (typeSel.options.length <= 1) {
+          quotaTypes.forEach(t => {
+            const o = document.createElement('option'); o.value = t; o.textContent = t; typeSel.appendChild(o);
+          });
+        }
+        const leaveSel = $('q-leavetype');
+        if (leaveSel.options.length <= 1) {
+          (res.leaveTypes || []).forEach(t => {
+            const o = document.createElement('option'); o.value = t; o.textContent = t; leaveSel.appendChild(o);
+          });
+        }
+        renderQuotaProfiles(res.profiles || []);
+        renderStaffTable(res.staff || []);
+      })
+      .withFailureHandler(onError)
+      .api_getQuotaProfiles();
+  }
+
+  function renderQuotaProfiles(list) {
+    const body = $('quotaBody');
+    body.innerHTML = (list || []).map(q =>
+      '<tr>' +
+        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + escapeHtml(q.yearBE || 'ทุกปี') + '</td>' +
+        '<td class="px-4 py-2.5 whitespace-nowrap">' + escapeHtml(q.employmentType) + '</td>' +
+        '<td class="px-4 py-2.5">' + escapeHtml(q.leaveType) + '</td>' +
+        '<td class="px-4 py-2.5 text-right font-mono text-xs">' + escapeHtml(q.quota) + '</td>' +
+        '<td class="px-4 py-2.5 text-slate-500">' + escapeHtml(q.note) + '</td>' +
+        '<td class="px-4 py-2.5 text-right whitespace-nowrap"></td>' +
+      '</tr>').join('');
+    (list || []).forEach((q, i) => {
+      const td = body.children[i].lastElementChild;
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'px-2.5 py-1.5 rounded-lg border border-slate-200 text-primary text-xs font-medium hover:bg-slate-50';
+      edit.textContent = 'แก้ไข';
+      edit.addEventListener('click', () => {
+        editingQuotaRow = q.row;
+        $('q-year').value = q.yearBE;
+        $('q-emptype').value = q.employmentType;
+        $('q-leavetype').value = q.leaveType;
+        $('q-quota').value = q.quota;
+        $('q-note').value = q.note;
+        $('btnSaveQuota').textContent = 'บันทึกการแก้ไข';
+        $('btnCancelEditQuota').classList.remove('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      td.appendChild(edit);
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'px-2.5 py-1.5 rounded-lg border border-slate-200 text-red-700 text-xs font-medium hover:bg-red-50 ml-1';
+      del.textContent = 'ลบ';
+      del.addEventListener('click', () => {
+        if (!confirm('ลบโควตานี้?\n' + (q.yearBE || 'ทุกปี') + ' · ' + q.employmentType + ' · ' + q.leaveType + ' = ' + q.quota)) return;
+        google.script.run
+          .withSuccessHandler(() => { showToast('ลบแล้ว'); loadQuotas(); })
+          .withFailureHandler(onError)
+          .api_deleteQuotaProfile(q.row);
+      });
+      td.appendChild(del);
+    });
+    $('quotaEmpty').classList.toggle('hidden', (list || []).length > 0);
+  }
+
+  function renderStaffTable(list) {
+    const body = $('staffBody');
+    body.innerHTML = (list || []).map(s =>
+      '<tr>' +
+        '<td class="px-4 py-2.5 whitespace-nowrap">' + escapeHtml(s.name) + (s.registered ? '' : ' <span class="text-xs text-slate-400">(ยังไม่ลงทะเบียน)</span>') + '</td>' +
+        '<td class="px-4 py-2.5 text-slate-500">' + escapeHtml(s.group) + '</td>' +
+        '<td class="px-4 py-2.5"></td>' +
+        '<td class="px-4 py-2.5 text-right"></td>' +
+      '</tr>').join('');
+    (list || []).forEach((s, i) => {
+      const td = body.children[i].children[2];
+      const sel = document.createElement('select');
+      sel.className = 'px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white max-w-[220px]';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = s.employmentType ? s.employmentType : '— ยังไม่ระบุ —';
+      sel.appendChild(placeholder);
+      quotaTypes.forEach(t => {
+        if (t === s.employmentType) return;
+        const o = document.createElement('option'); o.value = t; o.textContent = t; sel.appendChild(o);
+      });
+      td.appendChild(sel);
+      const tdBtn = body.children[i].children[3];
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'px-3 py-1.5 rounded-lg border border-slate-200 text-primary text-xs font-medium hover:bg-slate-50';
+      btn.textContent = 'บันทึก';
+      btn.addEventListener('click', () => {
+        const chosen = sel.value || sel.options[sel.selectedIndex].textContent;
+        if (!sel.value && sel.options[sel.selectedIndex].value === '') {
+          showToast('เลือกประเภทบุคลากรก่อนบันทึก', true);
+          return;
+        }
+        google.script.run
+          .withSuccessHandler(res => {
+            showToast(res.ok ? 'บันทึกแล้ว' : (res.error || 'บันทึกไม่สำเร็จ'), !res.ok);
+            if (res.ok) loadQuotas();
+          })
+          .withFailureHandler(onError)
+          .api_setStaffEmploymentType(s.key, sel.value || chosen);
+      });
+      tdBtn.appendChild(btn);
+    });
+  }
+
+  function resetQuotaForm() {
+    editingQuotaRow = null;
+    ['q-year', 'q-quota', 'q-note'].forEach(id => { $(id).value = ''; });
+    $('q-emptype').value = '';
+    $('q-leavetype').value = '';
+    $('btnSaveQuota').textContent = 'เพิ่มโควตา';
+    $('btnCancelEditQuota').classList.add('hidden');
+  }
+
+  $('btnCancelEditQuota').addEventListener('click', resetQuotaForm);
+
+  $('btnSaveQuota').addEventListener('click', () => {
+    const payload = {
+      yearBE: $('q-year').value.trim(),
+      employmentType: $('q-emptype').value,
+      leaveType: $('q-leavetype').value,
+      quota: $('q-quota').value.trim(),
+      note: $('q-note').value.trim(),
+    };
+    $('btnSaveQuota').disabled = true;
+    const done = () => { $('btnSaveQuota').disabled = false; };
+    const wasEditing = editingQuotaRow;
+    const runner = google.script.run
+      .withSuccessHandler(res => {
+        done();
+        if (res.ok) {
+          showToast(wasEditing ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มโควตาแล้ว');
+          resetQuotaForm();
+          loadQuotas();
+        } else {
+          showToast(res.error || 'บันทึกไม่สำเร็จ', true);
+        }
+      })
+      .withFailureHandler(err => { done(); onError(err); });
+    if (wasEditing) {
+      runner.api_updateQuotaProfile(wasEditing, payload.yearBE, payload.employmentType, payload.leaveType, payload.quota, payload.note);
+    } else {
+      runner.api_addQuotaProfile(payload.yearBE, payload.employmentType, payload.leaveType, payload.quota, payload.note);
+    }
+  });
 
   // ---------- Init ----------
   loadSettings();

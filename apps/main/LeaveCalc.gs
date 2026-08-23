@@ -93,12 +93,15 @@ function workDaysLabel_(days) {
 /**
  * คำเตือนตามระเบียบฯ สำหรับใบลาที่กำลังยื่น (pure)
  * usage = ยอดวันทำการที่ใช้ไปแล้วของปีนี้แยกตามประเภท (จาก getLeaveUsageForYear_) หรือ null ถ้าหาไม่ได้
+ * effectiveQuota (ไม่บังคับ) = สิทธิ์สูงสุดหลังรวม "ยกมา" จากสมุดรายการปรับ (LeaveBalances) —
+ *   ไม่ส่งมาใช้โควตาตามระเบียบ (LEAVE_QUOTAS) ตรงๆ ส่งมาเมื่อคนนั้นมีสิทธิ์สะสม/ปรับพิเศษ
+ *   (used ที่เทียบต้องเป็นยอดที่ "รวมใช้เพิ่ม" แล้วด้วย จึงเทียบแอปเปิลกับแอปเปิล)
  * นโยบาย: "เตือนอย่างเดียว" — ไม่มีการบล็อก ให้ผู้อนุมัติใช้ดุลพินิจ (คำเตือนถูกเก็บลงใบลาและแสดงในการ์ด)
  */
-function buildLeaveWarnings_(leaveType, workDays, usage) {
+function buildLeaveWarnings_(leaveType, workDays, usage, effectiveQuota) {
   const warnings = [];
   const used = usage ? (usage[leaveType] || 0) : 0;
-  const quota = LEAVE_QUOTAS[leaveType];
+  const quota = effectiveQuota != null ? effectiveQuota : LEAVE_QUOTAS[leaveType];
 
   if (quota != null && usage) {
     const total = used + workDays;
@@ -132,6 +135,73 @@ function buildUsageSummary_(usage) {
     if (!(type in summary)) summary[type] = { used: 0, quota: LEAVE_QUOTAS[type] };
   });
   return summary;
+}
+
+/** แผนที่โควตาพื้นฐานของ "ประเภทบุคลากรหนึ่ง ในปีหนึ่ง" (pure)
+ *  profiles = แถวจาก readQuotaProfiles_() / employmentType = สถานะของคนนั้น (ว่างได้) / year = ค.ศ.
+ *  กติกา: แถวที่ระบุปีชัดจนถึง (yearBE = ปีนั้น) ชนะแถว "ทุกปี" (yearBE = null) ชนะค่าเริ่มต้น LEAVE_QUOTAS
+ *  ประเภทการลาที่ไม่มีแถวเลย = ใช้ค่าเริ่มต้นของระบบ (ระเบียบราชการ) / โควตา 0 = ไม่มีสิทธิ์ (แสดง 0 ไม่ใช่ซ่อน)
+ *  คืน {ประเภทการลา: โควตา หรือ null = ไม่จำกัด} */
+function baseQuotaMap_(profiles, employmentType, year) {
+  const map = {};
+  Object.keys(LEAVE_QUOTAS).forEach(type => { map[type] = LEAVE_QUOTAS[type]; });
+  const type_ = String(employmentType || '').trim();
+  if (!type_) return map;
+  const forPerson = (profiles || []).filter(p => p.employmentType === type_);
+  forPerson.forEach(p => {
+    // แถวระบุปีทับได้: ถ้ามีแถวปีเฉพาะสำหรับ (ประเภทนี้, ประเภทลานี้) แล้วแถว "ทุกปี" ต้องไม่ทับกลับ
+    const hasYearSpecific = forPerson.some(q => q.leaveType === p.leaveType && q.yearBE === year + 543);
+    if (p.yearBE === null) {
+      if (!hasYearSpecific) map[p.leaveType] = p.quota;
+    } else if (p.yearBE === year + 543) {
+      map[p.leaveType] = p.quota;
+    }
+  });
+  return map;
+}
+
+/** แผนที่ยอดใช้ "รวมรายการปรับแล้ว" จากสรุปยอด (pure) — ป้อน buildLeaveWarnings_ คู่กับ effectiveQuota
+ *  เพื่อให้ used (รวมใช้เพิ่ม) เทียบกับ quota (รวมยกมา) แบบแอปเปิลกับแอปเปิล */
+function usageFromSummary_(summary) {
+  const map = {};
+  Object.keys(summary || {}).forEach(type => { map[type] = summary[type].used; });
+  return map;
+}
+
+/** สรุปยอดต่อประเภทของ "ปี" หนึ่ง = ยอดจากใบลาจริง + รายการปรับจากสมุด LeaveBalances (pure)
+ *  usage = แผนที่ {ประเภท: วันใช้} จากใบลา (หรือ null — ถ้ามีรายการปรับก็ยังสรุปได้) / balances = ทั้งหมดจาก readLeaveBalances_()
+ *  year = ค.ศ. (สมุดเก็บเป็น พ.ศ. จึงเทียบ year+543)
+ *  quotaMap (ไม่บังคับ) = โควตาพื้นฐานตามประเภทบุคลากรของคนนั้นจาก baseQuotaMap_ — ไม่ส่ง = ค่าเริ่มต้นระบบ (ระเบียบราชการ)
+ *  "ใช้เพิ่ม" รวมเข้า used / "ยกมา" รวมเข้า quota — remaining = quota - used ใช้สูตรเดิมได้ทุกจุด
+ *  คืน {ประเภท: {used, quota, carryIn?, usedExtra?}} หรือ null เมื่อไม่มีทั้งยอดใบลาและรายการปรับ */
+function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap) {
+  const quotaOf = (type) => {
+    if (quotaMap && Object.prototype.hasOwnProperty.call(quotaMap, type)) return quotaMap[type];
+    return LEAVE_QUOTAS[type] != null ? LEAVE_QUOTAS[type] : null;
+  };
+  const summary = buildUsageSummary_(usage) || {};
+  // สร้างใหม่บนฐานโควตาของคนนั้น (buildUsageSummary_ ใช้ค่าเริ่มต้นระบบ — แทนที่ด้วย quotaMap ทีละช่อง)
+  Object.keys(summary).forEach(type => { summary[type].quota = quotaOf(type); });
+  const yearRows = (balances || []).filter(b => b.yearBE === year + 543);
+  if (!usage) {
+    // ใบลาอ่านไม่ได้และไม่มีรายการปรับของปีนี้เลย = ไม่มีข้อมูลจะสรุป (คืน null ให้หน้าเว็บแสดงตามเดิม)
+    if (!yearRows.length) return null;
+    // มีรายการปรับ — ยังสรุปได้จากฐานโควตาของคนนั้นเพียงลำพัง (กันหน้า "ของฉัน" ว่างเปล่าทั้งที่มีข้อมูลปรับ)
+    Object.keys(quotaMap || LEAVE_QUOTAS).forEach(type => {
+      if (!(type in summary)) summary[type] = { used: 0, quota: quotaOf(type) };
+    });
+  }
+  yearRows.forEach(b => {
+    if (!summary[b.leaveType]) {
+      summary[b.leaveType] = { used: 0, quota: quotaOf(b.leaveType) };
+    }
+    const cell = summary[b.leaveType];
+    cell.carryIn = (cell.carryIn || 0) + b.carryIn;
+    cell.usedExtra = (cell.usedExtra || 0) + b.usedExtra;
+    cell.used += b.usedExtra;
+    if (cell.quota != null) cell.quota += b.carryIn;
+  });
+  return Object.keys(summary).length ? summary : null;
 }
 
 /**

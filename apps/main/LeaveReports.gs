@@ -116,6 +116,32 @@ function expandScheduleLeaveRows_(leave, fromStr, toStr, holidaySet) {
   return rows;
 }
 
+/** ใบลาสถานะ "อนุมัติ + รอทั้งสองขั้น" ของ **ทุกคน** ที่เริ่มในปีนั้น — query เดียว ไม่วนรายคน
+ *  ใช้กับเมนู "ร่างยอดยกมาปีถัดไป" (กันกระหน่ำ Notion ด้วย N คน = 1 คำขอ ไม่ใช่ N×2)
+ *  คืน [] ถ้ายังไม่ตั้งค่า leave_database_id */
+function getActiveLeavesForYear_(now, leaveDatabaseId, year) {
+  const dbId = String(leaveDatabaseId || '').trim();
+  if (!dbId || dbId === 'your_leave_database_id') return [];
+  const payload = {
+    filter: {
+      and: [
+        { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: (year + 1) + '-01-01T00:00:00+07:00' } },
+        { or: [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice].map(s => ({
+          property: PROPS_LEAVE.status, select: { equals: s },
+        })) },
+      ],
+    },
+    page_size: 100,
+  };
+  try {
+    return queryNotionPages_(resolveLeaveDataSourceId_(dbId), payload).map(parseLeavePage_);
+  } catch (err) {
+    logResult_(now, 'error', 'ดึงใบลาทั้งปีสำหรับร่างยกมาไม่สำเร็จ: ' + err);
+    return [];
+  }
+}
+
 // ---------- คนลาชนกับงานที่เป็นผู้รับผิดชอบ (เตือนอย่างเดียว ใช้ร่วม 3 ที่: หน้าตารางงาน / ตอนยื่นลา / สรุปเช้า) ----------
 
 /** ชื่อผู้รับผิดชอบของงานหนึ่งที่กำลังลาในวันนั้น (pure)

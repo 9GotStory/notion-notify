@@ -122,6 +122,23 @@ const APPROVERS_SHEET_COLUMNS = [
 const STAFF_SHEET_COLUMNS = [
   'คำนำหน้า', 'ชื่อ', 'สกุล', 'กลุ่มงาน', 'ตำแหน่ง',
   'LINE User ID', 'ชื่อที่แสดงใน LINE', 'วันที่ลงทะเบียน',
+  // คอลัมน์ที่ 9 เพิ่มภายหลัง (ปรับปรุงระบบโควตาตามประเภทบุคลากร) — ต่อท้ายแทนการแทรกกลาง
+  // เพื่อไม่ให้ชีตที่ติดตั้งไว้แล้วข้อมูลเพี้ยนจากคอลัมน์ขยับ / setupSheet เติมหัวคอลัมน์ให้ชีตเดิมเอง
+  'ประเภทบุคลากร',
+];
+
+// ตารางโควตาต่อประเภทบุคลากร (ชีต QuotaProfiles) — สิทธิ์พื้นฐานต่างกันตามสถานะ
+// (ข้าราชการ/พนักงานราชการ/ลูกจ้างประจำ/ลูกจ้างชั่วคราว ฯลฯ) และต่างกันได้รายปี
+const QUOTA_PROFILE_COLUMNS = [
+  'ปี (พ.ศ. เว้นว่าง = ทุกปี)', 'ประเภทบุคลากร', 'ประเภทการลา', 'โควตา (วันทำการ/ปี)', 'หมายเหตุ',
+];
+
+// สมุดรายการปรับยอดวันลา (ชีต LeaveBalances — ผู้ดูแลเพิ่ม/แก้/ลบผ่านหน้าเว็บตั้งค่าหรือชีตตรงๆ)
+// ยอดที่แสดงทุกจุด = (ผลรวมจากใบลาจริงใน Notion) + (รายการปรับของปีนั้น) — ใบลายังเป็น source of truth
+// "ยกมา" เพิ่มเข้าโควตา (เช่น พักร้อนสะสมจากปีก่อน) / "ใช้เพิ่ม" เพิ่มเข้ายอดใช้ (เช่น ลาก่อนมีระบบ)
+const BALANCE_SHEET_COLUMNS = [
+  'ปี (พ.ศ.)', 'ชื่อ สกุล', 'ประเภทการลา',
+  'ยกมา (วันทำการ)', 'ใช้เพิ่ม (วันทำการ)', 'เหตุผล', 'บันทึกเมื่อ',
 ];
 
 // ขอบเขตวันที่ยื่นได้: ย้อนหลัง (ลาป่วยมักแจ้งย้อน) และล่วงหน้า
@@ -150,7 +167,37 @@ function readStaffRoster_() {
       lineUserId: String(row[5]).trim(),
       lineDisplayName: String(row[6]).trim(),
       registeredAt: String(row[7]).trim(),
+      employmentType: String(row[8] || '').trim(), // คอลัมน์ที่ 9 — ว่าง = ยังไม่ระบุ (ใช้โควตาเริ่มต้นของระบบ)
     }));
+}
+
+// ---------- ตารางโควตาตามประเภทบุคลากร (ชีต QuotaProfiles) ----------
+
+/** อ่านแถวโควตาทั้งหมด (คืน [] ถ้ายังไม่มีชีต — ทุกคนใช้โควตาเริ่มต้นของระบบตามระเบียบราชการ)
+ *  แถวที่ประเภท/ตัวเลขไม่ valid ถูกข้ามเงียบๆ เหมือนสมุดรายการปรับ */
+function readQuotaProfiles_() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('QuotaProfiles');
+  if (!sheet) return [];
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, QUOTA_PROFILE_COLUMNS.length).getDisplayValues() : [];
+  const rows = [];
+  data.forEach((row, i) => {
+    const yearRaw = String(row[0]).trim();
+    const employmentType = String(row[1] || '').trim();
+    const leaveType = String(row[2] || '').trim();
+    const quota = Number(String(row[3]).trim());
+    if (!employmentType || !leaveType || !(quota >= 0)) return; // โควตา 0 = ไม่มีสิทธิ์ (เช่น พักร้อนของลูกจ้างรายเดือน)
+    const yearBE = /^\d{4}$/.test(yearRaw) ? Number(yearRaw) : null; // ไม่ใช่เลข 4 หลัก = ถือเป็น "ทุกปี"
+    rows.push({
+      row: 3 + i,
+      yearBE: yearBE,
+      employmentType: employmentType,
+      leaveType: leaveType,
+      quota: quota,
+      note: String(row[4] || '').trim(),
+    });
+  });
+  return rows;
 }
 
 function findStaffByUserId_(roster, userId) {
@@ -167,6 +214,38 @@ function staffKey_(staff) {
 function staffDisplayName_(staff) {
   if (!staff) return '';
   return (staff.prefix ? staff.prefix + ' ' : '') + staffKey_(staff);
+}
+
+// ---------- สมุดรายการปรับยอดวันลา (ชีต LeaveBalances — ดูความหมายคอลัมน์ที่ BALANCE_SHEET_COLUMNS) ----------
+
+/** อ่านรายการปรับยอดทั้งหมด (คืน [] ถ้ายังไม่มีชีต — ระบบทำงานได้ปกติเหมือนไม่มีรายการปรับ)
+ *  แถวที่ปี/ตัวเลขไม่ valid ถูกข้ามเงียบๆ (กันพิมพ์ผิดทำให้ทั้งระบบยอดพัง) */
+function readLeaveBalances_() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('LeaveBalances');
+  if (!sheet) return [];
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, BALANCE_SHEET_COLUMNS.length).getDisplayValues() : [];
+  const rows = [];
+  data.forEach((row, i) => {
+    const yearBE = Number(String(row[0]).trim());
+    const name = String(row[1] || '').trim().replace(/\s+/g, ' ');
+    const leaveType = String(row[2] || '').trim();
+    const carryIn = Number(String(row[3]).trim()) || 0;
+    const usedExtra = Number(String(row[4]).trim()) || 0;
+    // ปีเป็น พ.ศ. (2500-2600 กันพิมพ์ ค.ศ. ปน) ชื่อ-ประเภทต้องมี และต้องมีตัวเลขอย่างน้อยหนึ่งคอลัมน์
+    if (!(yearBE >= 2500 && yearBE <= 2600) || !name || !leaveType || (carryIn <= 0 && usedExtra <= 0)) return;
+    rows.push({
+      row: 3 + i,
+      yearBE: yearBE,
+      name: name,
+      leaveType: leaveType,
+      carryIn: carryIn,
+      usedExtra: usedExtra,
+      reason: String(row[5] || '').trim(),
+      recordedAt: String(row[6] || '').trim(),
+    });
+  });
+  return rows;
 }
 
 // ---------- คอนฟิกผู้อนุมัติ (ชีต Approvers + Settings) — ไม่มีการ hardcode ระดับใดๆ ในโค้ด ----------
