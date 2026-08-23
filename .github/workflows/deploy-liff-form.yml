@@ -6,8 +6,9 @@
 #   - variable = เปิดดู/แก้ค่าได้ตลอด — เหมาะถ้ามองว่าเป็น config ธรรมดา
 #   (สองค่านี้ public-safe by design — ถูกส่งไป browser ผู้ใช้อยู่แล้ว ต่างกันแค่การ mask ใน log)
 #
-# workflow จะแทนที่ __LIFF_ID__ / __API_URL__ ใน liff-form/index.html ก่อนเสิร์ฟขึ้น Pages
-# (URL เดิม .../notion-notify/liff-form/) และเสิร์ฟเฉพาะหน้าฟอร์ม ไม่โฮสต์ไฟล์ .gs ทั้ง repo
+# workflow จะแทนที่ __LIFF_ID__ / __API_URL__ ใน web/liff-form/index.html ก่อนเสิร์ฟขึ้น Pages
+# (URL ปัจจุบัน .../notion-notify/web/liff-form/) และเสิร์ฟเฉพาะหน้าเว็บ ไม่โฮสต์ไฟล์ .gs ทั้ง repo
+# — สร้างหน้า redirect ที่ URL เก่า (/liff-form/, /schedule/) ให้ลิงก์ที่เคยแชร์/ปักหมุดไว้ยังใช้ได้
 #
 # ต้องตั้งค่าครั้งเดียว: Settings > Pages > Source: "GitHub Actions"
 # (ถ้ายังเป็น "Deploy from a branch" workflow นี้จะ deploy ไม่ได้)
@@ -18,8 +19,8 @@ on:
   push:
     branches: [main]
     paths:
-      - 'liff-form/**'
-      - 'schedule/**'
+      - 'web/liff-form/**'
+      - 'web/schedule/**'
       - '.github/workflows/deploy-liff-form.yml'
   workflow_dispatch:
 
@@ -53,10 +54,10 @@ jobs:
             echo "::error::ยังไม่ได้ตั้งค่า — ไปที่ Settings > Environments > liff แล้วเพิ่ม LIFF_ID และ API_URL (เป็น secret หรือ variable ก็ได้)"
             exit 1
           fi
-          mkdir -p site/liff-form
-          cp liff-form/index.html site/liff-form/index.html
+          mkdir -p site/web/liff-form
+          cp web/liff-form/index.html site/web/liff-form/index.html
           # ตราหน่วยงานสำหรับหน้า loading — คัดลอกเฉพาะเมื่อมีไฟล์ (ไม่มีก็ไม่พัง หน้าเว็บ fallback เป็นตรา "สสอ.")
-          if [ -f liff-form/logo.png ]; then cp liff-form/logo.png site/liff-form/logo.png; fi
+          if [ -f web/liff-form/logo.png ]; then cp web/liff-form/logo.png site/web/liff-form/logo.png; fi
           # ดาวน์โหลด LIFF SDK มาเสิร์ฟ same-origin — เครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อ
           # ไป static.line-scdn.net เหมือนที่เคยเจอกับ cdn.tailwindcss.com (ตัว runner ของ GitHub เข้าถึงได้ปกติ)
           # ปักเวอร์ชันเดียว (แทน edge/2 ล่าสุดอัตโนมัติ) เพื่อให้พฤติกรรม login/token นิ่งระยะยาว
@@ -69,24 +70,37 @@ jobs:
           fi
           # คอมไพล์ Tailwind v4 เป็น CSS same-origin — หน้าเว็บไม่พึ่ง CDN ภายนอก
           # (เครือข่ายองค์กรบางแห่ง reset การเชื่อมต่อไป cdn.tailwindcss.com)
-          cd liff-form
+          # ระวังพาร์ธ output: รันจากใน web/liff-form — ขึ้น 2 ชั้นถึง root ของ repo จึงต้อง ../../site/...
+          cd web/liff-form
           npm ci --no-fund --no-audit
-          npx @tailwindcss/cli -i src/styles.css -o ../site/liff-form/styles.css --minify
-          cd ..
-          if [ ! -s site/liff-form/styles.css ]; then
+          npx @tailwindcss/cli -i src/styles.css -o ../../site/web/liff-form/styles.css --minify
+          cd ../..
+          if [ ! -s site/web/liff-form/styles.css ]; then
             echo "::error::คอมไพล์ CSS ไม่สำเร็จ"
             exit 1
           fi
-          sed -i "s|__LIFF_ID__|$LIFF_ID|g; s|__API_URL__|$API_URL|g" site/liff-form/index.html
-          if grep -q '__LIFF_ID__\|__API_URL__' site/liff-form/index.html; then
+          sed -i "s|__LIFF_ID__|$LIFF_ID|g; s|__API_URL__|$API_URL|g" site/web/liff-form/index.html
+          if grep -q '__LIFF_ID__\|__API_URL__' site/web/liff-form/index.html; then
             echo "::error::ยังมี placeholder ค้างในไฟล์"
             exit 1
           fi
-          # หน้าตารางงาน /schedule/ — ใช้ CSS/SDK/โลโก้ชุดเดียวกับฟอร์มลา
+          # หน้าตารางงาน /web/schedule/ — ใช้ CSS/SDK/โลโก้ชุดเดียวกับฟอร์มลา
           # SCHEDULE_LIFF_ID เป็นตัวเลือก: ยังไม่ได้สร้าง LIFF ตัวที่สองก็ deploy ได้ (ทำงานโหมดสาธารณะล้วน)
-          mkdir -p site/schedule
-          cp schedule/index.html site/schedule/index.html
-          sed -i "s|__SCHEDULE_LIFF_ID__|${SCHEDULE_LIFF_ID:-}|g; s|__API_URL__|$API_URL|g" site/schedule/index.html
+          mkdir -p site/web/schedule
+          cp web/schedule/index.html site/web/schedule/index.html
+          sed -i "s|__SCHEDULE_LIFF_ID__|${SCHEDULE_LIFF_ID:-}|g; s|__API_URL__|$API_URL|g" site/web/schedule/index.html
+          # หน้า redirect ที่ URL เก่า (ก่อนย้ายเข้า web/) — ลิงก์ที่เคยแชร์/ปักหมุดไว้ยังพาไปถึงหน้าใหม่
+          # (ผู้ใช้ลิงก์ liff.line.me ไม่ผ่านทางนี้ — วิ่งตรงไป endpoint ที่ลงทะเบียนไว้กับ LINE โดยตรง)
+          mkdir -p site/liff-form site/schedule
+          for page in liff-form schedule; do
+            printf '%s\n' \
+              '<!doctype html><html lang="th"><head><meta charset="UTF-8">' \
+              '<meta http-equiv="refresh" content="0; url=/notion-notify/web/'"$page"'/">' \
+              '<title>ย้ายหน้าเว็บแล้ว</title></head>' \
+              '<body style="font-family:sans-serif;padding:40px;text-align:center">' \
+              '<p>หน้านี้ย้ายไปที่ใหม่ — <a href="/notion-notify/web/'"$page"'/">กดที่นี่</a> ถ้าไม่ถูกพาไปอัตโนมัติ</p>' \
+              '</body></html>' > "site/$page/index.html"
+          done
           echo "deploy หน้าฟอร์ม + ตารางงานพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"
 
       - uses: actions/upload-pages-artifact@v5

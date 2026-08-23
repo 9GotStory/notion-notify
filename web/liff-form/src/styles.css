@@ -1,11 +1,11 @@
 /* ธีมของหน้าฟอร์ม — ประกาศแบบ Tailwind v4 (CSS-first ผ่าน @theme ไม่ใช่ custom CSS)
    แก้สี/ฟอนต์ที่นี่ที่เดียว แล้ว push ให้ GitHub Actions คอมไพล์ให้อัตโนมัติ
-   (คอมไพล์ด้วย: npx @tailwindcss/cli@4 -i src/styles.css -o styles.css --minify รันจากในโฟลเดอร์ liff-form) */
+   (คอมไพล์ด้วย: npx @tailwindcss/cli@4 -i src/styles.css -o styles.css --minify รันจากในโฟลเดอร์ web/liff-form) */
 @import "tailwindcss";
 
 /* หน้าตารางงาน (schedule/) ใช้ CSS ชุดนี้ด้วย — ประกาศให้ Tailwind สแกนคลาส
    ใน schedule/index.html ด้วย ไม่งั้นคลาสที่ใช้เฉพาะหน้านั้นจะหายไปตอนคอมไพล์
-   (path นับจากตำแหน่งไฟล์ CSS นี้ = liff-form/src/ จึงต้องขึ้น 2 ชั้นถึง schedule/) */
+   (path นับจากตำแหน่งไฟล์ CSS นี้ = web/liff-form/src/ จึงต้องขึ้น 2 ชั้นถึง web/schedule/) */
 @source "../../schedule";
 
 @theme {

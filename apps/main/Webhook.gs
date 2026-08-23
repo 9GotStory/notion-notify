@@ -2,13 +2,13 @@
  * จุดเข้าเดียวของ deployment นี้ รับ 2 อย่าง (แยกเส้นทางด้วยโครงสร้าง body):
  * 1. Webhook จาก LINE — เดิมใช้แค่จับ Group ID ตอนติดตั้ง ตอนนี้เพิ่มรองรับปุ่มอนุมัติใบลา (postback)
  *    ดังนั้น deployment นี้ต้องค้างไว้ถาวรแล้ว (ไม่ใช่จับ Group ID แล้วปิดตามคำแนะนำเดิม)
- * 2. API ของหน้าฟอร์ม LIFF — body มีฟิลด์ apiAction (session/bind/submit/calendar)
+ * 2. API ของหน้าฟอร์ม LIFF — body มีฟิลด์ apiAction (session/bind/submit/myLeaves/cancel/update/calendar/schedule)
  *    เรียกจาก GitHub Pages ด้วย POST Content-Type: text/plain (เลี่ยง CORS preflight ที่ Apps Script
  *    ตอบ OPTIONS ไม่ได้) — การตอบกลับเป็น JSON ที่ Apps Script ใส่ Access-Control-Allow-Origin: * ให้
  *
  * หมายเหตุด้านความปลอดภัย: endpoint นี้เป็น public URL และไม่สามารถตรวจ X-Line-Signature ได้
  * (Apps Script เข้าถึง custom request header ไม่ได้โดยตรง) จึงใช้ชั้นป้องกันแทน 3 ชั้น:
- *   - ทุก apiAction ต้องแนบ LINE access token ที่ระบบตรวจกับ api.line.me จริง (verifyLineToken_ ใน Leave.gs)
+ *   - ทุก apiAction ต้องแนบ LINE access token ที่ระบบตรวจกับ api.line.me จริง (verifyLineToken_ ใน LeaveApi.gs)
  *   - ปุ่มอนุมัติตรวจว่า userId ของผู้กดตรงกับ "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion ของใบลานั้น
  *     (ผู้ปลอมต้องรูทั้ง pageId และ userId ของผู้อนุมัติจริงจึงจะผ่านได้)
  *   - dedup ด้วย webhookEventId กัน LINE ยิงซ้ำ (ตอบช้า) ทำให้ประมวลผลซ้ำสองรอบ

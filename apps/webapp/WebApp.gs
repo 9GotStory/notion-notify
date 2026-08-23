@@ -1,7 +1,7 @@
 /**
  * เว็บแอปหน้าตั้งค่าแยกต่างหาก (มี URL ของตัวเอง) สำหรับระบบแจ้งเตือนปฏิทิน
  *
- * ทำไมต้องเป็นโปรเจกต์ Apps Script "แยก" จากตัวที่ผูกกับชีต (Code.gs / Webhook.gs)
+ * ทำไมต้องเป็นโปรเจกต์ Apps Script "แยก" จากตัวที่ผูกกับชีต (โปรเจกต์หลักใน apps/main)
  * ไม่รวมไว้ในโปรเจกต์เดียวกัน:
  * - Webhook.gs ต้อง deploy แบบ "Who has access: Anyone" (ให้ LINE server ที่ไม่ได้ login ยิงเข้ามาได้)
  * - ถ้า doGet() ของหน้าตั้งค่านี้อยู่โปรเจกต์เดียวกัน การ deploy จะแชร์ระดับสิทธิ์เดียวกันทั้งโปรเจกต์
@@ -21,7 +21,7 @@
  * ผลที่ตามมาอีกข้อ: โปรเจกต์นี้ไม่ได้ผูกกับสเปรดชีตโดยตรง (ต้องระบุ SPREADSHEET_ID เอง)
  * และไม่มี LINE_CHANNEL_ACCESS_TOKEN อยู่ใน Script Properties ของโปรเจกต์นี้ (ตั้งใจไม่ให้มี
  * เพื่อลดจุดที่ secret รั่วได้ถ้าหน้านี้มีช่องโหว่) หน้านี้จึงจัดการได้แค่ Settings/Holidays/Logs
- * ส่วน "ทดสอบส่งจริง" ยังคงทำผ่านเมนูในชีต (testSendNow ใน Code.gs) เท่านั้น
+ * ส่วน "ทดสอบส่งจริง" ยังคงทำผ่านเมนูในชีต (testSendNow ใน Config.gs ของโปรเจกต์หลัก) เท่านั้น
  */
 
 const SPREADSHEET_ID = '1c4SI6mF1B-qymkIPtdQNprR6cxa4PlWeL5fcjzH_0Kg'; // เอาจาก URL ของชีต ส่วนระหว่าง /d/ กับ /edit
@@ -225,7 +225,7 @@ function notionHeadersReadOnly_() {
   return { Authorization: 'Bearer ' + token, 'Notion-Version': REPORT_NOTION_VERSION };
 }
 
-// resolve data source เหมือน resolveDataSourceId_ ใน Code.gs แต่ใช้ token อ่านอย่างเดียวของโปรเจกต์นี้
+// resolve data source เหมือน resolveDataSourceId_ ใน Notion.gs (โปรเจกต์หลัก) แต่ใช้ token อ่านอย่างเดียวของโปรเจกต์นี้
 function resolveReportDataSourceId_(databaseId) {
   if (!databaseId || String(databaseId).trim() === 'your_leave_database_id') {
     throw new Error('ยังไม่ได้ตั้งค่า leave_database_id ในชีต Settings');
@@ -246,7 +246,7 @@ function resolveReportDataSourceId_(databaseId) {
   return data.data_sources[0].id;
 }
 
-// query วนตาม next_cursor เหมือน queryNotionPages_ ใน Code.gs (เผื่อเดือนที่มีใบลาเกิน 100 ใบ)
+// query วนตาม next_cursor เหมือน queryNotionPages_ ใน Notion.gs (โปรเจกต์หลัก) (เผื่อเดือนที่มีใบลาเกิน 100 ใบ)
 function queryReportNotionPages_(dataSourceId, payload, maxPages) {
   const limit = maxPages || 3;
   const results = [];
@@ -276,7 +276,7 @@ function plainReportText_(richTextArray) {
   return (richTextArray || []).map(t => t.plain_text).join('').trim();
 }
 
-// slim ของ parseLeavePage_ ใน Leave.gs — เอาเฉพาะฟิลด์ที่รายงานใช้
+// slim ของ parseLeavePage_ ใน LeaveApproval.gs (โปรเจกต์หลัก) — เอาเฉพาะฟิลด์ที่รายงานใช้
 function parseReportLeavePage_(page) {
   const props = (page && page.properties) || {};
   const dateProp = (props[REPORT_PROPS.date] && props[REPORT_PROPS.date].date) || {};

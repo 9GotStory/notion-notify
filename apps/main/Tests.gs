@@ -19,7 +19,7 @@ function runUnitTests() {
     testMessagePreview_,
     testCleanupOldFailCounts_,
     testNotionPlaceholder_,
-    // ระบบลางาน (Leave.gs)
+    // ระบบลางาน (ไฟล์ Leave*.gs)
     testStaffDisplayName_,
     testResolveApprovalChain_,
     testCanApproveLeave_,
@@ -281,7 +281,7 @@ function createTestItem_() {
   };
 }
 
-// ---------- ระบบลางาน (Leave.gs) ----------
+// ---------- ระบบลางาน (ไฟล์ Leave*.gs) ----------
 
 function createTestRoster_() {
   return [
