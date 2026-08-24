@@ -6,6 +6,8 @@
 
 const App = {
 
+  _renderSeq: 0, // เลขกำกับการ render แต่ละครั้ง — ใช้ตรวจว่า render เก่ายัง "เป็นปัจจุบัน" อยู่ไหม
+
   routes: ['overview', 'staff', 'leave', 'holidays', 'reports', 'system'],
 
   boot() {
@@ -75,6 +77,7 @@ const App = {
   },
 
   async renderRoute() {
+    const seq = ++this._renderSeq; // การกดเปลี่ยนหน้าระหว่างที่หน้าเก่ากำลังโหลด = หน้าเก่าต้องยอมแพ้เงียบๆ
     const name = (location.hash || '').replace(/^#\//, '') || 'overview';
     const view = AdminViews[this.routes.includes(name) ? name : 'overview'];
     const root = UI.$('view');
@@ -84,9 +87,13 @@ const App = {
       btn.className = 'nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ' +
         (active ? 'bg-primary text-white' : 'text-slate-500');
     });
+    // isStale ให้ view เช็คหลังทุก await: ถ้าผู้ใช้ไปหน้าอื่นแล้วให้หยุดเขียน DOM ทันที
+    // (กันอาการ "render เก่าตื่นมาเขียนทับหน้าใหม่" และ null.innerHTML จาก element ที่ถูกแทนไปแล้ว)
+    const isStale = () => seq !== this._renderSeq;
     try {
-      await view.render(root);
+      await view.render(root, isStale);
     } catch (err) {
+      if (isStale()) return; // error ของ render ที่ตายไปแล้ว — ไม่ต้องแสดง
       // view โหลดไม่ได้ (เช่นเครือข่ายหลุด) — แสดงจุดว่าง + toast แทนหน้าดำ
       root.innerHTML =
         '<div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">' +

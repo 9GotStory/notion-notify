@@ -4,8 +4,10 @@
 AdminViews.system = {
 
   format: 'text',
+  _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
-  async render(root) {
+  async render(root, isStale) {
+    this._isStale = isStale;
     root.innerHTML =
       '<div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">' +
       '<div class="flex items-center justify-between">' +
@@ -54,11 +56,13 @@ AdminViews.system = {
       AdminAPI.call('get_settings'),
       AdminAPI.call('get_logs', { limit: 40 }),
     ]);
+    if (isStale()) return; // ผู้ใช้ไปหน้าอื่นแล้ว — หยุดก่อนแตะ DOM
     this.renderSettings(settingsRes.settings);
     this.renderLogs(logsRes.logs);
   },
 
   renderSettings(s) {
+    if (!UI.$('f-enabled')) return; // ฟอร์มไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     s = s || {};
     UI.$('f-enabled').checked = String(s.enabled).toUpperCase() === 'TRUE';
     UI.$('f-time').value = this.normalizeTimeForInput_(s.notify_time);
@@ -109,6 +113,7 @@ AdminViews.system = {
 
   renderLogs(list) {
     const body = UI.$('logBody');
+    if (!body) return; // ตารางไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     body.innerHTML = '';
     UI.$('logEmpty').classList.toggle('hidden', (list || []).length > 0);
     (list || []).forEach(l => {

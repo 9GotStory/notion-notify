@@ -5,13 +5,16 @@
 AdminViews.staff = {
 
   employmentTypes: [],
+  _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
-  async render(root) {
+  async render(root, isStale) {
+    this._isStale = isStale;
     root.innerHTML = '<div class="text-center text-slate-400 text-sm py-10">กำลังโหลด…</div>';
     const [quotaRes, approversRes] = await Promise.all([
       AdminAPI.call('get_quota_profiles'),
       AdminAPI.call('get_approvers'),
     ]);
+    if (isStale()) return; // ผู้ใช้ไปหน้าอื่นแล้ว — หยุดก่อนแตะ DOM
     this.employmentTypes = quotaRes.employmentTypes || [];
     const staff = quotaRes.staff || [];
     const staffKeys = approversRes.staffKeys || [];
@@ -175,7 +178,7 @@ AdminViews.staff = {
     try {
       await AdminAPI.call('save_approvers', { data: JSON.stringify(rows) });
       UI.showToast('บันทึกผู้อนุมัติแล้ว');
-      await this.render(UI.$('view')); // โหลดใหม่เพื่ออัปเดตเลขแถว/ลิสต์จริง
+      await this.render(UI.$('view'), this._isStale); // โหลดใหม่เพื่ออัปเดตเลขแถว/ลิสต์จริง
     } catch (e) {
       UI.showToast(e.message, true);
     } finally {

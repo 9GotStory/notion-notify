@@ -8,14 +8,17 @@ AdminViews.leave = {
 
   editingQuotaRow: null,
   editingBalanceRow: null,
+  _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
   cache: { quotaProfiles: [], balances: [], employmentTypes: [], leaveTypes: [], staffKeys: [] },
 
-  async render(root) {
+  async render(root, isStale) {
+    this._isStale = isStale;
     root.innerHTML = '<div class="text-center text-slate-400 text-sm py-10">กำลังโหลด…</div>';
     const [quotaRes, balanceRes] = await Promise.all([
       AdminAPI.call('get_quota_profiles'),
       AdminAPI.call('get_balances'),
     ]);
+    if (isStale()) return; // ผู้ใช้ไปหน้าอื่นแล้ว — หยุดก่อนแตะ DOM
     this.cache = {
       quotaProfiles: quotaRes.profiles || [],
       employmentTypes: quotaRes.employmentTypes || [],
@@ -124,6 +127,7 @@ AdminViews.leave = {
   renderQuotas() {
     const list = this.cache.quotaProfiles;
     const body = UI.$('quotaBody');
+    if (!body) return; // ตารางไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     body.innerHTML = list.map(q =>
       '<tr>' +
       '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + UI.escapeHtml(q.yearBE || 'ทุกปี') + '</td>' +
@@ -199,6 +203,7 @@ AdminViews.leave = {
   renderBalances() {
     const list = this.cache.balances;
     const body = UI.$('balanceBody');
+    if (!body) return; // ตารางไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     body.innerHTML = list.map(b =>
       '<tr>' +
       '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + UI.escapeHtml(b.yearBE) + '</td>' +
@@ -283,6 +288,7 @@ AdminViews.leave = {
       AdminAPI.call('get_quota_profiles'),
       AdminAPI.call('get_balances'),
     ]);
+    if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
     this.cache.quotaProfiles = quotaRes.profiles || [];
     this.cache.balances = balanceRes.balances || [];
     this.renderQuotas();

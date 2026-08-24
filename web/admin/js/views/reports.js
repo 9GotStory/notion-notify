@@ -4,8 +4,10 @@
 AdminViews.reports = {
 
   lastReport: null, // เก็บผลล่าสุดไว้ใช้กับปุ่ม CSV (ไม่ยิงเซิร์ฟเวอร์ซ้ำ)
+  _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
-  async render(root) {
+  async render(root, isStale) {
+    this._isStale = isStale;
     root.innerHTML =
       '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
       '<div class="flex flex-wrap items-end gap-2">' +
@@ -73,9 +75,11 @@ AdminViews.reports = {
     UI.$('reportEmpty').classList.add('hidden');
     try {
       const res = await AdminAPI.call('get_leave_report', { year: year, month: month ? year + '-' + month : '' });
+      if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
       this.lastReport = res;
       this.render(res);
     } catch (e) {
+      if (this._isStale && this._isStale()) return;
       this.showError(e.message);
     } finally {
       UI.setBusy(btn, false, 'แสดง');
@@ -83,6 +87,7 @@ AdminViews.reports = {
   },
 
   showError(message) {
+    if (!UI.$('reportError')) return; // หน้าถูกเปลี่ยนไปแล้ว
     this.lastReport = null;
     UI.$('btnReportCsv').disabled = true;
     UI.$('reportHead').innerHTML = '';
@@ -94,6 +99,7 @@ AdminViews.reports = {
   },
 
   render(res) {
+    if (!UI.$('reportHead')) return; // ตารางไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     UI.$('btnReportCsv').disabled = false;
     UI.$('reportHead').innerHTML =
       '<th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">กลุ่มงาน</th>' +

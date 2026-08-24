@@ -3,8 +3,9 @@
 
 AdminViews.overview = {
 
-  async render(root) {
+  async render(root, isStale) {
     const res = await AdminAPI.call('get_overview');
+    if (isStale()) return; // ผู้ใช้ไปหน้าอื่นแล้ว — หยุดก่อนแตะ DOM
     const log = res.log;
     const c = res.counts;
 

@@ -4,8 +4,10 @@
 AdminViews.holidays = {
 
   TYPES: ['ราชการปกติ', 'ชดเชย', 'กรณีพิเศษ'],
+  _isStale: null, // ตัวเช็คจาก app.js — reload/mutation ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
-  async render(root) {
+  async render(root, isStale) {
+    this._isStale = isStale;
     root.innerHTML =
       '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
       '<p class="text-sm font-semibold text-slate-600 mb-3">เพิ่มวันหยุด</p>' +
@@ -36,8 +38,10 @@ AdminViews.holidays = {
 
   async reload() {
     const res = await AdminAPI.call('get_holidays');
+    if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
     const list = (res.holidays || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
     const body = UI.$('hdBody');
+    if (!body) return; // กันซ้ำซ้อน: element ไม่อยู่แล้ว (เช่นถูกเปลี่ยนหน้าไป)
     const today = UI.todayStr_();
     body.innerHTML = '';
     UI.$('hdEmpty').classList.toggle('hidden', list.length > 0);
