@@ -72,8 +72,12 @@ const App = {
   showShell() {
     UI.$('loginView').classList.add('hidden');
     UI.$('appShell').classList.remove('hidden');
-    if (!location.hash) location.hash = '#/overview';
-    App.renderRoute();
+    // MDN: การ assign location.hash ก็ fired hashchange เสมอ — เมื่อยังไม่มี hash ให้พึ่ง event
+    // จะได้ไม่ render ซ้ำสองรอบ (assign + เรียกเอง) ส่วนกรณีรีเฟรชที่ hash มีอยู่แล้ว
+    // (ค่าเดิม = ไม่เกิด event) ต้อง render เอง
+    const hadHash = !!location.hash;
+    if (!hadHash) location.hash = '#/overview';
+    if (hadHash) App.renderRoute();
   },
 
   async renderRoute() {
