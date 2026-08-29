@@ -689,6 +689,19 @@ function testFiscalYearHelpers_() {
   assertTrue_(isFiscalYearCrossingLeave_({ start: '2026-09-30', end: '2026-10-01' }));
   assertFalse_(isFiscalYearCrossingLeave_({ start: '2026-12-31', end: '2027-01-01' }));
   assertFalse_(isFiscalYearCrossingLeave_({ start: '2026-09-30', end: '' }));
+
+  // ขอบเขตวันยื่น: ค่าที่ขอบผ่าน และเกินเพียง 1 วันต้องถูกปฏิเสธ
+  const boundaryToday = '2026-04-01';
+  assertEqual_(parseLeaveDateRange_(shiftDateStr_(boundaryToday, 365), '', boundaryToday).start,
+    shiftDateStr_(boundaryToday, 365));
+  assertThrows_(function () {
+    parseLeaveDateRange_(shiftDateStr_(boundaryToday, 366), '', boundaryToday);
+  }, 'ยื่นล่วงหน้าได้ไม่เกิน');
+  assertEqual_(parseLeaveDateRange_(shiftDateStr_(boundaryToday, -90), '', boundaryToday).start,
+    shiftDateStr_(boundaryToday, -90));
+  assertThrows_(function () {
+    parseLeaveDateRange_(shiftDateStr_(boundaryToday, -91), '', boundaryToday);
+  }, 'ยื่นย้อนหลังได้ไม่เกิน');
 }
 
 function testLeaveRangeOverlap_() {

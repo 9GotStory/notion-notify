@@ -39,6 +39,7 @@ notion-notify/
 
 ```bash
 node scripts/test-apps-script.js
+node scripts/test-leave-e2e.js
 cd gateway && npm test
 ```
 
