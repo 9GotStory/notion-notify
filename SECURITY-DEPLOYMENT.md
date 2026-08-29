@@ -1,5 +1,7 @@
 # Security gateway deployment และ migration
 
+> สถานะปัจจุบันเลือก direct mode และยังไม่ deploy gateway เอกสารนี้เก็บไว้เป็น runbook ทางเลือกหากเจ้าของระบบเปลี่ยนไปใช้ gateway ในอนาคต
+
 เอกสารนี้เป็น runbook ทางเทคนิคในช่วง cutover ก่อนเริ่มต้องปิด acceptance gates, ระบุเจ้าของงาน และทำ rehearsal ตาม [PRODUCTION-HANDOFF.md](PRODUCTION-HANDOFF.md) ส่วนขั้นตอนใช้งานประจำวันหลังส่งมอบอยู่ใน [USER-ADMIN-GUIDE.md](USER-ADMIN-GUIDE.md)
 
 เอกสารนี้เป็น runbook สำหรับเปลี่ยน production จากการเรียก Apps Script โดยตรงเป็นเส้นทาง:

@@ -1,5 +1,6 @@
-// ชั้นเรียก API ของหน้าผู้ดูแล: ส่ง POST ผ่าน security gateway เท่านั้น
-// __ADMIN_API_URL__ ถูกแทนที่ตอน build ด้วย base URL ของ gateway (ไม่มี token ฝังในไฟล์)
+// ชั้นเรียก API ของหน้าผู้ดูแลใน direct mode
+// GET + URLSearchParams ใช้กับ Apps Script /exec ซึ่ง redirect ไป response URL อีกครั้ง
+// __ADMIN_API_URL__ ถูกแทนที่ตอน build ด้วย URL /exec ของ Apps Script webapp
 'use strict';
 
 const ADMIN_CONFIG = { API_URL: '__ADMIN_API_URL__' };
@@ -37,21 +38,13 @@ const AdminAPI = {
   },
 
   async _fetch(action, params) {
-    const payload = Object.assign({ apiAction: action }, params || {});
-    const token = String(payload.token || '');
-    delete payload.token;
+    const qs = new URLSearchParams(Object.assign({ apiAction: action }, params || {}));
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      res = await fetch(ADMIN_CONFIG.API_URL.replace(/\/$/, '') + '/api/admin', {
-        method: 'POST',
-        headers: {
-          'authorization': 'Bearer ' + token,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
+      res = await fetch(ADMIN_CONFIG.API_URL + '?' + qs.toString(), {
+        method: 'GET', signal: controller.signal,
       });
     } catch (err) {
       throw new Error(err && err.name === 'AbortError'

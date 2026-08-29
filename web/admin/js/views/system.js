@@ -24,7 +24,7 @@ AdminViews.system = {
       '<div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-5">' +
       '<div><label for="f-time" class="block text-sm font-semibold text-slate-500 mb-1.5">เวลาแจ้งเตือนทุกเช้า</label>' +
       '<input type="time" id="f-time" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm">' +
-      '<p class="text-xs text-slate-500 mt-1.5">เมื่อบันทึก ระบบจะอัปเดต trigger ครั้งถัดไปให้อัตโนมัติ</p></div>' +
+      '<p class="text-xs text-slate-500 mt-1.5">หลังเปลี่ยนเวลา ให้กดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ" ใน Google Sheet</p></div>' +
       '<div><label for="f-calendar" class="block text-sm font-semibold text-slate-500 mb-1.5">Notion Database ID</label>' +
       '<input type="text" id="f-calendar" placeholder="your_notion_database_id" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-mono text-xs">' +
       '<p class="text-xs text-slate-500 mt-1.5">เอาจาก URL ของหน้า database ใน Notion (ส่วนก่อนเครื่องหมาย ?) และต้องแชร์ database ให้ integration ก่อน</p></div>' +
@@ -108,8 +108,8 @@ AdminViews.system = {
     }
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     try {
-      const result = await AdminAPI.call('save_settings', { data: JSON.stringify(payload) });
-      UI.showToast(result.warning || 'บันทึกแล้ว และอัปเดตเวลาส่งครั้งถัดไปเรียบร้อย', !!result.warning);
+      await AdminAPI.call('save_settings', { data: JSON.stringify(payload) });
+      UI.showToast('บันทึกแล้ว — หากเปลี่ยนเวลา ให้ติดตั้ง/อัปเดต trigger ใน Google Sheet');
       await this.render(UI.$('view'), this._isStale);
     } catch (e) {
       UI.showToast(e.message, true);

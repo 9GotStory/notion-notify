@@ -313,6 +313,9 @@ function collectSystemHealth_() {
   if (!props.getProperty('LOGIN_CHANNEL_ID')) {
     findings.push(['info', 'ยังไม่ตั้ง LOGIN_CHANNEL_ID (ไม่บังคับ — ตั้งแล้วเพิ่มความเข้มงวดการตรวจ token ของ LIFF)']);
   }
+  if (allowLegacyDirectRequests_()) {
+    findings.push(['info', 'Direct mode เปิดอยู่ — browser และ LINE เรียก Apps Script โดยตรงตามความเสี่ยงที่เจ้าของระบบยอมรับ']);
+  }
 
   // ชีต Approvers
   let config = [];

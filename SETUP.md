@@ -30,7 +30,7 @@
 |---|---|
 | `LINE_CHANNEL_ACCESS_TOKEN` | Channel access token จาก LINE Developers Console |
 | `NOTION_TOKEN` | Internal Integration Secret จาก Notion (ดูวิธีสร้างในข้อ 4) |
-| `GATEWAY_SHARED_SECRET` | ค่าสุ่มอย่างน้อย 32 ตัวอักษรตาม `SECURITY-DEPLOYMENT.md` |
+| `ALLOW_LEGACY_DIRECT` | `TRUE` — เปิด direct mode ตามความเสี่ยงที่เจ้าของระบบยอมรับ |
 
 (ยังไม่มี LINE channel? สร้างที่ [LINE Developers Console](https://developers.line.biz/console/) > สร้าง Provider > สร้าง Messaging API channel)
 
@@ -52,13 +52,13 @@
 2. เลือกประเภท **Web app**
 3. ตั้งค่า Execute as: **Me**, Who has access: **Anyone**
 4. กด **Deploy** แล้วอนุญาตสิทธิ์ที่ขอ (ครั้งแรกจะมีหน้าเตือน "Google hasn't verified this app" เพราะเป็นสคริปต์ของเราเอง กด Advanced > ไปต่อได้)
-5. คัดลอก **Web app URL** ที่ได้ไว้สำหรับตั้ง `MAIN_APPS_SCRIPT_URL` ใน gateway ห้ามนำ URL นี้ไปฝังในหน้าเว็บหลัง cutover
+5. คัดลอก **Web app URL** ที่ได้ไว้ตั้ง GitHub Environment ชื่อ `API_URL` และใช้เป็น LINE Webhook URL
 
-## 6. Deploy security gateway และตั้งค่า LINE
+## 6. ตั้งค่า LINE ให้เรียก Apps Script โดยตรง
 
-1. ทำตาม [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md) เพื่อ deploy gateway และตั้ง shared secret แบบ migration-safe
+1. ยืนยันว่า Script Property `ALLOW_LEGACY_DIRECT=TRUE`
 2. เปิด channel ที่สร้างไว้ > แท็บ **Messaging API**
-3. วาง `https://<gateway>/line/webhook` ลงช่อง **Webhook URL** > กด **Verify**
+3. วาง Web app URL `/exec` จากข้อ 5 ลงช่อง **Webhook URL** > กด **Verify**
 4. เปิด **Use webhook** และ **Allow bot to join group chats**
 5. เก็บ **QR code** หรือ **Bot basic ID** ไว้เชิญบอทเข้ากลุ่มในขั้นถัดไป
 
@@ -88,15 +88,15 @@
 
 > โปรเจกต์ Apps Script แยกเป็น **JSON API** ส่วนหน้า UI อยู่ที่ `web/admin/` และ deploy ผ่าน GitHub Actions ห้ามบันทึก script ID, deployment URL หรือ Spreadsheet ID ของ production ลง repository
 
-โครงสร้าง: หน้า UI เป็น SPA บน GitHub Pages เรียก security gateway ด้วย POST แล้ว gateway ส่ง signed request ไป Apps Script webapp ซึ่งตรวจ `ADMIN_TOKEN` แบบ fail-closed ผู้ดูแลพิมพ์ token ต่อหนึ่ง browser session และระบบเก็บไว้ใน `sessionStorage` เท่านั้น ปิดแท็บ/session แล้วต้องเข้าสู่ระบบใหม่
+โครงสร้าง: หน้า UI เป็น SPA บน GitHub Pages เรียก Apps Script webapp ด้วย GET โดยตรง ซึ่งตรวจ `ADMIN_TOKEN` แบบ fail-closed ผู้ดูแลพิมพ์ token ต่อหนึ่ง browser session และระบบเก็บไว้ใน `sessionStorage` เท่านั้น ปิดแท็บ/session แล้วต้องเข้าสู่ระบบใหม่
 
 **ทำไมต้องเป็นโปรเจกต์แยก**: doGet/doPost เป็น entry point ระดับโปรเจกต์ การแยกไว้ทำให้ webhook ของโปรเจกต์หลัก (ต้อง anonymous ให้ LINE ยิงเข้า) กับ API นี้ (มี token คุมทุกคำขอ) ตั้งระดับ deployment อิสระกันได้ โปรเจกต์นี้ไม่เก็บ LINE token ตามดีไซน์เดิม — แม้ ADMIN_TOKEN รั่ว เสียเพียงสิทธิ์แก้ชีต config ไม่ใช่สิทธิ์ส่งข้อความแทนใคร
 
 ขั้นตอนที่ต้องทำผ่านหน้าเว็บ (ครั้งเดียว):
 
-1. **ตั้ง Script Properties**: เปิดโปรเจกต์ Apps Script นี้ > **Project Settings > Script Properties > Add script property** แล้วเพิ่ม `ADMIN_TOKEN` เป็นข้อความสุ่มอย่างน้อย 32 ตัวอักษร (เช่นสร้างด้วย `openssl rand -hex 16`) และ `SPREADSHEET_ID` เป็นรหัสจาก URL ของชีตหลักส่วนระหว่าง `/d/` กับ `/edit`; เก็บ token ไว้แจกเฉพาะผู้ดูแล
-2. **ตรวจการตั้งค่า deployment**: **Deploy > Manage deployments > ดินสอ** ต้องเป็น **Execute as: Me** และ **Who has access: Anyone**; URL `/exec` นี้ใส่เป็น `ADMIN_APPS_SCRIPT_URL` ที่ gateway เท่านั้น
-3. **ตั้งค่า gateway URL ใน GitHub**: Settings > Environments > **liff** > Add variable — `GATEWAY_URL` = base URL แบบ HTTPS ของ gateway (ไม่มี path `/api/admin`)
+1. **ตั้ง Script Properties**: เปิดโปรเจกต์ Apps Script นี้ > **Project Settings > Script Properties > Add script property** แล้วเพิ่ม `ADMIN_TOKEN` เป็นข้อความสุ่มอย่างน้อย 32 ตัวอักษร (เช่นสร้างด้วย `openssl rand -hex 16`), `SPREADSHEET_ID` เป็นรหัสจาก URL ของชีตหลักส่วนระหว่าง `/d/` กับ `/edit` และ `ALLOW_LEGACY_DIRECT=TRUE`; เก็บ token ไว้แจกเฉพาะผู้ดูแล
+2. **ตรวจการตั้งค่า deployment**: **Deploy > Manage deployments > ดินสอ** ต้องเป็น **Execute as: Me** และ **Who has access: Anyone**
+3. **ตั้งค่า URL ใน GitHub**: Settings > Environments > **liff** > เพิ่ม `ADMIN_API_URL` = URL `/exec` ของ deployment นี้
 4. **ตั้งค่า Notion อ่านอย่างเดียว** (สำหรับหน้า "รายงาน"): สร้าง integration ที่ [notion.so/my-integrations](https://www.notion.so/my-integrations) ติ๊กเฉพาะ **Read content** แล้วใส่ token ใน Script Properties ชื่อ `NOTION_TOKEN_READONLY` + แชร์ database "ใบลา" ให้ integration ผ่าน **"..." > Connections**
 5. เปิด `https://9gotstory.github.io/notion-notify/web/admin/` พิมพ์ token — ครบ 6 หน้า: ภาพรวม (สถานะ+ตัวเลขเด่น), บุคลากร (ทำเนียบ+ประเภทบุคลากร+ผู้อนุมัติรายกลุ่มงาน), สิทธิ์วันลา (โควตา+สมุดยอดยกมา/ใช้เพิ่ม), วันหยุด, รายงาน (รายเดือน/รายปี+CSV), ระบบ (Settings+Logs)
 
@@ -184,21 +184,22 @@
 
 1. Project Settings > Script Properties > เพิ่ม `LOGIN_CHANNEL_ID` = Channel ID จากข้อ 11.3 (ใช้ตรวจว่า access token ที่ส่งมาออกจาก LIFF ของเราจริง กัน token จากแอปอื่น)
 2. อัปเดตโค้ดทั้งหมดจาก `apps/main/` ใน repository นี้ (ง่ายสุด: `scripts/push-main.sh` — ไฟล์ระบบลาคือ Leave/LeaveCalc/LeaveApi/LeaveApproval/LeaveReports)
-3. **Deploy > Manage deployments > แก้ไข deployment เดิม (ไอคอนดินสอ) > Version: New version > Deploy** — URL เดิมไม่เปลี่ยน และใช้เป็น backend ของ gateway เท่านั้น
-4. ตั้งค่า `GATEWAY_SHARED_SECRET` และ cutover ตาม [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md); ห้ามเปิด `ALLOW_LEGACY_DIRECT` ค้างหลัง migration
+3. **Deploy > Manage deployments > แก้ไข deployment เดิม (ไอคอนดินสอ) > Version: New version > Deploy** — URL เดิมไม่เปลี่ยน
+4. ยืนยันว่า `ALLOW_LEGACY_DIRECT=TRUE` เพื่อให้ LIFF, ตารางงาน และ LINE เรียก deployment นี้โดยตรง
 
 ### 11.5 โฮสต์หน้าฟอร์มบน GitHub Pages (ค่าตั้งค่าอยู่ใน GitHub Environment)
 
 **ห้ามโฮสต์หน้า LIFF บน Apps Script Web App** — exec URL จะ redirect ไป `*.googleusercontent.com` ทำให้ URL ไม่ตรงกับ endpoint ที่ลงทะเบียน และ `liff.init()` พังทุกครั้ง
 
-หน้าฟอร์มมีเพียง placeholder และ GitHub Actions จะแทนด้วย LIFF ID กับ base URL ของ security gateway ก่อน deploy ไม่มี Apps Script URL หรือ token ฝังในไฟล์
+หน้าฟอร์มมีเพียง placeholder และ GitHub Actions จะแทนด้วย LIFF ID กับ Apps Script URL ก่อน deploy ไม่มี token ฝังในไฟล์
 
 **ตั้งค่าครั้งเดียว ตามลำดับนี้:**
 
 1. ถ้า repository นี้เป็น **private** ต้องเลือกก่อน: เปิดเป็น public (ไฟล์ใน repo ไม่มี secret ใดๆ — token ทั้งหมดอยู่ใน Script Properties / Environment เท่านั้น) หรือสร้าง repository สาธารณะใหม่แยกให้ฟอร์มโดยเฉพาะ
 2. **Settings > Environments > New environment** ตั้งชื่อ `liff` แล้วเพิ่มค่า:
    - `LIFF_ID` = จากข้อ 11.3
-   - `GATEWAY_URL` = base URL แบบ HTTPS ของ gateway เช่น `https://gateway.example.go.th`
+   - `API_URL` = URL `/exec` ของ Apps Script หลัก
+   - `ADMIN_API_URL` = URL `/exec` ของ Apps Script webapp
    - `SCHEDULE_LIFF_ID` = LIFF ID สำหรับหน้าตาราง (ไม่บังคับ ถ้ายังใช้โหมดสาธารณะอย่างเดียว)
 3. **Settings > Pages > Source: "GitHub Actions"** (สำคัญ — ถ้ายังเป็น "Deploy from a branch" ให้เปลี่ยน ไม่งั้น workflow deploy ไม่ได้ และหน้าที่ถูกเสิร์ฟจะเป็นไฟล์ placeholder ที่ยังไม่ถูกแทนที่ ฟอร์มจะขึ้นว่า "ระบบยังไม่พร้อมใช้งาน")
 4. `git push` — Actions จะรันเอง (ดูได้ที่แท็บ Actions) หน้าฟอร์มอยู่ที่ `https://<username>.github.io/notion-notify/web/liff-form/` และเสิร์ฟเฉพาะหน้าเว็บ ไม่โฮสต์ไฟล์ .gs ของ repo
@@ -308,8 +309,8 @@ npm run build:css  # สร้าง styles.css สำหรับเปิด�
 ## ข้อจำกัดที่ควรรู้
 
 - **ความแม่นยำของเวลา**: ระบบสร้าง one-time trigger ตาม `notify_time` แล้วนัดวันถัดไปใหม่หลังทำงานเสร็จ Apps Script อาจเริ่มช้ากว่าเวลาที่นัดเล็กน้อยตามภาระของระบบ แต่จะไม่ส่งย้อนหลังทันทีเพียงเพราะติดตั้ง trigger หลังเวลาที่กำหนด
-- **เมื่อเปลี่ยนเวลา**: ถ้าแก้ผ่านหน้าผู้ดูแล ระบบจะอัปเดต trigger ให้ทันที; ถ้าแก้ค่า `notify_time` ในชีตโดยตรง ต้องกดเมนู **ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ** เพื่อยกเลิกนัดเดิมและสร้างนัดใหม่
-- **Webhook signature**: gateway ตรวจ `X-Line-Signature` จาก raw body ก่อนทุกครั้ง แล้ว Apps Script ตรวจ signed envelope, timestamp, nonce และสิทธิ์ผู้อนุมัติอีกชั้น ห้ามชี้ LINE ไป `/exec` โดยตรงหลัง cutover
+- **เมื่อเปลี่ยนเวลา**: ไม่ว่าจะแก้ผ่านหน้าผู้ดูแลหรือชีตโดยตรง ต้องกดเมนู **ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ** เพื่อยกเลิกนัดเดิมและสร้างนัดใหม่
+- **Direct mode**: Apps Script อ่าน `X-Line-Signature` ไม่ได้ และไม่มี rate limit/CORS allowlist แบบ gateway เจ้าของระบบยอมรับข้อจำกัดนี้แล้ว ควรตรวจ Apps Script Executions/Logs และหมุน token เป็นระยะ
 - **ระบบลางาน — ความเป็นส่วนตัว**: การ์ดขออนุมัติและผลการอนุมัติเป็นแชทส่วนตัวระหว่าง OA กับรายบุคคล สรุปเช้าแสดงเฉพาะใบลาที่**อนุมัติแล้ว** (ใบที่ยังรอพิจารณาไม่เปิดเผย) ยกเว้นกรณี fallback ที่ไม่มีผู้อนุมัติรายคน การ์ดจะเข้ากลุ่มหลัก
 - **ระบบลางาน — คนนอก**: ใครเปิดลิงก์ฟอร์มได้ก็ลงทะเบียนตัวเองได้ (เพราะไม่มีทำเนียบล่วงหน้าให้เทียบ) — ชดเชยด้วย 3 ชั้น: ชื่อ-สกุลเดียวกันลงทะเบียนซ้ำไม่ได้ / ทุกการลงทะเบียนแจ้ง "ชื่อใน LINE ของบัญชีใด ลงทะเบียนเป็นใคร" เข้ากลุ่มหลักให้ผู้ดูแลเห็นทันที / ผู้อนุมัติเห็นชื่อผู้ยื่นในการ์ดก่อนกดอนุมัติเสมอ (ผู้อนุมัติที่ยังไม่ลงทะเบียนก็จะไม่ถูกอ้างเป็นผู้อนุมัติ)
 - **ระบบลางาน — ผอ. ลาเอง**: ยื่นนอกระบบ (ระบบจะปฏิเสธและแจ้งผู้ยื่นตาม) เช่นเดียวกับกรณีที่ต้องการผู้อนุมัติแทน ผอ. เมื่อ ผอ. ไม่อยู่

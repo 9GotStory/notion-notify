@@ -409,18 +409,14 @@
       relogin_();
       throw new Error('กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่');
     }
+    const params = new URLSearchParams(
+      Object.assign({ apiAction: action, accessToken: accessToken }, extra || {}));
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      res = await fetch(CONFIG.API_URL.replace(/\/$/, '') + '/api/liff', {
-        method: 'POST',
-        headers: {
-          'authorization': 'Bearer ' + accessToken,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(Object.assign({ apiAction: action }, extra || {})),
-        signal: controller.signal,
+      res = await fetch(CONFIG.API_URL + '?' + params.toString(), {
+        method: 'GET', signal: controller.signal,
       });
     } catch (err) {
       throw new Error(err && err.name === 'AbortError'

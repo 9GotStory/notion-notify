@@ -28,12 +28,18 @@ function formatDate(date, timeZone, format) {
   return format.replace(/yyyy|yy|MM|dd|HH|mm|ss/g, token => replacements[token]);
 }
 
+const scriptProperties = new Map();
 const context = vm.createContext({
   console,
   Intl,
   Set,
   Map,
   Utilities: { formatDate },
+  PropertiesService: {
+    getScriptProperties() {
+      return { getProperty: name => scriptProperties.get(name) || null };
+    },
+  },
 });
 
 const sourceDir = path.resolve(__dirname, '../apps/main');
@@ -47,3 +53,24 @@ fs.readdirSync(sourceDir)
 
 const result = vm.runInContext('runUnitTests()', context);
 if (!result || result.failed !== 0) process.exitCode = 1;
+
+scriptProperties.set('ALLOW_LEGACY_DIRECT', 'TRUE');
+const directRequest = vm.runInContext("unwrapGatewayEnvelope_({ apiAction: 'session' })", context);
+if (!directRequest || directRequest.apiAction !== 'session') {
+  console.error('FAIL testDirectModeBoundary: explicit direct mode did not pass through the request');
+  process.exitCode = 1;
+} else {
+  scriptProperties.delete('ALLOW_LEGACY_DIRECT');
+  let rejected = false;
+  try {
+    vm.runInContext("unwrapGatewayEnvelope_({ apiAction: 'session' })", context);
+  } catch (err) {
+    rejected = /security gateway/.test(String(err && err.message));
+  }
+  if (!rejected) {
+    console.error('FAIL testDirectModeBoundary: direct request was not rejected when the switch was absent');
+    process.exitCode = 1;
+  } else {
+    console.log('PASS testDirectModeBoundary');
+  }
+}

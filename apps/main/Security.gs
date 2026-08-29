@@ -1,4 +1,4 @@
-/** ตรวจคำขอที่ gateway ส่งต่อมาและเก็บ nonce/event ID แบบ durable ใน Google Sheet */
+/** รองรับ direct mode ที่เปิดอย่างชัดเจน และตรวจ signed gateway envelope เมื่อใช้งาน gateway */
 
 const SECURITY_EVENTS_SHEET = 'SecurityEvents';
 const AUDIT_LOG_SHEET = 'AuditLog';
@@ -56,8 +56,7 @@ function allowLegacyDirectRequests_() {
 }
 
 function gatewayRequired_() {
-  // ปฏิเสธ direct request โดยปริยาย แม้ผู้ดูแลจะลืมตั้ง shared secret
-  // ต้องเปิดช่องทางเดิมด้วย ALLOW_LEGACY_DIRECT=TRUE อย่างชัดเจนเฉพาะช่วง migration เท่านั้น
+  // ปฏิเสธ direct request โดยปริยาย ต้องเปิดด้วย ALLOW_LEGACY_DIRECT=TRUE อย่างชัดเจน
   return !allowLegacyDirectRequests_();
 }
 
@@ -66,7 +65,7 @@ function unwrapGatewayEnvelope_(input) {
   const secret = gatewaySharedSecret_();
   if (!body.gatewayEnvelope) {
     if (gatewayRequired_()) throw new Error('คำขอนี้ต้องผ่าน security gateway');
-    return body; // migration window เท่านั้น; ต้องลบ ALLOW_LEGACY_DIRECT หลัง cutover
+    return body; // direct mode ที่เจ้าของระบบยอมรับความเสี่ยงแล้ว
   }
   if (!secret) throw new Error('ยังไม่ได้ตั้งค่า GATEWAY_SHARED_SECRET');
   const timestamp = String(body.timestamp || '');

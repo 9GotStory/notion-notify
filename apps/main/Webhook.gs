@@ -2,28 +2,28 @@
  * จุดเข้าเดียวของ deployment นี้ รับ 2 อย่าง (แยกเส้นทางด้วยโครงสร้าง body):
  * 1. Webhook จาก LINE — เดิมใช้แค่จับ Group ID ตอนติดตั้ง ตอนนี้เพิ่มรองรับปุ่มอนุมัติใบลา (postback)
  *    ดังนั้น deployment นี้ต้องค้างไว้ถาวรแล้ว (ไม่ใช่จับ Group ID แล้วปิดตามคำแนะนำเดิม)
- * 2. API ภายในจาก security gateway — body เป็น signed envelope ที่บรรจุ apiAction
+ * 2. API จากหน้าเว็บโดยตรงเมื่อเปิด ALLOW_LEGACY_DIRECT=TRUE
+ *    (หรือ signed envelope จาก security gateway หากย้ายสถาปัตยกรรมในอนาคต)
  *
- * หมายเหตุด้านความปลอดภัย: Apps Script อ่าน X-Line-Signature ไม่ได้ จึงต้องให้ LINE และ browser
- * เรียกผ่าน security gateway เท่านั้นหลังตั้ง GATEWAY_SHARED_SECRET:
- *   - gateway ตรวจลายเซ็น LINE จาก raw body ก่อนส่ง signed envelope มาที่นี่
+ * ข้อจำกัดของ direct mode: Apps Script อ่าน X-Line-Signature ไม่ได้ เจ้าของระบบจึงยอมรับว่า
+ * webhook ไม่มีการตรวจ raw signature และไม่มี rate limit/CORS allowlist จาก gateway:
  *   - ทุก apiAction ต้องแนบ LINE access token ที่ระบบตรวจกับ api.line.me จริง (verifyLineToken_ ใน LeaveApi.gs)
  *   - ปุ่มอนุมัติตรวจว่า userId ของผู้กดตรงกับ "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion ของใบลานั้น
  *     (ผู้ปลอมต้องรูทั้ง pageId และ userId ของผู้อนุมัติจริงจึงจะผ่านได้)
  *   - dedup ด้วย webhookEventId กัน LINE ยิงซ้ำ (ตอบช้า) ทำให้ประมวลผลซ้ำสองรอบ
- * เมื่อจบ migration ให้ลบ ALLOW_LEGACY_DIRECT เพื่อบังคับเส้นทางนี้ทุกคำขอ
+ * ต้องใช้ ADMIN/LINE token แบบสุ่มและตรวจ Apps Script Executions/Logs เป็นระยะ
  *
  * วิธีติดตั้ง (ครั้งแรก/จับ Group ID):
- * 1. Deploy > New deployment > เลือกประเภท "Web app" (ใช้เป็น backend ภายในของ gateway)
+ * 1. Deploy > New deployment > เลือกประเภท "Web app"
  *    - Execute as: Me, Who has access: Anyone → กด Deploy แล้วคัดลอก Web app URL
- * 2. Deploy security gateway แล้ววาง URL ลง LINE Developers Console: <gateway>/line/webhook
+ * 2. วาง URL /exec ของ deployment นี้ลง LINE Developers Console
  *    เปิด "Use webhook" และ "Allow bot to join group chats"
  * 3. เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความอะไรก็ได้ 1 ข้อความ — line_group_id จะถูกเติมในชีต Settings
- * 4. หลังจากนั้นปล่อย deployment นี้ค้างไว้ถาวร (ปุ่มอนุมัติใบลาและ API ของ LIFF วิ่งผ่าน URL เดียวกันนี้)
+ * 4. หลังจากนั้นปล่อย deployment นี้ค้างไว้ถาวร (LINE, LIFF และตารางงานใช้ URL เดียวกันนี้)
  *    ถ้าแก้โค้ดให้ Deploy > Manage deployments > Edit > New version เสมอ (URL ไม่เปลี่ยน)
  */
 
-// Legacy GET ใช้เฉพาะช่วง migration ก่อนตั้ง GATEWAY_SHARED_SECRET เท่านั้น
+// Direct GET เปิดได้เมื่อเจ้าของระบบตั้ง ALLOW_LEGACY_DIRECT=TRUE อย่างชัดเจน
 function doGet(e) {
   const params = (e && e.parameter) || {};
   if (params.apiAction) {

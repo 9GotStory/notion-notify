@@ -2,7 +2,7 @@
 
 เอกสารนี้เป็นจุดเริ่มต้นของเจ้าของระบบ, HR, ผู้ดูแล และทีมเทคนิคก่อนเปิดใช้งานจริง ใช้เป็น checklist และ decision record ได้ แต่ไม่แทนเอกสารอนุมัติภายในองค์กร
 
-สถานะปัจจุบัน: โค้ดและ automated tests พร้อมสำหรับการทดสอบ/นำร่อง แต่ยังมี production acceptance gates เรื่องตัวตนผู้ลงทะเบียน, ตัวตนผู้ดูแล, การรับรองนโยบายวันลา และการปฏิบัติการ cloud ที่ต้องปิดให้ครบ
+สถานะปัจจุบัน: เจ้าของระบบเลือก direct mode และยอมรับความเสี่ยงจากการไม่ใช้ gateway เนื่องจากขอบเขตข้อมูล/ผู้ใช้ที่กำหนด โค้ดและ automated tests พร้อมสำหรับการทดสอบ/นำร่อง แต่ยังต้องตรวจตัวตนผู้ลงทะเบียน, shared admin token, นโยบายวันลา, backup และการติดตาม Apps Script ตามขอบเขตที่ยอมรับ
 
 ## 1. วิธีใช้เอกสารนี้
 
@@ -11,7 +11,7 @@
 3. ปิด Gate 1–4 โดยแต่ละ gate ต้องมีผลทดสอบและหลักฐาน ไม่ใช่เพียงระบุว่า “ทำแล้ว”
 4. ทำ rehearsal ใน environment ทดสอบก่อน cutover จริง
 5. ประชุม Go/No-Go และลงชื่อผู้ตัดสินใจ
-6. deploy ตาม [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md)
+6. deploy direct mode ตาม [SETUP.md](SETUP.md); [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md) ใช้เมื่อเลือกเพิ่ม gateway ในอนาคต
 7. เฝ้าระวัง 72 ชั่วโมงแรกและส่งมอบงานประจำตาม [USER-ADMIN-GUIDE.md](USER-ADMIN-GUIDE.md)
 
 สัญลักษณ์สถานะที่แนะนำ: `ยังไม่เริ่ม`, `กำลังทำ`, `รอตัดสินใจ`, `รอหลักฐาน`, `ผ่าน`, `ยอมรับความเสี่ยง`, `ไม่ผ่าน`
@@ -112,7 +112,7 @@ cd gateway && npm test
 
 ## 5. Gate 2 — ตัวตนผู้ดูแล
 
-สถานะปัจจุบัน: หน้า Admin ใช้ shared `ADMIN_TOKEN` ใน `sessionStorage` ปลอดภัยกว่าการฝัง token ในหน้าเว็บ แต่ audit ยังไม่สามารถแยกชื่อผู้ดูแลแต่ละคนได้
+สถานะปัจจุบัน: หน้า Admin ใช้ shared `ADMIN_TOKEN` ใน `sessionStorage` และส่ง token ไป Apps Script ผ่าน query string ตาม direct mode ที่เจ้าของระบบยอมรับ audit ยังไม่สามารถแยกชื่อผู้ดูแลแต่ละคนได้
 
 เจ้าของการตัดสินใจ: เจ้าของระบบความปลอดภัย/ทีม identity
 
@@ -205,28 +205,25 @@ HR ควรสร้างหนึ่งแถวต่อ:
 - export QuotaProfiles/LeaveBalances หลังอนุมัติ
 - ค่า `leave_policy_reviewed_at` และกำหนดวันทบทวนครั้งถัดไป
 
-## 7. Gate 4 — Cloud operations และความพร้อมรับเหตุการณ์
+## 7. Gate 4 — Direct-mode operations และความพร้อมรับเหตุการณ์
 
 เจ้าของ: ทีม platform/ผู้ดูแลเทคนิค
 
-### 7.1 Gateway และ network controls
+### 7.1 Direct-mode controls
 
-1. deploy `gateway/Dockerfile` บน runtime ที่รองรับ HTTPS และ non-root container
-2. เก็บ environment variables ใน secret manager ไม่ใส่ใน image, repository หรือ build log
-3. จำกัด `ALLOWED_ORIGINS` เป็น origin จริงแบบไม่มี path
-4. เปิด WAF/rate limit แยก `/line/webhook`, `/api/liff`, `/api/schedule` และ `/api/admin`
-5. กำหนด threshold จากปริมาณใช้งานจริงและ LINE retry behavior แล้วบันทึกเหตุผล ห้ามใช้ค่าเดียวทุก endpoint โดยไม่ทดสอบ
-6. จำกัด ingress/admin console ตาม capability ของผู้ให้บริการ
-7. ตรวจ `GET /health` จาก monitoring ภายนอก แต่ไม่เปิดเผยรายละเอียด config/secret
+1. บันทึกการยอมรับว่า direct mode ไม่มีการตรวจ raw `X-Line-Signature`, CORS allowlist หรือ WAF/rate limit
+2. ตั้ง `ALLOW_LEGACY_DIRECT=TRUE` เฉพาะ Apps Script deployments ที่ใช้งานจริง
+3. ใช้ `ADMIN_TOKEN` แบบสุ่มอย่างน้อย 32 ตัวอักษร เก็บใน Script Properties และหมุนตามรอบ
+4. เก็บ Apps Script URLs ใน GitHub Environment ไม่ commit ลง repository หรือเอกสารสาธารณะ
+5. ตรวจ Apps Script quota, Executions, Logs, `SecurityEvents` และ `AuditLog` ตามรอบที่กำหนด
+6. จำกัดผู้เข้าถึง GitHub Environment, Apps Script projects, Google Sheet และ Notion integrations
 
 ### 7.2 Logging และ alerts
 
 เปิด structured log และสร้าง alert อย่างน้อยสำหรับ:
 
-- health เป็น 503 ต่อเนื่อง
-- HTTP 5xx หรือ upstream timeout เพิ่มผิดปกติ
-- LINE signature invalid เพิ่มผิดปกติ
-- nonce replay, origin denied หรือ unauthorized เพิ่มผิดปกติ
+- Apps Script execution error หรือ timeout เพิ่มผิดปกติ
+- คำขอ `UNAUTHORIZED` หรือ `GATEWAY_REQUIRED` เพิ่มผิดปกติ
 - notification เข้าสถานะ `ต้องตรวจสอบ`
 - Apps Script quota/execution failure
 - trigger หายหรือเวลาส่งครั้งถัดไปไม่พร้อม
@@ -244,7 +241,7 @@ HR ควรสร้างหนึ่งแถวต่อ:
 
 ### 7.4 Secret rotation
 
-สร้างทะเบียนที่มีชื่อ secret, owner, storage, วันที่หมุนล่าสุด/ถัดไป และระบบที่ได้รับผลกระทบ โดยไม่เก็บค่าจริง ขั้นหมุน shared secretต้องรองรับค่าระหว่างเปลี่ยนหรือใช้ maintenance window ที่ชัดเจนเพื่อไม่ให้ gateway/backendใช้คนละค่า
+สร้างทะเบียนที่มีชื่อ secret, owner, storage, วันที่หมุนล่าสุด/ถัดไป และระบบที่ได้รับผลกระทบ โดยไม่เก็บค่าจริง การหมุน `ADMIN_TOKEN` หรือ LINE/Notion token ต้องมี maintenance window และ smoke test หลังเปลี่ยน
 
 หมุนทันทีเมื่อสงสัยว่ารั่ว, ผู้ดูแลพ้นหน้าที่, vault policy เปลี่ยน หรือ log แสดงการใช้งานผิดปกติ
 
@@ -254,8 +251,7 @@ HR ควรสร้างหนึ่งแถวต่อ:
 
 - ยื่นใบซ้ำหรือยอดสิทธิ์ผิดหลายรายการ
 - ผู้ไม่มีสิทธิ์เข้าถึงหน้า Admin หรือข้อมูลใบลา
-- LINE webhook รับคำขอลายเซ็นผิดได้
-- gateway 5xx ต่อเนื่องและไม่กู้ในเวลาที่กำหนด
+- Apps Script quota เต็มหรือ execution error ต่อเนื่อง
 - deploy แล้ว schema/config ไม่ตรงจนข้อมูลถูกเขียนผิด
 
 เมื่อเกิด incident:
@@ -264,13 +260,13 @@ HR ควรสร้างหนึ่งแถวต่อ:
 2. ป้องกันผลกระทบเพิ่ม เช่น ปิด feature หรือ rollback ตามอำนาจที่อนุมัติไว้
 3. เก็บ log ด้วย requestId โดยไม่คัดลอก secret
 4. แจ้งเจ้าของระบบ/ความปลอดภัย/HR ตามชนิดข้อมูลที่ได้รับผล
-5. ทำตาม rollback ใน [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md)
+5. rollback Apps Script deployment และ GitHub Pages ตามเวอร์ชันที่บันทึกไว้ใน Gate 0
 6. ตรวจความถูกต้องข้อมูลหลัง rollback และบันทึก corrective actions
 
 ### หลักฐานปิด gate
 
 - URL dashboard/monitor ที่ผู้เกี่ยวข้องเข้าถึงได้
-- ผลทดสอบ WAF/rate limit/alert
+- ผลทดสอบ Apps Script quota/execution alert
 - restore report ล่าสุด
 - secret inventory ที่ไม่มีค่าลับ
 - incident/rollback contact tree และผล tabletop exercise
@@ -286,31 +282,26 @@ HR ควรสร้างหนึ่งแถวต่อ:
 5. แก้ไขและยกเลิกแข่งกับการอนุมัติ ต้องไม่เกิดสถานะหรือยอดซ้ำ
 6. เปลี่ยน quota/ประเภทบุคลากรพร้อมกันสองหน้า ต้องมีหน้าหนึ่งได้รับ conflict ไม่เขียนทับเงียบๆ
 7. LINE ส่งไม่สำเร็จ ต้องเข้า retry และ dead-letter ตามจำนวนครั้ง
-8. ทดสอบ admin token/SSO ผิด, origin ผิด, signature ผิด, nonce ซ้ำ และ request ใหญ่เกินกำหนด
+8. ทดสอบ admin token ผิด, `ALLOW_LEGACY_DIRECT` หาย, URL deployment ผิด และคำขอซ้ำ
 9. ทดสอบ backup/restore และ rollback deployment
 10. ให้ผู้ใช้ ผู้อนุมัติ HR และ admin ลงชื่อว่า workflow/ข้อความภาษาไทยเข้าใจได้
 
 บันทึกแต่ละกรณีด้วย expected result, actual result, ผู้ทดสอบ, เวลา, environment, commit SHA และหลักฐานที่ปิดข้อมูลส่วนบุคคลแล้ว
 
-## 9. ลำดับ deploy และ cutover
+## 9. ลำดับ deploy direct mode
 
-ผู้ประสาน release ต้องเปิด [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md) และทำตามลำดับอย่างเคร่งครัด สรุประดับสูง:
+1. ประกาศ maintenance window และยืนยันผู้ rollback
+2. สำรองข้อมูลและบันทึก deployment versions ปัจจุบัน
+3. ตั้ง `ALLOW_LEGACY_DIRECT=TRUE` ใน Apps Script ทั้งสองโปรเจกต์
+4. deploy Apps Script หลักและ webapp เป็น version ใหม่บน deployment เดิม
+5. ยืนยัน GitHub Environment `liff` มี `LIFF_ID`, `API_URL` และ `ADMIN_API_URL`
+6. ชี้ LINE Webhook URL ไป `/exec` ของ Apps Script หลักและกด Verify
+7. เปิดและรัน workflow `Deploy web pages`
+8. ทดสอบ LIFF, ตาราง, Admin, รายงาน และ LINE webhook โดยตรง
+9. หลังเปลี่ยน `notify_time` ให้กดเมนูติดตั้ง/อัปเดต trigger ใน Google Sheet
+10. บันทึกเวลา, commit, deployment versions, ผู้ดำเนินการ, ผลทดสอบ และความเสี่ยง direct mode ที่ยอมรับ
 
-1. ประกาศ maintenance/cutover window และยืนยันผู้ rollback
-2. สำรองข้อมูลและบันทึก current deployment versions
-3. ตั้ง `ALLOW_LEGACY_DIRECT=TRUE` ชั่วคราวก่อน deploy backend รุ่น fail-closed
-4. deploy Apps Script หลักและ webapp บน deployment เดิม
-5. ตั้ง shared secret ให้ตรงทั้งสอง Apps Script และ gateway
-6. deploy gateway แล้วตรวจ `/health`
-7. ทดสอบ LIFF, ตาราง, Admin และ webhook ผ่าน gateway
-8. เปลี่ยน GitHub Environment `GATEWAY_URL` และ deploy หน้าเว็บ
-9. เปลี่ยน LINE Webhook URL ไป gateway และกด Verify
-10. รัน smoke test ครบ
-11. ลบ `ALLOW_LEGACY_DIRECT` จาก Apps Script ทั้งสองโปรเจกต์
-12. ยืนยัน direct `/exec` ถูกปฏิเสธและทุก client ใช้ POST ผ่าน gateway
-13. บันทึกเวลา, version, ผู้ดำเนินการ และผลทดสอบ
-
-ห้ามข้ามจากขั้น gateway ไปปิด legacy ก่อนยืนยันว่า browser, LINE และ Admin ใช้ gateway สำเร็จทั้งหมด
+หากเลือกเพิ่ม gateway ในอนาคต ให้ใช้ลำดับ cutover ใน [SECURITY-DEPLOYMENT.md](SECURITY-DEPLOYMENT.md)
 
 ## 10. Go/No-Go checklist
 
@@ -321,6 +312,7 @@ HR ควรสร้างหนึ่งแถวต่อ:
 | Gate 2 identity ผู้ดูแลผ่าน |  |  |  |  |
 | Gate 3 HR policy ผ่าน |  |  |  |  |
 | Gate 4 operations ผ่าน |  |  |  |  |
+| Direct mode risk acceptance บันทึกแล้ว | ยอมรับความเสี่ยง | เจ้าของระบบ | ไม่มี gateway; จำกัดขอบเขตข้อมูล/ผู้ใช้ |  |
 | Rehearsal และ rollback ผ่าน |  |  |  |  |
 | Privacy/security review อนุมัติ |  |  |  |  |
 | User/admin documentation อัปเดต |  |  |  |  |
@@ -333,7 +325,7 @@ HR ควรสร้างหนึ่งแถวต่อ:
 
 ### ทันทีหลัง cutover
 
-- ตรวจ health, error rate, LINE delivery, trigger และ audit/security events
+- ตรวจ Apps Script Executions, LINE delivery, trigger และ audit/security events
 - ให้ผู้ใช้ทดสอบอย่างน้อยหนึ่งคนต่อกลุ่มงาน
 - ตรวจใบลาใน Notion, ยอดสิทธิ์ และผู้อนุมัติปลายทาง
 
@@ -341,8 +333,8 @@ HR ควรสร้างหนึ่งแถวต่อ:
 
 - ตรวจการลงทะเบียนทั้งหมดเทียบ identity source
 - ตรวจ notification retry/dead-letter และ upstream error
-- ตรวจว่าไม่มี client เรียก direct Apps Script URL
-- ตรวจค่าใช้จ่าย/ปริมาณ gateway กับ baseline
+- ตรวจว่า client ทั้งสามหน้าเรียก Apps Script deployment ที่ถูกต้อง
+- ตรวจปริมาณ Apps Script executions เทียบ baseline
 
 ### ภายใน 72 ชั่วโมง
 
@@ -376,4 +368,3 @@ Known risks + owner + expiry:
 ```
 
 อย่าใส่ token, secret, activation code หรือ credential ลงแบบฟอร์ม ให้ระบุชื่อ secret record ใน vault แทน
-

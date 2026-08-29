@@ -1,7 +1,7 @@
 /** API รับคำขอจากหน้า LIFF (apiAction): session/bind/submit/myLeaves/cancel/update/calendar
  *  + ตรวจ LINE access token กับ api.line.me จริงทุกคำขอ */
 
-// ---------- ช่องทางเข้า API จาก LIFF (เรียกจาก doPost ใน Webhook.gs) ----------
+// ---------- ช่องทางเข้า API จาก LIFF (direct GET หรือ gateway POST ผ่าน Webhook.gs) ----------
 
 function handleApiRequest_(body) {
   try {

@@ -3,7 +3,8 @@
  *
  * โมเดล: deployment นี้เป็น API ล้วน deploy แบบ "Execute as: Me + Anyone (anonymous)"
  * ทุกคำขอต้องมี token ตรงกับ Script Property ADMIN_TOKEN (fail-closed — ยังไม่ตั้ง = ปฏิเสธทุกคำขอ)
- * browser เรียก security gateway ด้วย POST; gateway ส่ง signed envelope มาที่ doPost นี้
+ * direct mode เรียก deployment นี้ด้วย GET; ต้องตั้ง ALLOW_LEGACY_DIRECT=TRUE อย่างชัดเจน
+ * โค้ดยังรองรับ signed envelope ผ่าน gateway หากย้ายสถาปัตยกรรมในอนาคต
  * เปิด URL นี้ด้วย browser เอง (ไม่มี apiAction) =  meta-refresh ไปหน้า admin บน GitHub Pages
  *
  * ทำไมต้องเป็นโปรเจกต์แยกจากโปรเจกต์หลัก: doGet/doPost เป็น entry point ระดับโปรเจกต์ การแยกไว้ทำให้

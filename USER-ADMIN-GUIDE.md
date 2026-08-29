@@ -235,14 +235,14 @@
 
 | อาการ | ผู้ใช้ควรทำ | ผู้ดูแลควรตรวจ |
 |---|---|---|
-| โหลดหน้า LINE ไม่สำเร็จ | เปลี่ยนเครือข่าย ปิดแล้วเปิด LIFF ใหม่ | GitHub Pages, LIFF ID, SDK และ `GATEWAY_URL` |
+| โหลดหน้า LINE ไม่สำเร็จ | เปลี่ยนเครือข่าย ปิดแล้วเปิด LIFF ใหม่ | GitHub Pages, LIFF ID, SDK, `API_URL` และ `ALLOW_LEGACY_DIRECT` |
 | เซสชันหมดอายุ | รอระบบ login ใหม่หรือปิดหน้าแล้วเปิดใหม่ | LINE Login channel/LIFF configuration |
-| เว็บไซต์ไม่ได้รับอนุญาต | หยุดใช้งาน URL นั้นและแจ้งผู้ดูแล | `ALLOWED_ORIGINS` ต้องตรง origin จริง ไม่มี path |
+| ระบบตอบ `GATEWAY_REQUIRED` | หยุดส่งซ้ำและแจ้งผู้ดูแล | Apps Script ทั้งสองโปรเจกต์ต้องตั้ง `ALLOW_LEGACY_DIRECT=TRUE` |
 | ส่งใบแล้วไม่แน่ใจว่าสำเร็จ | ตรวจแท็บ **ของฉัน** ก่อนส่งใหม่ | Request ID และใบซ้ำใน Notion |
 | ไม่พบผู้อนุมัติ | ติดต่อผู้ดูแล | ชื่อ Staff, กลุ่มงาน และสายอนุมัติต้องตรงกัน |
 | จำนวนวันไม่ตรง | ตรวจวันเริ่ม/สิ้นสุดและประเภทลา | Holidays และหน่วยวันทำการ/วันปฏิทิน |
-| รหัสผู้ดูแลไม่ถูกต้อง | ตรวจว่าคัดลอกครบและยังไม่ถูกหมุน | `ADMIN_TOKEN`, gateway และ audit โดยห้ามพิมพ์ token ลง log |
-| เชื่อมต่อระบบภายในไม่สำเร็จ | รอสักครู่แล้วลองหนึ่งครั้ง | gateway log, Apps Script Executions, Notion/LINE status และ requestId |
+| รหัสผู้ดูแลไม่ถูกต้อง | ตรวจว่าคัดลอกครบและยังไม่ถูกหมุน | `ADMIN_TOKEN` และ Apps Script Executions โดยห้ามพิมพ์ token ลง log |
+| เชื่อมต่อระบบภายในไม่สำเร็จ | รอสักครู่แล้วลองหนึ่งครั้ง | Apps Script Executions, Notion/LINE status และ requestId |
 | การแจ้งเตือนต้องตรวจสอบ | ไม่ส่งซ้ำเองหลายครั้ง | สาเหตุ LINE failure, retry count และ dead-letter status |
 
 ## 8. การแจ้งปัญหาอย่างปลอดภัย
@@ -263,7 +263,7 @@
 2. อ่าน [SETUP.md](SETUP.md) ก่อนเปลี่ยน schema ของ Sheet/Notion หรือชื่อ property ภาษาไทย
 3. รักษา backward compatibility ของชื่อประเภทลาและข้อมูลเดิมระหว่าง migration
 4. อย่ารวมการตัดสินสิทธิ์ทางกฎหมายไว้ใน logic อัตโนมัติโดยไม่มี version/effective date และการรับรองจาก HR
-5. ทุก endpoint จาก browser ใช้ POST ผ่าน gateway ห้ามนำ token ไปไว้ใน query string
+5. ระบบเลือก direct mode: browser ใช้ GET ไป Apps Script `/exec`; ห้ามบันทึก URL ที่มี token ลง screenshot, issue หรือ log และต้องคง `ALLOW_LEGACY_DIRECT=TRUE` อย่างชัดเจน
 6. เพิ่ม deterministic test สำหรับ validation, authorization, idempotency และ failure path ทุกครั้งที่เปลี่ยน boundary สำคัญ
 7. รันคำสั่งต่อไปนี้ก่อนส่งมอบ:
 
@@ -274,4 +274,3 @@ cd gateway && npm test
 ```
 
 8. อัปเดตคู่มือนี้, [SETUP.md](SETUP.md) และ runbook เมื่อพฤติกรรมของผู้ใช้หรือผู้ดูแลเปลี่ยน
-
