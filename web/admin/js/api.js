@@ -1,10 +1,5 @@
-// ชั้นเรียก API ของหน้าตั้งค้าผู้ดูแล — pattern เดียวกับ web/liff-form (ต้นแบบที่ใช้งานจริงใน production)
-//
-// GET + URLSearchParams เท่านั้น: /exec ของ Apps Script ตอบ 302 แล้ว browser/WebView รุ่นเก่า
-// rewrite POST→GET ตาม spec ทำให้ body หาย — ทุก action (รวม save_*) จึงส่งเป็น query params
-// object/array ส่งเป็น JSON string ในพารามิเตอร์ data แล้วเซิร์ฟเวอร์ parseJsonParam_ ให้
-//
-// __ADMIN_API_URL__ ถูกแทนที่ตอน build โดย GitHub Actions (Environment "liff" > ADMIN_API_URL)
+// ชั้นเรียก API ของหน้าผู้ดูแล: ส่ง POST ผ่าน security gateway เท่านั้น
+// __ADMIN_API_URL__ ถูกแทนที่ตอน build ด้วย base URL ของ gateway (ไม่มี token ฝังในไฟล์)
 'use strict';
 
 const ADMIN_CONFIG = { API_URL: '__ADMIN_API_URL__' };
@@ -13,9 +8,9 @@ const AdminAPI = {
 
   TOKEN_KEY: 'nn-admin-token',
 
-  getToken() { return localStorage.getItem(this.TOKEN_KEY) || ''; },
-  setToken(token) { localStorage.setItem(this.TOKEN_KEY, token); },
-  clearToken() { localStorage.removeItem(this.TOKEN_KEY); },
+  getToken() { return sessionStorage.getItem(this.TOKEN_KEY) || ''; },
+  setToken(token) { sessionStorage.setItem(this.TOKEN_KEY, token); },
+  clearToken() { sessionStorage.removeItem(this.TOKEN_KEY); },
 
   /** เรียก action หนึ่ง — คืน Promise<data เมื่อ ok> / throw Error(ข้อความไทย)
    *  token หมดอายุ/ผิด (UNAUTHORIZED) หรือระบบยังไม่ตั้ง ADMIN_TOKEN (UNCONFIGURED)
@@ -42,12 +37,28 @@ const AdminAPI = {
   },
 
   async _fetch(action, params) {
-    const qs = new URLSearchParams(Object.assign({ apiAction: action }, params));
+    const payload = Object.assign({ apiAction: action }, params || {});
+    const token = String(payload.token || '');
+    delete payload.token;
     let res;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      res = await fetch(ADMIN_CONFIG.API_URL + '?' + qs.toString(), { method: 'GET' });
+      res = await fetch(ADMIN_CONFIG.API_URL.replace(/\/$/, '') + '/api/admin', {
+        method: 'POST',
+        headers: {
+          'authorization': 'Bearer ' + token,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
     } catch (err) {
-      throw new Error('เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง');
+      throw new Error(err && err.name === 'AbortError'
+        ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+        : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง');
+    } finally {
+      clearTimeout(timeout);
     }
     let data = null;
     try {

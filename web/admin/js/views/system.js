@@ -4,6 +4,7 @@
 AdminViews.system = {
 
   format: 'text',
+  settingsVersion: '',
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
   async render(root, isStale) {
@@ -23,7 +24,7 @@ AdminViews.system = {
       '<div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4 space-y-5">' +
       '<div><label for="f-time" class="block text-sm font-semibold text-slate-500 mb-1.5">เวลาแจ้งเตือนทุกเช้า</label>' +
       '<input type="time" id="f-time" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm">' +
-      '<p class="text-xs text-slate-500 mt-1.5">หลังแก้เวลา ให้กด "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ" ในเมนู Google Sheet</p></div>' +
+      '<p class="text-xs text-slate-500 mt-1.5">เมื่อบันทึก ระบบจะอัปเดต trigger ครั้งถัดไปให้อัตโนมัติ</p></div>' +
       '<div><label for="f-calendar" class="block text-sm font-semibold text-slate-500 mb-1.5">Notion Database ID</label>' +
       '<input type="text" id="f-calendar" placeholder="your_notion_database_id" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-mono text-xs">' +
       '<p class="text-xs text-slate-500 mt-1.5">เอาจาก URL ของหน้า database ใน Notion (ส่วนก่อนเครื่องหมาย ?) และต้องแชร์ database ให้ integration ก่อน</p></div>' +
@@ -64,6 +65,7 @@ AdminViews.system = {
   renderSettings(s) {
     if (!UI.$('f-enabled')) return; // ฟอร์มไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     s = s || {};
+    this.settingsVersion = s._version || '';
     UI.$('f-enabled').checked = String(s.enabled).toUpperCase() === 'TRUE';
     UI.$('f-time').value = this.normalizeTimeForInput_(s.notify_time);
     UI.$('f-calendar').value = s.notion_database_id || '';
@@ -97,13 +99,18 @@ AdminViews.system = {
       notion_database_id: UI.$('f-calendar').value.trim(),
       line_group_id: UI.$('f-group').value.trim(),
       message_format: this.format,
+      _version: this.settingsVersion,
     };
-    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(payload.notify_time)) { UI.showToast('เวลาแจ้งเตือนไม่ถูกต้อง', true); return; }
-    if (!payload.notion_database_id) { UI.showToast('กรุณาใส่ Notion Database ID', true); return; }
+    if (payload.enabled === 'TRUE') {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(payload.notify_time)) { UI.showToast('เวลาแจ้งเตือนไม่ถูกต้อง', true); return; }
+      if (!payload.notion_database_id) { UI.showToast('กรุณาใส่ Notion Database ID', true); return; }
+      if (!payload.line_group_id) { UI.showToast('กรุณาใส่ LINE Group ID', true); return; }
+    }
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     try {
-      await AdminAPI.call('save_settings', { data: JSON.stringify(payload) });
-      UI.showToast('บันทึกแล้ว — หากเปลี่ยนเวลา ให้ไปอัปเดต Trigger ใน Google Sheet');
+      const result = await AdminAPI.call('save_settings', { data: JSON.stringify(payload) });
+      UI.showToast(result.warning || 'บันทึกแล้ว และอัปเดตเวลาส่งครั้งถัดไปเรียบร้อย', !!result.warning);
+      await this.render(UI.$('view'), this._isStale);
     } catch (e) {
       UI.showToast(e.message, true);
     } finally {

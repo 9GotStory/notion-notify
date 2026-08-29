@@ -5,6 +5,7 @@
 AdminViews.staff = {
 
   employmentTypes: [],
+  approversVersion: '',
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
   async render(root, isStale) {
@@ -19,6 +20,7 @@ AdminViews.staff = {
     const staff = quotaRes.staff || [];
     const staffKeys = approversRes.staffKeys || [];
     const approvers = approversRes.approvers || [];
+    this.approversVersion = approversRes.version || '';
 
     // ----- ทำเนียบ + ประเภทบุคลากร -----
     let html =
@@ -176,7 +178,9 @@ AdminViews.staff = {
     if (!confirm('บันทึกผู้อนุมัติทั้งหมด ' + rows.length + ' กลุ่มงาน?\n(แทนที่ตารางเดิมทั้งหมด)')) return;
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     try {
-      await AdminAPI.call('save_approvers', { data: JSON.stringify(rows) });
+      await AdminAPI.call('save_approvers', {
+        data: JSON.stringify(rows), version: this.approversVersion,
+      });
       UI.showToast('บันทึกผู้อนุมัติแล้ว');
       await this.render(UI.$('view'), this._isStale); // โหลดใหม่เพื่ออัปเดตเลขแถว/ลิสต์จริง
     } catch (e) {

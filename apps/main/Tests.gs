@@ -6,6 +6,7 @@
 function runUnitTests() {
   const tests = [
     testNormalizeScheduleTime_,
+    testNotificationConfigurationReady_,
     testNextScheduledDate_,
     testThaiDateLabel_,
     testWeekend_,
@@ -23,10 +24,14 @@ function runUnitTests() {
     testStaffDisplayName_,
     testResolveApprovalChain_,
     testCanApproveLeave_,
+    testNotionPageId_,
     testLeaveSystemSwitch_,
     testLeaveApprovalSwitch_,
     testComputeWorkDays_,
+    testLeaveQuotaDays_,
+    testLeavePolicyReviewFinding_,
     testBuildLeaveWarnings_,
+    testAdvanceBusinessDays_,
     testBuildUsageSummary_,
     testBuildLeaveNoticeBubble_,
     testLeaveDisplayEnrichment_,
@@ -42,9 +47,11 @@ function runUnitTests() {
     testFlexMessageWithLeaves_,
     testAdvanceNoticeSection_,
     testParseLeaveSubmissionInput_,
+    testSubmissionRequestId_,
     testBuildMyLeaveRow_,
     testApprovedCancelNotifyTargets_,
     testSubtractLeaveFromUsage_,
+    testSubtractLeaveFromTargetYearUsage_,
     testPreviousMonthKey_,
     testAggregateLeavesByPersonMonth_,
     testBuildMonthlyLeaveSummary_,
@@ -94,6 +101,18 @@ function testNormalizeScheduleTime_() {
   assertEqual_(normalizeScheduleTime_('23:59'), '23:59');
   assertEqual_(normalizeScheduleTime_('24:00'), '24:00');
   assertEqual_(normalizeScheduleTime_('ไม่ใช่เวลา'), 'ไม่ใช่เวลา');
+}
+
+function testNotificationConfigurationReady_() {
+  const valid = {
+    notify_time: '08:30',
+    notion_database_id: '0123456789abcdef0123456789abcdef',
+    line_group_id: 'C0123456789abcdef0123456789abcdef',
+  };
+  assertTrue_(notificationConfigurationReady_(valid));
+  assertTrue_(notificationConfigurationReady_(Object.assign({}, valid, { notify_time: '8:30' })));
+  assertFalse_(notificationConfigurationReady_(Object.assign({}, valid, { notion_database_id: 'your_notion_database_id' })));
+  assertFalse_(notificationConfigurationReady_(Object.assign({}, valid, { line_group_id: 'not-a-group' })));
 }
 
 function testNextScheduledDate_() {
@@ -392,7 +411,7 @@ function testResolveApprovalChain_() {
   assertEqual_(escalated.stage, 'second');
   assertEqual_(escalated.targets.length, 2);
 
-  // ผู้อนุมัต์ของกลุ่มยังไม่ลงทะเบียน + ไม่ส่งต่อ → ใช้พูลผู้อนุมัติอื่นที่ลงทะเบียนแล้ว (การ์ดเข้ากลุ่มหลัก)
+  // ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน + ไม่ส่งต่อ → ใช้พูลผู้อนุมัติอื่นที่ลงทะเบียนแล้ว (การ์ดเข้ากลุ่มหลัก)
   const configUnregisteredNoForward = [{ groupName: 'กลุ่มงานคลังสินค้า', approverNames: ['สมชาย ใจแข็ง'], forward: false }];
   const pooled = resolveApprovalChain_(configUnregisteredNoForward, settings, roster, roster[0]);
   assertEqual_(pooled.stage, 'first');
@@ -403,13 +422,24 @@ function testResolveApprovalChain_() {
 function testCanApproveLeave_() {
   const approverInfo = { stage: 'first', userIds: ['U_CHIEF'], names: ['นางสาวสมหญิง ใจงาม'] };
 
-  // ต้องตรง userId ของผู้อนุมัติปัจจุบันเท่านั้น (ชั้นป้องกันหลักแทน signature)
+  // ต้องตรง userId ของผู้อนุมัติปัจจุบันเท่านั้น (ตรวจสิทธิ์เพิ่มจาก signature ของ webhook)
   assertTrue_(canApproveLeave_(approverInfo, 'U_CHIEF'));
   assertFalse_(canApproveLeave_(approverInfo, 'U_SUBMITTER'));
   assertFalse_(canApproveLeave_(approverInfo, 'U_SECOND1'));
 
   // ใบลาจบแล้ว (ไม่มีข้อมูลผู้อนุมัติปัจจุบัน)
   assertFalse_(canApproveLeave_(null, 'U_CHIEF'));
+  assertFalse_(canApproveLeave_({ userIds: 'U_CHIEF' }, 'U_CHIEF')); // โครงสร้างเสียต้องปฏิเสธ
+  assertFalse_(canApproveLeave_(approverInfo, ''));
+}
+
+function testNotionPageId_() {
+  assertEqual_(normalizeNotionPageId_('0123456789abcdef0123456789abcdef'),
+    '0123456789abcdef0123456789abcdef');
+  assertEqual_(normalizeNotionPageId_('01234567-89ab-cdef-0123-456789abcdef'),
+    '01234567-89ab-cdef-0123-456789abcdef');
+  assertThrows_(function () { normalizeNotionPageId_('../databases/example'); }, 'รหัสใบลาไม่ถูกต้อง');
+  assertThrows_(function () { normalizeNotionPageId_('test-page-id'); }, 'รหัสใบลาไม่ถูกต้อง');
 }
 
 function testLeaveSystemSwitch_() {
@@ -470,18 +500,50 @@ function testComputeWorkDays_() {
   assertEqual_(computeWorkDays_('2026-08-20', '2026-08-20', holidays, 'ครึ่งวันบ่าย'), 0.5);
   assertEqual_(computeWorkDays_('2026-08-20', null, holidays, 'ครึ่งวันเช้า'), 0.5);
 
-  // ช่วงวันถูก normalize: ประเภทที่ลาครึ่งวันไม่ได้ / หลายวัน / ค่าไม่รู้จัก → เต็มวันเสมอ
+  // ช่วงวันต้องถูกต้องชัดเจน — ห้ามแก้ input ที่ไม่รองรับให้เป็นเต็มวันเงียบๆ
   assertEqual_(normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาป่วย', '2026-08-20', '2026-08-20'), 'ครึ่งวันเช้า');
-  assertEqual_(normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาคลอด', '2026-08-20', '2026-08-20'), 'เต็มวัน');
-  assertEqual_(normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาป่วย', '2026-08-20', '2026-08-22'), 'เต็มวัน');
-  assertEqual_(normalizeLeavePeriod_('ค่าแปลก', 'ลาป่วย', '2026-08-20', '2026-08-20'), 'เต็มวัน');
+  assertThrows_(function () {
+    normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาคลอด', '2026-08-20', '2026-08-20');
+  }, 'เลือกครึ่งวัน');
+  assertThrows_(function () {
+    normalizeLeavePeriod_('ครึ่งวันเช้า', 'ลาป่วย', '2026-08-20', '2026-08-22');
+  }, 'เลือกครึ่งวัน');
+  assertThrows_(function () {
+    normalizeLeavePeriod_('ค่าแปลก', 'ลาป่วย', '2026-08-20', '2026-08-20');
+  }, 'ช่วงเวลาการลาไม่ถูกต้อง');
   assertEqual_(normalizeLeavePeriod_('', 'ลากิจ', '2026-08-20', null), 'เต็มวัน');
 
   // ป้ายวันทำการแบบครึ่งวัน
+  assertEqual_(workDaysLabel_(0), '0 วัน');
   assertEqual_(workDaysLabel_(0.5), '½ วัน');
   assertEqual_(workDaysLabel_(1), '1 วัน');
   assertEqual_(workDaysLabel_(2.5), '2½ วัน');
   assertEqual_(workDaysLabel_(3), '3 วัน');
+}
+
+function testLeaveQuotaDays_() {
+  // ช่วงศุกร์–จันทร์: ตารางกำลังคนหาย 2 วันทำการ แต่สิทธิลาคลอด/บวชนับต่อเนื่อง 4 วันปฏิทิน
+  assertEqual_(computeLeaveQuotaDays_('ลาคลอด', '2026-08-21', '2026-08-24', 2), 4);
+  assertEqual_(computeLeaveQuotaDays_('ลาอุปสมบท/ลาบวช', '2026-08-21', '2026-08-24', 2), 4);
+  assertEqual_(normalizeLeaveTypeName_('ลาอุปสมบถ/ลาบวช'), 'ลาอุปสมบท/ลาบวช');
+  const migratedOptions = leaveTypeList_({
+    leave_type_options: 'ลากิจ,ลาอุปสมบถ/ลาบวช,ลาอุปสมบท/ลาบวช',
+  });
+  assertEqual_(migratedOptions.join(','), 'ลากิจ,ลาอุปสมบท/ลาบวช');
+  assertEqual_(computeLeaveQuotaDays_('ลากิจ', '2026-08-21', '2026-08-24', 2), 2);
+  assertEqual_(quotaUnitLabel_('ลาคลอด'), 'วันปฏิทิน');
+  assertEqual_(quotaUnitLabel_('ลาป่วย'), 'วันทำการ');
+  assertEqual_(leaveQuotaDays_({
+    leaveType: 'ลาคลอด', start: '2026-08-21', end: '2026-08-24', workDays: 2,
+  }), 4);
+}
+
+function testLeavePolicyReviewFinding_() {
+  assertContains_(leavePolicyReviewFinding_('', '2026-08-27'), 'ยังไม่ได้ยืนยัน');
+  assertContains_(leavePolicyReviewFinding_('2026-02-30', '2026-08-27'), 'วันที่จริง');
+  assertContains_(leavePolicyReviewFinding_('2026-08-28', '2026-08-27'), 'อนาคต');
+  assertContains_(leavePolicyReviewFinding_('2025-08-01', '2026-08-27'), 'เกิน 1 ปี');
+  assertEqual_(leavePolicyReviewFinding_('2026-08-01', '2026-08-27'), '');
 }
 
 function testBuildLeaveWarnings_() {
@@ -490,7 +552,7 @@ function testBuildLeaveWarnings_() {
   assertEqual_(w.length, 1);
   assertContains_(w[0], 'เกินสิทธิ์');
   assertContains_(w[0], '46');
-  // ครบสิทธิ์พอดี = แจ้งเตือนเตือนล่วงหน้า
+  // ครบสิทธิ์พอดี = แจ้งเตือนล่วงหน้า
   w = buildLeaveWarnings_('ลากิจ', 2, { 'ลากิจ': 43 });
   assertEqual_(w.length, 1);
   assertContains_(w[0], 'ครบสิทธิ์');
@@ -516,6 +578,24 @@ function testBuildLeaveWarnings_() {
   // ครึ่งวันรวมยอดทศนิยมได้ (ใช้ 44.5 + ยื่น 0.5 = 45 พอดี = ครบสิทธิ์)
   w = buildLeaveWarnings_('ลากิจ', 0.5, { 'ลากิจ': 44.5 });
   assertContains_(w[0], 'ครบสิทธิ์');
+  // ประเภทผูกกับเหตุการณ์/สถานภาพ: ไม่เอายอดทั้งปีมาตัดสิน แต่เตือน HR และตรวจเกณฑ์ของใบนี้
+  w = buildLeaveWarnings_('ลาคลอด', 30, { 'ลาคลอด': 80 });
+  assertEqual_(w.length, 1);
+  assertContains_(w[0], 'รายปีทั่วไป');
+  w = buildLeaveWarnings_('ลาคลอด', 91, { 'ลาคลอด': 0 });
+  assertEqual_(w.length, 2);
+  assertContains_(w.join('\n'), 'เกินเกณฑ์อ้างอิง');
+  assertContains_(quotaUsageNote_('ลาคลอด', 2026, 91, 90), 'HR ต้องตรวจสิทธิ์จริง');
+}
+
+function testAdvanceBusinessDays_() {
+  const holidays = new Set(['2026-08-12']);
+  assertEqual_(businessDaysBeforeLeave_('2026-08-06', '2026-08-11', holidays), 2);
+  assertEqual_(businessDaysBeforeLeave_('2026-08-06', '2026-08-12', holidays), 3);
+  assertEqual_(businessDaysBeforeLeave_('2026-08-06', '2026-08-13', holidays), 3);
+  const warnings = [];
+  appendAdvanceNoticeWarning_('ลากิจ', '2026-08-06', '2026-08-11', holidays, warnings);
+  assertContains_(warnings.join('\n'), 'ไม่ถึง 3 วันทำการ');
 }
 
 function testBuildUsageSummary_() {
@@ -525,6 +605,9 @@ function testBuildUsageSummary_() {
   assertEqual_(summary['ลาป่วย'].quota, null); // ลาป่วยไม่จำกัด
   assertEqual_(summary['ลาคลอด'].used, 0); // ประเภทมีโควตาแต่ยังไม่เคยใช้ก็แสดง
   assertEqual_(summary['ลาคลอด'].quota, 90);
+  assertEqual_(summary['ลาคลอด'].unit, 'วันปฏิทิน');
+  assertEqual_(summary['ลาคลอด'].basis, 'manual_event');
+  assertEqual_(summary['ลากิจ'].basis, 'annual');
   assertEqual_(buildUsageSummary_(null), null); // ไม่มีข้อมูล = null
 }
 
@@ -626,6 +709,7 @@ function testBuildLeavePagePayload_() {
     workDays: 2,
     initialStatus: LEAVE_STATUS.pendingApprover,
     currentApprover: serializeApproverInfo_('first', approvers),
+    requestId: '123e4567-e89b-42d3-a456-426614174000',
   });
 
   assertEqual_(payload.parent.data_source_id, 'DS_ID');
@@ -636,6 +720,9 @@ function testBuildLeavePagePayload_() {
   assertEqual_(payload.properties[PROPS_LEAVE.date].date.end, '2026-08-21');
   assertEqual_(payload.properties[PROPS_LEAVE.status].select.name, 'รอผู้อนุมัติ');
   assertEqual_(payload.properties[PROPS_LEAVE.workDays].number, 2);
+  assertEqual_(payload.properties[PROPS_LEAVE.requestId].rich_text[0].text.content,
+    '123e4567-e89b-42d3-a456-426614174000');
+  assertEqual_(payload.properties[PROPS_LEAVE.notificationState].select.name, LEAVE_NOTIFICATION_STATE.pending);
   // currentApprover เก็บเป็น JSON {stage, userIds, names} ที่อ่านกลับมาได้ครบ
   const parsed = JSON.parse(payload.properties[PROPS_LEAVE.currentApprover].rich_text[0].text.content);
   assertEqual_(parsed.stage, 'first');
@@ -665,6 +752,8 @@ function testParseLeavePage_() {
   properties[PROPS_LEAVE.currentApprover] = { rich_text: [{ plain_text: JSON.stringify(leave.currentApprover) }] };
   properties[PROPS_LEAVE.audit] = { rich_text: [{ plain_text: '20/08/69 10:00 นางสาวสมหญิง ใจงาม(หัวหน้ากลุ่มงาน) อนุมัติ' }] };
   properties[PROPS_LEAVE.workDays] = { number: 2 };
+  properties[PROPS_LEAVE.requestId] = { rich_text: [{ plain_text: '123e4567-e89b-42d3-a456-426614174000' }] };
+  properties[PROPS_LEAVE.notificationState] = { select: { name: LEAVE_NOTIFICATION_STATE.sent } };
 
   const parsed = parseLeavePage_({ id: leave.pageId, url: leave.pageUrl, properties: properties });
   assertEqual_(parsed.pageId, leave.pageId);
@@ -679,6 +768,8 @@ function testParseLeavePage_() {
   assertEqual_(parsed.currentApprover.userIds.join(','), 'U_CHIEF');
   assertContains_(parsed.audit, 'อนุมัติ');
   assertEqual_(parsed.workDays, 2);
+  assertEqual_(parsed.requestId, '123e4567-e89b-42d3-a456-426614174000');
+  assertEqual_(parsed.notificationState, LEAVE_NOTIFICATION_STATE.sent);
 
   // currentApprover เป็น JSON เสีย/ว่าง → null ไม่ throw
   properties[PROPS_LEAVE.currentApprover] = { rich_text: [{ plain_text: 'not-json' }] };
@@ -889,7 +980,7 @@ function testParseLeaveSubmissionInput_() {
     reason: '  ไปต่อด่านที่ว่าการอำเภอ  ',
     start: shiftDateStr_(today, 1),
     end: shiftDateStr_(today, 2),
-    period: 'ครึ่งวันเช้า', // หลายวัน → ครึ่งวันใช้ไม่ได้ ต้องกลายเป็นเต็มวันเงียบๆ
+    period: 'เต็มวัน',
   }, settings);
   assertEqual_(input.leaveType, 'ลากิจ');
   assertEqual_(input.reason, 'ไปต่อด่านที่ว่าการอำเภอ');
@@ -903,11 +994,12 @@ function testParseLeaveSubmissionInput_() {
   }, settings);
   assertEqual_(halfDay.period, 'ครึ่งวันบ่าย');
 
-  // reason ต้องถูกตัดที่ 500 ตัวอักษร (ตามข้อจำกัดของฟอร์มเดิม)
-  const long = parseLeaveSubmissionInput_({
-    leaveType: 'ลากิจ', reason: 'x'.repeat(600), start: today, end: today, period: '',
-  }, settings);
-  assertEqual_(long.reason.length, 500);
+  // ห้ามตัดเหตุผลเงียบๆ เพราะผู้ยื่นจะเข้าใจว่าข้อความถูกเก็บครบ
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลากิจ', reason: 'x'.repeat(600), start: today, end: today, period: '',
+    }, settings);
+  }, 'เหตุผลยาวเกิน 500');
 
   assertThrows_(function () {
     parseLeaveSubmissionInput_({ leaveType: 'ไม่มีประเภทนี้', start: today, end: today }, settings);
@@ -917,11 +1009,41 @@ function testParseLeaveSubmissionInput_() {
       leaveType: 'ลากิจ', start: shiftDateStr_(today, 5), end: shiftDateStr_(today, 3),
     }, settings);
   }, 'วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลากิจ', start: '2026-02-31', end: '2026-02-31',
+    }, settings);
+  }, 'รูปแบบวันที่ไม่ถูกต้อง');
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลากิจ', start: '2026-12-31', end: '2027-01-01',
+    }, settings);
+  }, 'ปีปฏิทินเดียวกัน');
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลากิจ', start: today, end: today, period: 'ครึ่งวันเช้า',
+    }, Object.assign({}, settings, { leave_type_options: 'ลาคลอด' }));
+  }, 'ประเภทการลาไม่ถูกต้อง');
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลาคลอด', start: today, end: today, period: 'ครึ่งวันเช้า',
+    }, settings);
+  }, 'เลือกครึ่งวัน');
+}
+
+function testSubmissionRequestId_() {
+  assertEqual_(requireSubmissionRequestId_({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
+    '123e4567-e89b-42d3-a456-426614174000');
+  assertThrows_(function () { requireSubmissionRequestId_({ requestId: 'same-value-every-time' }); },
+    'รหัสคำขอไม่ถูกต้อง');
+  assertThrows_(function () { requireSubmissionRequestId_({}); }, 'รหัสคำขอไม่ถูกต้อง');
 }
 
 function testBuildMyLeaveRow_() {
   const future = { start: '2026-08-25', end: '2026-08-26' };
   const past = { start: '2026-08-10', end: '2026-08-11' };
+  const inProgress = { start: '2026-08-19', end: '2026-08-25' };
+  const startsToday = { start: '2026-08-20', end: '2026-08-21' };
   const today = '2026-08-20';
   const base = { pageId: 'p1', leaveType: 'ลากิจ', reason: 'ธุระ', workDays: 2, period: 'เต็มวัน' };
 
@@ -930,6 +1052,8 @@ function testBuildMyLeaveRow_() {
     [LEAVE_STATUS.pendingApprover, future, true, true],
     [LEAVE_STATUS.pendingChiefOffice, future, true, true],
     [LEAVE_STATUS.approved, future, false, true],
+    [LEAVE_STATUS.pendingApprover, startsToday, true, false],
+    [LEAVE_STATUS.approved, inProgress, false, false],
     [LEAVE_STATUS.pendingApprover, past, true, false],
     [LEAVE_STATUS.approved, past, false, false],
     [LEAVE_STATUS.rejected, future, false, false],
@@ -985,6 +1109,13 @@ function testSubtractLeaveFromUsage_() {
 
   // หักจนติดลบ → หนีบที่ 0 (ใบเดิมอาจถูกแก้ประเภทใน Notion มาก่อน)
   assertEqual_(subtractLeaveFromUsage_({ 'ลากิจ': 1 }, { leaveType: 'ลากิจ', workDays: 2 })['ลากิจ'], 0);
+}
+
+function testSubtractLeaveFromTargetYearUsage_() {
+  const usage = { 'ลากิจ': 3 };
+  const oldLeave = { start: '2026-12-20', leaveType: 'ลากิจ', workDays: 2 };
+  assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2026)['ลากิจ'], 1);
+  assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2027)['ลากิจ'], 3);
 }
 
 function testPreviousMonthKey_() {
@@ -1151,7 +1282,7 @@ function testConflictWarningInMessages_() {
   assertFalse_(without.text.indexOf('ผู้รับผิดชอบกำลังลา') !== -1);
 }
 
-// Notion จำกัด rich_text 2,000 ตัวอักษร/object — ตัวช่วยเขียนต้องหน่องให้เองกัน request โดนปฏิเสธ
+// Notion จำกัด rich_text 2,000 ตัวอักษร/object — ตัวช่วยเขียนต้องจำกัดความยาวเพื่อกัน request ถูกปฏิเสธ
 function testRichTextValueLimit_() {
   assertEqual_(richTextValue_('สั้น').rich_text[0].text.content, 'สั้น');
   assertEqual_(richTextValue_('x'.repeat(2500)).rich_text[0].text.content.length, 2000);
@@ -1168,10 +1299,12 @@ function testUsageFromLeaves_() {
     { status: LEAVE_STATUS.cancelled, leaveType: 'ลาป่วย', workDays: 3 },
     { status: LEAVE_STATUS.rejected, leaveType: 'ลากิจ', workDays: 2 },
     { status: LEAVE_STATUS.approved, leaveType: '', workDays: 1 },
+    { status: LEAVE_STATUS.approved, leaveType: 'ลาคลอด', start: '2026-08-21', end: '2026-08-24', workDays: 2 },
   ]);
   assertEqual_(usage['ลาป่วย'], 2.5);
   assertEqual_(usage['ลากิจ'], 1);
-  assertEqual_(Object.keys(usage).length, 2);
+  assertEqual_(usage['ลาคลอด'], 4);
+  assertEqual_(Object.keys(usage).length, 3);
   assertEqual_(Object.keys(usageFromLeaves_([])).length, 0);
 }
 
@@ -1182,10 +1315,11 @@ function testUsageSummaryWithBalances_() {
     { yearBE: 2569, name: 'สมศักดิ์ ใจดี', leaveType: 'ลาป่วย', carryIn: 0, usedExtra: 4 },
     { yearBE: 2568, name: 'สมศักดิ์ ใจดี', leaveType: 'ลาพักร้อน', carryIn: 3, usedExtra: 0 }, // คนละปี — ต้องถูกข้าม
     { yearBE: 2569, name: 'สมศักดิ์ ใจดี', leaveType: 'อื่นๆ', carryIn: 1, usedExtra: 0 }, // ประเภทนอกโควตา — สร้างช่องใหม่
+    { yearBE: 2569, name: 'สมหญิง ใจงาม', leaveType: 'ลาพักร้อน', carryIn: 9, usedExtra: 1 }, // คนอื่น — ห้ามรวม
   ];
 
   // ยอดจากใบลา: ใช้พักร้อนไป 2 → สรุปต้องเป็น used 2+0, quota 10+5, carryIn 5
-  const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 2 }, balances, 2026);
+  const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 2 }, balances, 2026, null, 'สมศักดิ์ ใจดี');
   assertEqual_(summary['ลาพักร้อน'].used, 2);
   assertEqual_(summary['ลาพักร้อน'].quota, 15);
   assertEqual_(summary['ลาพักร้อน'].carryIn, 5);
@@ -1202,21 +1336,22 @@ function testUsageSummaryWithBalances_() {
   assertEqual_(summary['ลากิจ'].quota, 45);
 
   // ไม่มีรายการปรับเลย = ผลเหมือน buildUsageSummary_ เดิมเป๊ะ
-  const plain = buildUsageSummaryWithBalances_({ 'ลากิจ': 3 }, [], 2026);
+  const plain = buildUsageSummaryWithBalances_({ 'ลากิจ': 3 }, [], 2026, null, 'สมศักดิ์ ใจดี');
   assertEqual_(plain['ลากิจ'].quota, 45);
   assertEqual_(plain['ลากิจ'].used, 3);
 
   // ใบลาอ่านไม่ได้ (null) แต่มีรายการปรับ → ยังสรุปได้จากฐานโควตา ไม่เป็น null เปล่า
-  const fromBalancesOnly = buildUsageSummaryWithBalances_(null, balances, 2026);
+  const fromBalancesOnly = buildUsageSummaryWithBalances_(null, balances, 2026, null, 'สมศักดิ์ ใจดี');
   assertEqual_(fromBalancesOnly['ลาพักร้อน'].quota, 15);
 
   // ไม่มีทั้งคู่ → null (หน้า "ของฉัน" แสดง "ยังไม่มีข้อมูล" ตามเดิม)
-  assertEqual_(buildUsageSummaryWithBalances_(null, [], 2026), null);
+  assertEqual_(buildUsageSummaryWithBalances_(null, [], 2026, null, 'สมศักดิ์ ใจดี'), null);
+  assertEqual_(buildUsageSummaryWithBalances_(null, balances, 2026, null, 'ไม่มี คนนี้'), null);
 }
 
 // คำเตือนสิทธิ์ต้องใช้โควตา "รวมยกมา" เมื่อส่ง effectiveQuota มา — ไม่เตือนเกินจริง
 function testLeaveWarningsWithEffectiveQuota_() {
-  // ใช้ไป 8 + ใบนี้ 2 = 10: โควตามาตรฐาน 10 → ครบพอดี (ไม่เตือนเกิน) / รวมยกมา 5 (=15) → ไม่ครด ไม่มีคำเตือนสิทธิ์
+  // ใช้ไป 8 + ใบนี้ 2 = 10: โควตามาตรฐาน 10 → ครบพอดี (ไม่เตือนเกิน) / รวมยกมา 5 (=15) → ไม่ครบ จึงไม่มีคำเตือนสิทธิ์
   const standard = buildLeaveWarnings_('ลาพักร้อน', 2, { 'ลาพักร้อน': 8 });
   assertTrue_(standard.some(w => w.indexOf('ครบสิทธิ์') !== -1), 'โควตามาตรฐานต้องเตือนครบสิทธิ์');
   const withCarry = buildLeaveWarnings_('ลาพักร้อน', 2, { 'ลาพักร้อน': 8 }, 15);
@@ -1263,7 +1398,7 @@ function testUsageSummaryWithQuotaMap_() {
     { yearBE: 2569, name: 'ธนกร ใจดี', leaveType: 'ลาพักร้อน', carryIn: 2, usedExtra: 0 },
   ];
 
-  const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 1 }, balances, 2026, quotaMap);
+  const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 1 }, balances, 2026, quotaMap, 'ธนกร ใจดี');
   assertEqual_(summary['ลาพักร้อน'].quota, 2); // ฐาน 0 + ยกมา 2
   assertEqual_(summary['ลาพักร้อน'].used, 1);
   assertEqual_(summary['ลากิจ'].quota, 45); // ประเภทที่แถวไม่มี = ค่าเริ่มต้น
@@ -1286,7 +1421,7 @@ function testQuotaProfileSeed_() {
     assertTrue_(knownLeaveTypes.has(leaveType), 'ชื่อประเภทการลา "' + leaveType + '" ไม่ตรงกับ LEAVE_TYPES_DEFAULT');
     assertTrue_(!seen.has(employmentType + '|' + leaveType), 'seed ซ้ำ: ' + employmentType + ' ' + leaveType);
     seen.add(employmentType + '|' + leaveType);
-    assertTrue_(quota >= 0 && quota <= 365, 'โควตาต้องอยู่ระหว่าง 0-365 วันทำการ');
+    assertTrue_(quota >= 0 && quota <= 365, 'โควตาต้องอยู่ระหว่าง 0-365 วันใช้สิทธิ์');
     assertTrue_(String(note).trim().length > 0, 'ทุกแถวต้องมีหมายเหตุอ้างอิงแหล่งที่มา');
     byEmployment[employmentType] = (byEmployment[employmentType] || 0) + 1;
   });
@@ -1295,6 +1430,8 @@ function testQuotaProfileSeed_() {
   Object.keys(byEmployment).forEach(type => {
     assertEqual_(byEmployment[type], knownLeaveTypes.size - 1, type + ' ต้องมีครบทุกประเภทการลา');
   });
+  QUOTA_PROFILE_SEED.filter(row => row[2] === 'ลาช่วยเหลือภริยาคลอดบุตร')
+    .forEach(row => assertEqual_(row[3], 15, row[1] + ' ต้องมีค่าเริ่มต้นสิทธินี้ 15 วัน'));
 }
 
 function assertTrue_(condition, message) {

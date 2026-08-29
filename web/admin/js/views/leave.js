@@ -7,7 +7,9 @@
 AdminViews.leave = {
 
   editingQuotaRow: null,
+  editingQuotaVersion: null,
   editingBalanceRow: null,
+  editingBalanceVersion: null,
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
   cache: { quotaProfiles: [], balances: [], employmentTypes: [], leaveTypes: [], staffKeys: [] },
 
@@ -35,7 +37,7 @@ AdminViews.leave = {
       '<!-- ===== โควตาตามประเภทบุคลากร ===== -->' +
       '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
       '<p class="text-sm font-semibold text-slate-600 mb-1">โควตาสิทธิ์ตามประเภทบุคลากร</p>' +
-      '<p class="text-xs text-slate-500 mb-3">ปีเว้นว่าง = ทุกปี ใส่ปี (เช่น 2569) = เฉพาะปีนั้น · โควตา <b>0 = ไม่มีสิทธิ์</b> · เริ่มต้นทั้ง 6 ประเภทบุคลากร รันเมนู "เติมสิทธิ์วันลาตามระเบียบ" ใน Google Sheet แล้วปรับแก้ต่อได้ที่นี่</p>' +
+      '<p class="text-xs text-slate-500 mb-3">ปีเว้นว่าง = ทุกปี ใส่ปี (เช่น 2569) = เฉพาะปีนั้น · โควตา <b>0 = ไม่มีสิทธิ์</b> · คลอด/บวชนับวันปฏิทิน ประเภทอื่นนับวันทำการ · ค่าเริ่มต้นต้องให้ HR ตรวจและลงวันที่ leave_policy_reviewed_at ก่อนใช้จริง</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ. ว่าง = ทุกปี)</label>' +
       '<input id="q-year" type="number" inputmode="numeric" placeholder="เช่น 2569" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
@@ -43,7 +45,7 @@ AdminViews.leave = {
       '<select id="q-emptype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>' +
       '<select id="q-leavetype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">โควตา (วันทำการ/ปี)</label>' +
+      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">เกณฑ์วันใช้สิทธิ์</label>' +
       '<input id="q-quota" type="number" step="0.5" min="0" placeholder="เช่น 10 หรือ 0 = ไม่มีสิทธิ์" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
       '<div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1.5">หมายเหตุ</label>' +
       '<input id="q-note" type="text" maxlength="200" placeholder="เช่น ตาม พ.ร.บ.คุ้มครองแรงงาน / เข้ากลางปี" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
@@ -142,6 +144,7 @@ AdminViews.leave = {
       const td = body.children[i].lastElementChild;
       td.appendChild(this.rowButton_('แก้ไข', 'text-primary hover:bg-slate-50', () => {
         this.editingQuotaRow = q.row;
+        this.editingQuotaVersion = q.version;
         UI.$('q-year').value = q.yearBE || '';
         UI.$('q-emptype').value = q.employmentType;
         UI.$('q-leavetype').value = q.leaveType;
@@ -155,7 +158,7 @@ AdminViews.leave = {
         if (!confirm('ลบโควตานี้?\n' + (q.yearBE || 'ทุกปี') + ' · ' + q.employmentType + ' · ' + q.leaveType + ' = ' + q.quota +
           '\n(ถ้าต้องการ "ปิด" สิทธิ์ ให้ตั้งค่าเป็น 0 แทนการลบ — ลบแล้วระบบใช้ค่าเริ่มต้น)')) return;
         try {
-          await AdminAPI.call('delete_quota_profile', { row: q.row });
+          await AdminAPI.call('delete_quota_profile', { row: q.row, version: q.version });
           UI.showToast('ลบแล้ว');
           await this.reload();
         } catch (e) { UI.showToast(e.message, true); }
@@ -165,6 +168,7 @@ AdminViews.leave = {
 
   resetQuotaForm() {
     this.editingQuotaRow = null;
+    this.editingQuotaVersion = null;
     ['q-year', 'q-quota', 'q-note'].forEach(id => { UI.$(id).value = ''; });
     UI.$('q-emptype').value = '';
     UI.$('q-leavetype').value = '';
@@ -187,7 +191,7 @@ AdminViews.leave = {
     try {
       const call = wasEditing ? 'update_quota_profile' : 'add_quota_profile';
       const args = wasEditing
-        ? { row: wasEditing, yearBE: payload.yearBE, employmentType: payload.employmentType, leaveType: payload.leaveType, quota: payload.quota, note: payload.note }
+        ? { row: wasEditing, version: this.editingQuotaVersion, yearBE: payload.yearBE, employmentType: payload.employmentType, leaveType: payload.leaveType, quota: payload.quota, note: payload.note }
         : payload;
       await AdminAPI.call(call, args);
       UI.showToast(wasEditing ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มโควตาแล้ว');
@@ -219,6 +223,7 @@ AdminViews.leave = {
       const td = body.children[i].lastElementChild;
       td.appendChild(this.rowButton_('แก้ไข', 'text-primary hover:bg-slate-50', () => {
         this.editingBalanceRow = b.row;
+        this.editingBalanceVersion = b.version;
         UI.$('b-year').value = b.yearBE;
         UI.$('b-name').value = b.name;
         UI.$('b-type').value = b.leaveType;
@@ -233,7 +238,7 @@ AdminViews.leave = {
         if (!confirm('ลบรายการปรับยอดนี้?\n' + b.yearBE + ' · ' + b.name + ' · ' + b.leaveType +
           (b.carryIn ? ' · ยกมา ' + b.carryIn : '') + (b.usedExtra ? ' · ใช้เพิ่ม ' + b.usedExtra : ''))) return;
         try {
-          await AdminAPI.call('delete_balance', { row: b.row });
+          await AdminAPI.call('delete_balance', { row: b.row, version: b.version });
           UI.showToast('ลบแล้ว');
           await this.reload();
         } catch (e) { UI.showToast(e.message, true); }
@@ -243,6 +248,7 @@ AdminViews.leave = {
 
   resetBalanceForm() {
     this.editingBalanceRow = null;
+    this.editingBalanceVersion = null;
     ['b-year', 'b-carry', 'b-extra', 'b-reason'].forEach(id => { UI.$(id).value = ''; });
     UI.$('b-name').value = '';
     UI.$('b-type').value = '';
@@ -265,7 +271,7 @@ AdminViews.leave = {
     const wasEditing = this.editingBalanceRow;
     try {
       await AdminAPI.call(wasEditing ? 'update_balance' : 'add_balance',
-        wasEditing ? Object.assign({ row: wasEditing }, payload) : payload);
+        wasEditing ? Object.assign({ row: wasEditing, version: this.editingBalanceVersion }, payload) : payload);
       UI.showToast(wasEditing ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มรายการแล้ว');
       this.resetBalanceForm();
       await this.reload();

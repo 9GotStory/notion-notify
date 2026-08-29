@@ -131,7 +131,7 @@
   function dayLabel(dateStr) {
     const [y, m, d] = dateStr.split('-').map(Number);
     const dow = new Date(dateStr + 'T00:00:00').getDay();
-    return THAI_DAYS[dow] + 'ที่ ' + d + ' ' + THAI_MONTHS_SHORT[m - 1] + ' ' + (y + 543);
+    return 'วัน' + THAI_DAYS[dow] + 'ที่ ' + d + ' ' + THAI_MONTHS_SHORT[m - 1] + ' ' + (y + 543);
   }
   function escapeHtml(str) {
     return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
@@ -139,13 +139,26 @@
     }[c]));
   }
 
-  // ---------- คุยกับ GAS API (GET + query params ตามแบบฟอร์มลา) ----------
+  // ---------- อ่านตารางผ่าน security gateway ----------
 
   async function fetchMonth(month) {
     if (state.cache[month]) return state.cache[month];
-    const params = new URLSearchParams(Object.assign(
-      { apiAction: 'schedule', month: month }, state.token ? { accessToken: state.token } : {}));
-    const res = await fetch(CONFIG.API_URL + '?' + params.toString(), { method: 'GET' });
+    const headers = { 'content-type': 'application/json' };
+    if (state.token) headers.authorization = 'Bearer ' + state.token;
+    let res;
+    const controller = new AbortController();
+    const timeout = setTimeout(function () { controller.abort(); }, 20000);
+    try {
+      res = await fetch(CONFIG.API_URL.replace(/\/$/, '') + '/api/schedule', {
+        method: 'POST', headers: headers, body: JSON.stringify({ month: month }), signal: controller.signal,
+      });
+    } catch (err) {
+      throw new Error(err && err.name === 'AbortError'
+        ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+        : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง');
+    } finally {
+      clearTimeout(timeout);
+    }
     let data = null;
     try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
     if (!res.ok || !data || data.ok === false) {
@@ -304,16 +317,17 @@
     // และไม่ใส่ withLoginOnExternalBrowser — หน้าสาธารณะต้องไม่ดันผู้ชมไปหน้า login ก่อนเห็นข้อมูล
     const liffId = (CONFIG.SCHEDULE_LIFF_ID || '').trim();
     if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
+      let initReady = false;
       try {
         // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา) ต้องไม่ลากหน้าสาธารณะ
         // ให้ค้างตามไปด้วย: หมดเวลาแล้วเดินหน้าแบบสาธารณะก่อน รีเฟรชใหม่ภายหลังก็อัปเกรดเอง
-        await Promise.race([
-          liff.init({ liffId: liffId }),
-          new Promise(function (resolve) { setTimeout(resolve, 5000); }),
+        initReady = await Promise.race([
+          liff.init({ liffId: liffId }).then(function () { return true; }),
+          new Promise(function (resolve) { setTimeout(function () { resolve(false); }, 5000); }),
         ]);
       } catch (err) { /* LIFF พัง → ดูแบบสาธารณะ ไม่บล็อกเนื้อหา */ }
-      state.liffReady = true; // SDK โหลดแล้ว ปุ่มล็อกอินใช้ได้ (ตัว login มี try/catch กันตัวเอง)
-      if (liff.isLoggedIn && liff.isLoggedIn()) state.token = liff.getAccessToken() || '';
+      state.liffReady = initReady;
+      if (initReady && liff.isLoggedIn && liff.isLoggedIn()) state.token = liff.getAccessToken() || '';
     }
     await loadMonth(todayMonth());
   }

@@ -102,21 +102,41 @@ function setupSheet() {
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
     ['leave_system_enabled', 'TRUE', 'สวิตช์ระบบลา: FALSE = ปิดรับลงทะเบียน/ยื่นลาใหม่ (ใช้เมนู "เปิด/ปิดระบบลา" สลับให้ได้) — ค่าอื่นใด/แถวหาย = เปิด'],
     ['leave_approval_enabled', 'TRUE', 'โหมดการอนุมัติ: FALSE = แจ้งลาอัตโนมัติ (บันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก ไม่ต้องมีผู้อนุมัติ) — ใช้เมนู "เปิด/ปิดการอนุมัติใบลา" สลับได้'],
-    ['leave_type_options', 'ลาป่วย,ลากิจ,ลาพักร้อน,ลาคลอด,ลาอุปสมบถ/ลาบวช,ลาช่วยเหลือภริยาคลอดบุตร,อื่นๆ', 'รายการประเภทการลาในฟอร์ม (คั่นด้วยจุลภาค) — ชื่อที่ตรงตามระเบียบจะได้รับการตรวจสิทธิ์/คำเตือนอัตโนมัติ'],
+    ['leave_type_options', 'ลาป่วย,ลากิจ,ลาพักร้อน,ลาคลอด,ลาอุปสมบท/ลาบวช,ลาช่วยเหลือภริยาคลอดบุตร,อื่นๆ', 'รายการประเภทการลาในฟอร์ม (คั่นด้วยจุลภาค) — ชื่อที่ตรงตามระเบียบจะได้รับการตรวจสิทธิ์/คำเตือนอัตโนมัติ'],
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['monthly_leave_summary_enabled', 'TRUE', 'สรุปวันลารายเดือน (FALSE = ปิด): วันทำการแรกของแต่ละเดือน แนบสรุปใบลาที่อนุมัติของเดือนก่อนท้ายข้อความเช้า — รวมข้อความเดียวกัน ไม่เพิ่มโควตา LINE'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
     ['employment_type_options', 'ข้าราชการ,พนักงานราชการ,พนักงานกระทรวงสาธารณสุข,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ', 'ตัวเลือกประเภทบุคลากรในฟอร์มลงทะเบียน (คั่นจุลภาค) — ใช้จับคู่โควตาจากชีต QuotaProfiles'],
+    ['leave_policy_reviewed_at', '', 'วันที่ HR ตรวจทานโควตา/เงื่อนไขกับระเบียบ สัญญาจ้าง และประกาศล่าสุดแล้ว (YYYY-MM-DD) — ทบทวนอย่างน้อยปีละครั้ง'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
     ['position_options', 'นักวิชาการสาธารณสุข,นักวิชาการอนามัย,นักวิชาการคอมพิวเตอร์,นักบริหารงานสาธารณสุข,พยาบาลวิชาชีพ,พยาบาลช่วยแพทย์,เจ้าพนักงานธุรการ,ลูกจ้างชั่วคราว,อื่นๆ', 'ตัวเลือกตำแหน่งในฟอร์มลงทะเบียน (แก้ให้ตรงหน่วยงานได้เลย คั่นด้วยจุลภาค)'],
   ].forEach(row => {
     if (upsertSettingRow_(row[0], row[1], row[2])) addedKeys.push(row[0]);
   });
 
+  // เปลี่ยนเฉพาะข้อความหัวคอลัมน์ ไม่แตะข้อมูล: สิทธิ์บางประเภทนับวันปฏิทิน จึงห้ามเรียกรวมว่า "วันทำการ"
+  const quotaSheet = ss.getSheetByName('QuotaProfiles');
+  if (quotaSheet && String(quotaSheet.getRange(2, 1).getDisplayValue()).trim() === QUOTA_PROFILE_COLUMNS[0]) {
+    quotaSheet.getRange(2, 4).setValue(QUOTA_PROFILE_COLUMNS[3]);
+  }
+  const balanceSheet = ss.getSheetByName('LeaveBalances');
+  if (balanceSheet && String(balanceSheet.getRange(2, 1).getDisplayValue()).trim() === BALANCE_SHEET_COLUMNS[0]) {
+    balanceSheet.getRange(2, 4, 1, 2).setValues([[BALANCE_SHEET_COLUMNS[3], BALANCE_SHEET_COLUMNS[4]]]);
+  }
+  const spellingMigration = migrateLeaveTypeSpelling_();
+  if (spellingMigration.updated) {
+    status.push('แก้คำว่า "อุปสมบถ" เป็น "อุปสมบท" ในข้อมูลตั้งค่าเดิม ' + spellingMigration.updated + ' จุด');
+  }
+  if (spellingMigration.conflicts) {
+    status.push('⚠ พบโควตาที่มีทั้งคำสะกดเก่าและใหม่ ' + spellingMigration.conflicts +
+      ' แถว — ระบบใช้แถวคำสะกดใหม่ ให้ HR ตรวจและลบแถวเก่าที่ซ้ำ');
+  }
+
   // เติมแถวสิทธิ์อ้างอิงระเบียบลงชีต QuotaProfiles (เฉพาะคู่ ประเภทบุคลากร+ประเภทการลา ที่ยังไม่มี — ไม่แตะของที่แก้ไว้แล้ว)
   const seeded = seedLeaveQuotaDefaults_();
   if (seeded.blocked) status.push('⚠ ' + seeded.blocked);
   else if (seeded.added) status.push('เติมสิทธิ์วันลาตามระเบียบ ' + seeded.added + ' รายการ ลงชีต QuotaProfiles');
+  if (seeded.migrated) status.push('ปรับสิทธิ์ลาช่วยเหลือภริยาคลอดบุตรจาก seed เก่าที่ยังไม่เคยแก้ ' + seeded.migrated + ' รายการ');
 
   // migration: ตัวเลือกประเภทบุคลากรเดิมยังไม่มี "พนักงานกระทรวงสาธารณสุข" — เติมให้โดยแทรกก่อน "อื่นๆ"
   // (ระบบโควตาใช้ชื่อนี้จับคู่แถวใน QuotaProfiles — รายการอื่นที่ผู้ดูแลปรับไว้เองไม่ถูกแตะ)
@@ -165,6 +185,7 @@ function seedLeaveQuotaDefaults_() {
   if (!usable) {
     return { added: 0, kept: 0, blocked: 'ชีต QuotaProfiles ใช้หัวตารางโครงเดิม — ย้ายข้อมูลตาม SETUP.md ก่อนแล้วรันใหม่' };
   }
+  SpreadsheetApp.getActive().getSheetByName('QuotaProfiles').getRange(2, 4).setValue(QUOTA_PROFILE_COLUMNS[3]);
 
   const existing = new Set(readQuotaProfiles_().map(p => p.employmentType + '|' + p.leaveType));
   const rows = QUOTA_PROFILE_SEED.filter(r => !existing.has(String(r[1]).trim() + '|' + String(r[2]).trim()));
@@ -172,7 +193,78 @@ function seedLeaveQuotaDefaults_() {
     const sheet = SpreadsheetApp.getActive().getSheetByName('QuotaProfiles');
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, QUOTA_PROFILE_COLUMNS.length).setValues(rows);
   }
-  return { added: rows.length, kept: QUOTA_PROFILE_SEED.length - rows.length };
+  const migrated = migrateKnownQuotaDefaults_();
+  return { added: rows.length, kept: QUOTA_PROFILE_SEED.length - rows.length, migrated: migrated };
+}
+
+/** migration คำสะกด: แก้เฉพาะค่า exact เดิม และไม่ทับแถวโควตาที่มีคำสะกดใหม่อยู่แล้ว */
+function migrateLeaveTypeSpelling_() {
+  const oldName = 'ลาอุปสมบถ/ลาบวช';
+  const newName = normalizeLeaveTypeName_(oldName);
+  let updated = 0;
+  let conflicts = 0;
+  const settings = getSettings_();
+  const rawOptions = String(settings.leave_type_options || '');
+  if (rawOptions.split(',').map(s => s.trim()).includes(oldName)) {
+    const normalized = Array.from(new Set(rawOptions.split(',').map(normalizeLeaveTypeName_).filter(Boolean)));
+    setSettingValue_('leave_type_options', normalized.join(','));
+    updated++;
+  }
+
+  const quotaSheet = SpreadsheetApp.getActive().getSheetByName('QuotaProfiles');
+  if (quotaSheet && quotaSheet.getLastRow() >= 3) {
+    const values = quotaSheet.getRange(3, 1, quotaSheet.getLastRow() - 2, 3).getDisplayValues();
+    const canonicalKeys = new Set(values.filter(row => String(row[2]).trim() === newName)
+      .map(row => [String(row[0]).trim(), String(row[1]).trim(), newName].join('|')));
+    values.forEach((row, index) => {
+      if (String(row[2]).trim() !== oldName) return;
+      const key = [String(row[0]).trim(), String(row[1]).trim(), newName].join('|');
+      if (canonicalKeys.has(key)) {
+        conflicts++;
+        return;
+      }
+      quotaSheet.getRange(index + 3, 3).setValue(newName);
+      canonicalKeys.add(key);
+      updated++;
+    });
+  }
+
+  const balanceSheet = SpreadsheetApp.getActive().getSheetByName('LeaveBalances');
+  if (balanceSheet && balanceSheet.getLastRow() >= 3) {
+    const values = balanceSheet.getRange(3, 3, balanceSheet.getLastRow() - 2, 1).getDisplayValues();
+    values.forEach((row, index) => {
+      if (String(row[0]).trim() === oldName) {
+        balanceSheet.getRange(index + 3, 3).setValue(newName);
+        updated++;
+      }
+    });
+  }
+  return { updated: updated, conflicts: conflicts };
+}
+
+/** แก้เฉพาะค่า seed เก่าที่พิสูจน์ได้ว่าไม่เคยถูกผู้ดูแลปรับเอง */
+function migrateKnownQuotaDefaults_() {
+  const sheet = SpreadsheetApp.getActive().getSheetByName('QuotaProfiles');
+  if (!sheet || sheet.getLastRow() < 3) return 0;
+  const legacyNotes = {
+    'พนักงานราชการ': 'ประกาศไม่ระบุให้ได้รับสิทธิแบบข้าราชการ — ปรับได้ตามนโยบายหน่วยงาน',
+    'ลูกจ้างประจำ': 'ระเบียบ ก.คลัง ไม่ระบุสิทธินี้ — ปรับได้ตามนโยบายหน่วยงาน',
+    'ลูกจ้างชั่วคราวรายเดือน': 'ไม่มีสิทธิตามระเบียบ',
+    'ลูกจ้างรายวัน': 'ไม่มีสิทธิตามระเบียบ',
+  };
+  const values = sheet.getRange(3, 1, sheet.getLastRow() - 2, QUOTA_PROFILE_COLUMNS.length).getDisplayValues();
+  let migrated = 0;
+  values.forEach((row, index) => {
+    const employmentType = String(row[1]).trim();
+    const target = QUOTA_PROFILE_SEED.find(seed =>
+      seed[1] === employmentType && seed[2] === 'ลาช่วยเหลือภริยาคลอดบุตร');
+    if (target && String(row[2]).trim() === 'ลาช่วยเหลือภริยาคลอดบุตร' &&
+        String(row[3]).trim() === '0' && String(row[4]).trim() === legacyNotes[employmentType]) {
+      sheet.getRange(index + 3, 4, 1, 2).setValues([[target[3], target[4]]]);
+      migrated++;
+    }
+  });
+  return migrated;
 }
 
 // จุดรันจากเมนู — เติมสิทธิ์อ้างอิงระเบียบลงชีต QuotaProfiles แล้วรายงานผล
@@ -182,8 +274,9 @@ function seedLeaveQuotaDefaults() {
     ? '⚠ ' + result.blocked
     : 'เติมสิทธิ์วันลาตามระเบียบแล้ว ' + result.added + ' รายการ' +
       (result.kept ? '\nข้าม ' + result.kept + ' รายการที่มีอยู่แล้ว (ไม่แตะของเดิม)' : '') +
-      '\n\nตัวเลขเป็นเกณฑ์ "ได้รับเงินเดือน/ค่าจ้าง" ตามระเบียบ ศึกษา ณ ส.ค. 2569\n' +
-      'ตรวจทาน/ปรับได้ที่ชีต QuotaProfiles หรือแท็บ "โควตา" ของหน้าเว็บตั้งค่า';
+      (result.migrated ? '\nปรับค่า seed เก่าที่ไม่เคยแก้เอง ' + result.migrated + ' รายการ' : '') +
+      '\n\nค่าเหล่านี้เป็นข้อมูลตั้งต้น ไม่ใช่คำรับรองสิทธิทางกฎหมาย\n' +
+      'HR ต้องตรวจทาน/ปรับที่ชีต QuotaProfiles แล้วใส่วันที่ใน Settings: leave_policy_reviewed_at';
   try {
     SpreadsheetApp.getUi().alert(msg);
   } catch (err) {
@@ -206,6 +299,8 @@ function collectSystemHealth_() {
   if (!String(settings.line_group_id || '').trim()) {
     findings.push(['warn', 'ยังไม่มี line_group_id — เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)']);
   }
+  const policyFinding = leavePolicyReviewFinding_(settings.leave_policy_reviewed_at, bangkokTodayStr_());
+  if (policyFinding) findings.push(['warn', policyFinding]);
 
   // Secret ใน Script Properties
   const props = PropertiesService.getScriptProperties();
@@ -260,8 +355,11 @@ function collectSystemHealth_() {
   // Trigger เวลาส่งเช้า
   const hasTrigger = ScriptApp.getProjectTriggers().some(
     t => t.getHandlerFunction() === 'checkAndSendNotification');
-  if (!hasTrigger) {
+  const notificationEnabled = String(settings.enabled || '').toUpperCase() === 'TRUE';
+  if (notificationEnabled && !hasTrigger) {
     findings.push(['warn', 'ยังไม่ตั้งเวลาส่งอัตโนมัติ — กดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ"']);
+  } else if (!notificationEnabled && hasTrigger) {
+    findings.push(['info', 'การแจ้งเตือนปิดอยู่แต่ยังมี trigger เดิม — กดเมนูติดตั้ง/อัปเดตหนึ่งครั้งเพื่อลบ trigger']);
   }
 
   // สถานะสวิตช์ระบบลา
@@ -273,6 +371,18 @@ function collectSystemHealth_() {
   }
 
   return findings;
+}
+
+function leavePolicyReviewFinding_(value, todayStr) {
+  const reviewDate = String(value || '').trim();
+  if (!reviewDate) {
+    return 'HR ยังไม่ได้ยืนยันนโยบายวันลา — ตรวจ QuotaProfiles กับประกาศ/สัญญาจ้างล่าสุด แล้วใส่ leave_policy_reviewed_at (YYYY-MM-DD)';
+  }
+  if (!isValidDateStr_(reviewDate)) return 'leave_policy_reviewed_at ต้องเป็นวันที่จริงรูปแบบ YYYY-MM-DD';
+  const age = daysBetweenDateStrs_(reviewDate, todayStr);
+  if (age < 0) return 'leave_policy_reviewed_at ต้องไม่เป็นวันที่ในอนาคต';
+  if (age > 366) return 'นโยบายวันลาไม่ได้รับการทบทวนเกิน 1 ปี — ให้ HR ตรวจประกาศ/สัญญาจ้างล่าสุดอีกครั้ง';
+  return '';
 }
 
 // หาค่าที่ซ้ำในลิสต์ (pure — ใช้ตรวจชื่อกลุ่มงาน/ชื่อคนซ้ำ)
@@ -414,7 +524,7 @@ function testLeaveCardNow() {
       contents: bubble,
     });
     logResult_(new Date(), 'success (manual test)', 'ส่งการ์ดใบลาตัวอย่างแล้ว');
-    SpreadsheetApp.getUi().alert('ส่งการ์ดตัวอย่างแล้ว ลองเช็คในกลุ่ม LINE (ปุ่มบนการ์ดตัวอย่างกดแล้วจะไม่มีผลกับข้อมูลจริง)');
+    SpreadsheetApp.getUi().alert('ส่งการ์ดตัวอย่างแล้ว โปรดตรวจสอบในกลุ่ม LINE (ปุ่มบนการ์ดตัวอย่างกดแล้วจะไม่มีผลกับข้อมูลจริง)');
   } catch (err) {
     logResult_(new Date(), 'error (manual test)', String(err));
     SpreadsheetApp.getUi().alert('ส่งการ์ดตัวอย่างไม่สำเร็จ: ' + err);
@@ -445,7 +555,7 @@ function testMonthlyLeaveSummaryNow() {
       text: summary.title + '\n' + summary.lines.join('\n') + '\n' + summary.totalLine,
     });
     logResult_(now, 'success (manual test)', 'ส่งสรุปวันลารายเดือนตัวอย่างแล้ว (' + targetMonth + ')');
-    SpreadsheetApp.getUi().alert('ส่งสรุปรายเดือนแล้ว ลองเช็คในกลุ่ม LINE');
+    SpreadsheetApp.getUi().alert('ส่งสรุปรายเดือนแล้ว โปรดตรวจสอบในกลุ่ม LINE');
   } catch (err) {
     logResult_(new Date(), 'error (manual test)', String(err));
     SpreadsheetApp.getUi().alert('ทดสอบสรุปรายเดือนไม่สำเร็จ: ' + err);
@@ -469,11 +579,11 @@ function draftCarryOverNextYear() {
     roster.forEach(staff => {
       const myLeaves = leaves.filter(leave => leave.submitterUserId === staff.lineUserId);
       const summary = buildUsageSummaryWithBalances_(usageFromLeaves_(myLeaves), balances, year,
-        baseQuotaMap_(profiles, staff.employmentType, year));
+        baseQuotaMap_(profiles, staff.employmentType, year), staffKey_(staff));
       const cell = summary && summary['ลาพักร้อน'];
       if (!cell || cell.quota == null) return;
       const remaining = Math.max(0, cell.quota - cell.used);
-      // ระเบียบให้สะสมได้ไม่เกินสิทธิ์รายปี และรวมทุกปีไม่เกิน 45 วันทำการ — ระบบหน่องที่รายปีไว้ก่อน
+      // ระเบียบให้สะสมได้ไม่เกินสิทธิ์รายปี และรวมทุกปีไม่เกิน 45 วันทำการ — ระบบจำกัดที่รายปีไว้ก่อน
       // ส่วนกรณีสะสมหลายปีให้ผู้ดูแลปรับตัวเลขขึ้นเองตามสถานะจริงของแต่ละคน (ใช้โควตาตามประเภทบุคลากรของคนนั้น)
       const baseQuota = Math.max(0, cell.quota - (cell.carryIn || 0));
       const carry = Math.min(remaining, baseQuota);
@@ -486,7 +596,7 @@ function draftCarryOverNextYear() {
     const text = lines.length
       ? 'ร่างรายการ "ยกมา" ลาพักร้อน ปี ' + (year + 1 + 543) + ' (ยังไม่ได้บันทึก):\n\n' + lines.join('\n') +
         '\n\nบันทึกจริงที่: หน้าเว็บตั้งค่า > แท็บ "ยอดวันลา" หรือเพิ่มแถวในชีต LeaveBalances เอง' +
-        '\nหมายเหตุ: ระบบหน่องยกมาไว้ไม่เกินสิทธิ์รายปี (' + LEAVE_QUOTAS['ลาพักร้อน'] + ' วันทำการ) — กรณีสะสมหลายปี (รวมไม่เกิน 45) ปรับตัวเลขเองตามระเบียบจริง'
+        '\nหมายเหตุ: ระบบจำกัดยอดยกมาไว้ไม่เกินสิทธิ์รายปี (' + LEAVE_QUOTAS['ลาพักร้อน'] + ' วันทำการ) — กรณีสะสมหลายปี (รวมไม่เกิน 45) ปรับตัวเลขเองตามระเบียบจริง'
       : 'ไม่มีใครเหลือวันลาพักร้อนให้ยกมาในปี ' + (year + 543) +
         (String(settings.leave_database_id || '').trim() === 'your_leave_database_id' ? ' (หรือยังไม่ได้ตั้งค่า leave_database_id)' : '');
     SpreadsheetApp.getUi().alert(text);
@@ -516,7 +626,7 @@ function testSendNow() {
           undefined, buildAssigneeLeaveConflicts_(items, leaves));
     sendLineMessage_(settings.line_group_id, messageObj);
     logResult_(now, 'success (manual test)', messagePreview_(messageObj).substring(0, 300));
-    SpreadsheetApp.getUi().alert('ส่งข้อความทดสอบแล้ว ลองเช็คในกลุ่ม LINE');
+    SpreadsheetApp.getUi().alert('ส่งข้อความทดสอบแล้ว โปรดตรวจสอบในกลุ่ม LINE');
   } catch (err) {
     logResult_(new Date(), 'error (manual test)', String(err));
     SpreadsheetApp.getUi().alert('ทดสอบส่งไม่สำเร็จ: ' + err);

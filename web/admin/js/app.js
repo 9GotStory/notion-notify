@@ -40,7 +40,7 @@ const App = {
     const token = input.value.trim();
     err.classList.add('hidden');
     if (!token) {
-      err.textContent = 'กรุณากรอก token';
+      err.textContent = 'กรุณากรอกรหัสผู้ดูแล';
       err.classList.remove('hidden');
       return;
     }

@@ -9,14 +9,22 @@ AdminViews.overview = {
     const log = res.log;
     const c = res.counts;
 
-    // สถานะ: error ล่าสุด หรือไม่มีการทำงาน ≥2 วัน = เหลือง (logic เดียวกับหน้าเว็บเดิม)
+    // สถานะ: error ล่าสุด, ไม่มีการทำงาน ≥2 วัน หรือ trigger/config ไม่พร้อม = เหลือง
     let dotClass = 'bg-emerald-300';
     let statusText = 'ยังไม่มีประวัติการทำงาน';
     if (log) {
       const stale = String(log.status).indexOf('error') === 0 ||
         UI.daysBetween_(log.date, UI.todayStr_()) >= 2;
       dotClass = stale ? 'bg-amber-400' : 'bg-emerald-300';
-      statusText = 'เช็คล่าสุด ' + log.date + ' — ' + log.status;
+      statusText = 'ตรวจสอบล่าสุด ' + log.date + ' — ' + log.status;
+    }
+    if (res.runtimeHealth && !res.runtimeHealth.healthy) {
+      dotClass = 'bg-red-500';
+      statusText = res.runtimeHealth.unavailable
+        ? 'ตรวจสอบสถานะ trigger ไม่สำเร็จ'
+        : (!res.runtimeHealth.configReady
+        ? 'ระบบแจ้งเตือนยังตั้งค่าไม่ครบ'
+        : 'ไม่พบ trigger สำหรับการแจ้งเตือนครั้งถัดไป');
     }
 
     const tile = (label, value, route) =>

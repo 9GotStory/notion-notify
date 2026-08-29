@@ -6,7 +6,7 @@
  * - ใช้ one-time trigger นัดเวลาส่งครั้งถัดไปตาม notify_time โดยตรง
  *   เมื่อทำงานเสร็จจะสร้าง trigger สำหรับวันถัดไป และ retry เฉพาะเมื่อส่งล้มเหลว
  * - อ่านค่าตั้งค่าและวันหยุดจากชีต "Settings" / "Holidays" ทุกครั้งที่รัน
- *   เมื่อแก้ notify_time ให้กดเมนูติดตั้ง/อัปเดตเวลาส่งอัตโนมัติเพื่อนัด trigger ใหม่
+ *   หน้า admin จะนัด trigger ใหม่อัตโนมัติ; ถ้าแก้ notify_time ในชีตโดยตรงให้กดเมนูติดตั้ง/อัปเดตเวลา
  * - ถ้าวันนั้นไม่มีงานเลย จะไม่ส่งข้อความเข้ากลุ่มใดๆ ทั้งสิ้น (เงียบ)
  *   แต่ยังบันทึกไว้ในชีต Logs ว่าเช็คแล้วและไม่มีงาน เพื่อยืนยันว่าระบบยังทำงานปกติ
  *   (ระบบลางาน: เงียบเฉพาะเมื่อไม่มีงาน "และ" ไม่มีผู้ลาที่อนุมัติแล้วคร่อมวันนั้น — ดู Leave.gs)
@@ -63,15 +63,15 @@ function resolveDataSourceId_(databaseId) {
   }
   const data = JSON.parse(response.getContentText());
   if (!data.data_sources || !data.data_sources.length) {
-    throw new Error('database นี้ไม่มี data source ที่เข้าถึงได้ — เช็คว่าแชร์ database ให้ integration แล้วหรือยัง (Connections ในเมนู "...")');
+    throw new Error('database นี้ไม่มี data source ที่เข้าถึงได้ — โปรดตรวจสอบว่าแชร์ database ให้ integration แล้วหรือยัง (Connections ในเมนู "...")');
   }
   return data.data_sources[0].id;
 }
 
 // ยิง data-source query วนตาม next_cursor จนครบ (Notion ให้สูงสุด 100 รายการ/หน้า)
-// กัน runaway ด้วยเพดานหน้า (default 3) แล้ว log เตือนถ้ายังเหลือรายการต่อ — ใช้ร่วมทุกจุดที่ query ปฏิทิน
+// กัน runaway ด้วยเพดานหน้า แต่ห้ามคืนข้อมูลบางส่วน: ถึงเพดานแล้ว throw ให้ caller แสดงว่าอ่านไม่ครบ
 function queryNotionPages_(dataSourceId, payload, maxPages) {
-  const limit = maxPages || 3;
+  const limit = maxPages || 20;
   const results = [];
   let cursor = null;
   for (let i = 0; i < limit; i++) {
@@ -88,11 +88,10 @@ function queryNotionPages_(dataSourceId, payload, maxPages) {
     }
     const data = JSON.parse(response.getContentText());
     results.push.apply(results, data.results || []);
-    if (!data.has_more || !data.next_cursor) break;
+    if (!data.has_more || !data.next_cursor) return results;
     cursor = data.next_cursor;
-    if (i === limit - 1) console.warn('query ปฏิทินเกิน ' + limit * 100 + ' รายการ ตัดที่เพดาน ' + limit + ' หน้า');
   }
-  return results;
+  throw new Error('ข้อมูล Notion มีมากกว่าเพดาน ' + limit * 100 + ' รายการ จึงหยุดเพื่อไม่คืนผลลัพธ์ที่ไม่ครบ');
 }
 
 function plainText_(richTextArray) {

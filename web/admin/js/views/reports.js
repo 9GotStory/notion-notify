@@ -18,7 +18,7 @@ AdminViews.reports = {
       '<button id="btnRunReport" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">แสดง</button>' +
       '<button id="btnReportCsv" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-primary bg-primary-light disabled:opacity-50 disabled:cursor-default">ดาวน์โหลด CSV</button>' +
       '</div>' +
-      '<p class="text-xs text-slate-500 mt-3">สรุปเฉพาะใบลาสถานะ "อนุมัติ" นับเป็นวันทำการตามวันเริ่มของใบ (ใบคร่อมเดือนนับเดือนที่เริ่ม) — ตรงกับวิธีนับสิทธิ์ของระบบลา</p>' +
+      '<p class="text-xs text-slate-500 mt-3">สรุปเฉพาะใบลาสถานะ "อนุมัติ" เป็นวันทำการตามเดือนที่ใบเริ่ม (ใบคร่อมเดือนนับเดือนที่เริ่ม) ใช้ดูภาพกำลังคน ไม่ใช่เกณฑ์วินิจฉัยสิทธิ์คลอด/บวช</p>' +
       '</div>' +
 
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">' +

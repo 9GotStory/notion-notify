@@ -18,9 +18,23 @@ function handleApiRequest_(body) {
         return { ok: false, error: 'ไม่รู้จักคำสั่งนี้' };
     }
   } catch (err) {
-    // error กลับไปหน้า LIFF เป็นข้อความไทยสุภาพเสมอ ไม่ปล่อย stack/รายละเอียดระบบรั่วออกไป
-    return { ok: false, error: err && err.message ? err.message : 'เกิดข้อผิดพลาด ลองอีกครั้ง' };
+    const publicError = publicLeaveApiError_(err);
+    console.error('API ' + String((body && body.apiAction) || '') + ' failed: ' + String(err && (err.stack || err)));
+    return { ok: false, code: publicError.code, error: publicError.message,
+      requestId: String((body && body.requestId) || '') };
   }
+}
+
+function publicLeaveApiError_(err) {
+  const message = String(err && err.message ? err.message : '');
+  if (/^ระบบยังไม่พร้อมใช้งาน \(ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id\)$/.test(message)) {
+    return { code: 'CONFIGURATION_REQUIRED', message: message };
+  }
+  const unsafe = /Notion|LINE push|UrlFetch|Exception|HTTP\s*\d|\{[\s\S]*\}|data[_ -]?source|database/i;
+  if (!message || unsafe.test(message)) {
+    return { code: 'UPSTREAM_ERROR', message: 'เชื่อมต่อระบบภายในไม่สำเร็จ กรุณาลองอีกครั้ง หากยังไม่สำเร็จให้ติดต่อผู้ดูแล' };
+  }
+  return { code: 'INVALID_REQUEST', message: message.substring(0, 300) };
 }
 
 function requireAccessToken_(body) {
@@ -47,7 +61,7 @@ function verifyLineToken_(accessToken) {
   const expectedChannelId = PropertiesService.getScriptProperties().getProperty('LOGIN_CHANNEL_ID');
   if (expectedChannelId && String(expectedChannelId).trim() &&
       verified.client_id !== String(expectedChannelId).trim()) {
-    throw new Error('ไม่สามารถยืนยันตัวตนได้ ติดต่อผู้ดูแลระบบ');
+    throw new Error('ไม่สามารถยืนยันตัวตนได้ กรุณาติดต่อผู้ดูแลระบบ');
   }
 
   const profileResp = UrlFetchApp.fetch('https://api.line.me/v2/profile', {
@@ -86,7 +100,8 @@ function apiSession_(body) {
         readLeaveBalances_(),
         Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')),
         baseQuotaMap_(readQuotaProfiles_(), staff.employmentType,
-          Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')))),
+          Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'))),
+        staffKey_(staff)),
       leaveYear: String(Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')) + 543),
     }, common, leaveStatus);
   }
@@ -112,20 +127,24 @@ function apiBind_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
   const settings = getSettings_();
   requireLeaveSystemEnabled_(settings); // ปิดระบบ = หยุดรับลงทะเบียนใหม่ด้วย
-  const prefix = String(body.prefix || '').trim().substring(0, 30);
-  const firstName = String(body.firstName || '').trim().substring(0, 50);
-  const lastName = String(body.lastName || '').trim().substring(0, 50);
+  const prefix = String(body.prefix || '').trim();
+  const firstName = String(body.firstName || '').trim();
+  const lastName = String(body.lastName || '').trim();
   const groupName = String(body.groupName || '').trim();
-  const position = String(body.position || '').trim().substring(0, 50);
-  const employmentType = String(body.employmentType || '').trim().substring(0, 50);
+  const position = String(body.position || '').trim();
+  const employmentType = String(body.employmentType || '').trim();
   if (!firstName || !lastName) throw new Error('กรุณากรอกชื่อและสกุล');
   if (!prefix) throw new Error('กรุณาเลือกคำนำหน้าชื่อ');
   if (!position) throw new Error('กรุณาเลือกตำแหน่ง');
   if (!employmentType) throw new Error('กรุณาเลือกประเภทบุคลากร');
+  if (prefix.length > 30 || firstName.length > 50 || lastName.length > 50 ||
+      groupName.length > 100 || position.length > 100 || employmentType.length > 100) {
+    throw new Error('ข้อมูลลงทะเบียนบางช่องยาวเกินกำหนด กรุณาตรวจสอบแล้วลองใหม่');
+  }
   // ชื่อ/สกุลเป็น key ที่นำไปเทียบกับ cell รายชื่อ (คั่นจุลภาค) ในชีต Approvers —
   // มีจุลภาคปนมาจะทำให้การจับคู่ผู้อนุมัติพังทั้งสาย จึงบล็อกตั้งแต่ต้นทาง
-  if (firstName.indexOf(',') !== -1 || lastName.indexOf(',') !== -1) {
-    throw new Error('ชื่อและสกุลห้ามมีเครื่องหมายจุลภาค (,) กรุณาตรวจอีกครั้ง');
+  if (/[,，\r\n]/.test(firstName) || /[,，\r\n]/.test(lastName)) {
+    throw new Error('ชื่อและสกุลห้ามมีเครื่องหมายจุลภาคหรือขึ้นบรรทัดใหม่ กรุณาตรวจอีกครั้ง');
   }
 
   const config = readApproversConfig_();
@@ -139,12 +158,17 @@ function apiBind_(body) {
   }
   const employmentTypes = optionList_(settings.employment_type_options,
     'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ');
-  if (!employmentTypes.includes(employmentType) && !employmentTypes.includes('อื่นๆ')) {
+  readQuotaProfiles_().forEach(profileRow => {
+    if (profileRow.employmentType && !employmentTypes.includes(profileRow.employmentType)) {
+      employmentTypes.push(profileRow.employmentType);
+    }
+  });
+  if (!employmentTypes.includes(employmentType)) {
     throw new Error('ประเภทบุคลากรไม่ถูกต้อง');
   }
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) throw new Error('ระบบ busy ลองอีกครั้ง');
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังรับคำขออื่นอยู่ กรุณาลองอีกครั้ง');
   try {
     const roster = readStaffRoster_();
     const myKey = staffKey_({ firstName: firstName, lastName: lastName });
@@ -197,8 +221,10 @@ function apiBind_(body) {
 /** ตรวจ + มาตรฐาน input ใบลาจาก LIFF (ใช้ร่วมทั้งยื่นใหม่และแก้ไขใบเดิม) — pure ต่อ settings ที่ส่งเข้า
  *  throw เป็นภาษาไทยเมื่อไม่ผ่าน คืน { leaveType, reason, start, end, period } */
 function parseLeaveSubmissionInput_(body, settings) {
-  const leaveType = String(body.leaveType || '').trim();
-  const reason = String(body.reason || '').trim().substring(0, 500);
+  const leaveType = normalizeLeaveTypeName_(body.leaveType);
+  const reason = String(body.reason || '').trim();
+  if (leaveType.length > 100) throw new Error('ประเภทการลายาวเกินกำหนด');
+  if (reason.length > 500) throw new Error('เหตุผลยาวเกิน 500 ตัวอักษร');
   const range = parseLeaveDateRange_(body.start, body.end, bangkokTodayStr_());
   // ประเภทการลามาจาก Settings (leave_type_options) + ช่วงวัน (ครึ่งวันใช้ได้เฉพาะบางประเภท/ลา 1 วัน)
   if (!leaveTypeList_(settings).includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
@@ -225,36 +251,89 @@ function appendAssigneeConflictWarning_(settings, firstName, startStr, endStr, w
   }
 }
 
-function apiSubmit_(body) {
-  const profile = verifyLineToken_(requireAccessToken_(body));
-  const roster = readStaffRoster_();
-  const staff = findStaffByUserId_(roster, profile.userId);
-  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
+function requireSubmissionRequestId_(body) {
+  const requestId = String((body && body.requestId) || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) {
+    throw new Error('รหัสคำขอไม่ถูกต้อง กรุณาปิดแล้วเปิดแบบฟอร์มใหม่');
+  }
+  return requestId;
+}
 
+function duplicateSubmissionResponse_(leavePage) {
+  const pendingNames = leavePage.currentApprover && leavePage.currentApprover.names
+    ? leavePage.currentApprover.names.join(', ')
+    : '';
+  return {
+    ok: true,
+    duplicate: true,
+    requestId: leavePage.requestId,
+    pageId: leavePage.pageId,
+    workDays: leavePage.workDays,
+    workDaysLabel: workDaysLabel_(leavePage.workDays),
+    quotaDays: leaveQuotaDays_(leavePage),
+    quotaDaysLabel: quotaDaysLabel_(leavePage.leaveType, leaveQuotaDays_(leavePage)),
+    period: leavePage.period,
+    approverName: pendingNames || (leavePage.status === LEAVE_STATUS.approved ? 'บันทึกเป็นอนุมัติแล้ว' : 'บันทึกใบลาแล้ว'),
+    needsSecond: !!(leavePage.currentApprover && leavePage.currentApprover.stage === 'first'),
+    autoApproved: leavePage.status === LEAVE_STATUS.approved,
+    notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
+    warnings: [],
+  };
+}
+
+function apiSubmit_(body) {
+  const requestId = requireSubmissionRequestId_(body);
+  const profile = verifyLineToken_(requireAccessToken_(body));
   const settings = getSettings_();
-  requireLeaveSystemEnabled_(settings); // ปิดระบบ = ปฏิเสธการยื่นลาใหม่ทั้งหมด
   const leaveDbId = String(settings.leave_database_id || '').trim();
   if (!leaveDbId || leaveDbId === 'your_leave_database_id') {
     throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');
   }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) throw new Error('ระบบกำลังรับคำขออื่นอยู่ กรุณาลองอีกครั้ง');
+  try {
+    const existing = findLeaveByRequestId_(leaveDbId, requestId);
+    if (existing) {
+      if (existing.submitterUserId !== profile.userId) throw new Error('รหัสคำขอนี้ถูกใช้แล้ว กรุณาเปิดแบบฟอร์มใหม่');
+      return duplicateSubmissionResponse_(existing);
+    }
+    return apiSubmitNew_(body, profile, settings, leaveDbId, requestId);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
+  const roster = readStaffRoster_();
+  const staff = findStaffByUserId_(roster, profile.userId);
+  if (!staff) throw new Error('ยังไม่ได้ลงทะเบียน — ปิดหน้านี้แล้วเปิดใหม่เพื่อลงทะเบียนก่อน');
+
+  requireLeaveSystemEnabled_(settings); // ปิดระบบ = ปฏิเสธการยื่นลาใหม่ทั้งหมด
   const input = parseLeaveSubmissionInput_(body, settings);
   const leaveType = input.leaveType;
   const reason = input.reason;
   const range = { start: input.start, end: input.end };
   const period = input.period;
 
-  // คำนวณตามระเบียบฯ: ฐานวันทำการ + ครึ่งวัน = 0.5 + คำเตือนจากยอดใช้จริงของปีนี้ (เตือนอย่างเดียว ไม่บล็อก)
+  // จำนวนวันทำการใช้กับตารางกำลังคน ส่วนจำนวนวันใช้สิทธิ์ของคลอด/บวชนับวันปฏิทินต่อเนื่อง
   // ยอดใช้/สิทธิ์รวม "รายการปรับ" จากสมุด LeaveBalances ด้วย (ยกมาเข้าโควตา / ใช้เพิ่มเข้ายอดใช้)
-  const workDays = computeWorkDays_(range.start, range.end, readHolidaySet_(), period);
-  const rawUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date());
-  const year = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'));
+  const holidaySet = readHolidaySet_();
+  const workDays = computeWorkDays_(range.start, range.end, holidaySet, period);
+  const quotaDays = computeLeaveQuotaDays_(leaveType, range.start, range.end, workDays);
+  if (quotaDays <= 0 || (workDays <= 0 && !usesCalendarDayQuota_(leaveType))) {
+    throw new Error('ช่วงวันที่เลือกไม่มีวันทำการ กรุณาเลือกวันทำการอย่างน้อย 1 วัน');
+  }
+  const year = Number(range.start.substring(0, 4));
+  const leaveYearDate = new Date(range.start + 'T00:00:00+07:00');
+  const rawUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, leaveYearDate);
   const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
-    baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year));
+    baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year), staffKey_(staff));
   const effectiveQuota = summary && summary[leaveType] ? summary[leaveType].quota : null;
-  const warnings = buildLeaveWarnings_(leaveType, workDays, summary ? usageFromSummary_(summary) : null, effectiveQuota);
+  const warnings = buildLeaveWarnings_(leaveType, quotaDays, summary ? usageFromSummary_(summary) : null, effectiveQuota);
+  appendAdvanceNoticeWarning_(leaveType, bangkokTodayStr_(), range.start, holidaySet, warnings);
   appendAssigneeConflictWarning_(settings, staff.firstName, range.start, range.end, warnings);
   const usedLabel = summary && effectiveQuota != null
-    ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((summary[leaveType].used || 0) + workDays) + ' / ' + effectiveQuota + ' วันทำการ'
+    ? quotaUsageNote_(leaveType, year, (summary[leaveType].used || 0) + quotaDays, effectiveQuota)
     : '';
   const systemNote = [usedLabel].concat(warnings).filter(Boolean).join('\n');
 
@@ -275,8 +354,11 @@ function apiSubmit_(body) {
       initialStatus: LEAVE_STATUS.approved,
       currentApprover: '',
       systemNote: systemNote,
+      requestId: requestId,
     });
     const autoPage = parseLeavePage_(createNotionLeavePage_(autoPayload));
+    appendAuditEvent_(requestId, staff.lineUserId, 'leave.submit', autoPage.pageId, '', LEAVE_STATUS.approved);
+    let notificationPending = false;
     try {
       sendLineMessage_(settings.line_group_id, {
         type: 'flex',
@@ -285,8 +367,14 @@ function apiSubmit_(body) {
         contents: buildLeaveNoticeBubble_(autoPage),
       });
     } catch (notifyErr) {
+      notificationPending = true;
+      recordLeaveNotificationFailure_(autoPage.pageId);
       logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลาเข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
     }
+    updateLeavePage_(autoPage.pageId, {
+      [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
+        ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
+    });
     pushPrivateMessage_(staff.lineUserId, {
       type: 'text',
       text: '✅ บันทึกการลาแล้ว (ไม่ต้องรออนุมัติ — ระบบปิดการอนุมัติอยู่)\n' + leaveSummaryText_(autoPage),
@@ -298,10 +386,15 @@ function apiSubmit_(body) {
       ok: true,
       workDays: workDays,
       workDaysLabel: workDaysLabel_(workDays),
+      quotaDays: quotaDays,
+      quotaDaysLabel: quotaDaysLabel_(leaveType, quotaDays),
       period: period,
       approverName: 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว',
       needsSecond: false,
       autoApproved: true,
+      requestId: requestId,
+      pageId: autoPage.pageId,
+      notificationPending: notificationPending,
       warnings: warnings,
     };
   }
@@ -325,29 +418,45 @@ function apiSubmit_(body) {
       : LEAVE_STATUS.pendingApprover,
     currentApprover: serializeApproverInfo_(chain.stage, chain.targets),
     systemNote: systemNote,
+    requestId: requestId,
   });
 
   const page = createNotionLeavePage_(payload);
   const leavePage = parseLeavePage_(page);
+  appendAuditEvent_(requestId, staff.lineUserId, 'leave.submit', leavePage.pageId, '', leavePage.status);
 
   const card = buildLeaveApprovalBubble_(leavePage);
   let approverLabel = chain.targets.map(s => staffDisplayName_(s)).join(', ');
+  let notificationPending = false;
   if (chain.viaPool) {
     // ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน — การ์ดเข้ากลุ่มหลัก ให้ผู้อนุมัติที่ลงทะเบียนแล้วรายอื่นกดแทน
     approverLabel += ' (เข้ากลุ่มหลัก — ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)';
     try {
       sendLineMessage_(settings.line_group_id, card);
     } catch (err) {
+      notificationPending = true;
+      recordLeaveNotificationFailure_(leavePage.pageId);
       logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติเข้ากลุ่มไม่สำเร็จ: ' + err);
-      throw new Error('ส่งเรื่องให้ผู้อนุมัติไม่สำเร็จ โปรดลองอีกครั้ง (หากยังไม่สำเร็จติดต่อผู้ดูแล)');
     }
-    logResult_(new Date(), 'leave', 'ใบลา ' + leavePage.fullName + ' ส่งเข้ากลุ่มหลัก (ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)');
+    logResult_(new Date(), 'leave', 'ใบลา ' + leavePage.fullName +
+      (notificationPending ? ' รอส่งซ้ำเข้ากลุ่มหลัก' : ' ส่งเข้ากลุ่มหลักแล้ว') +
+      ' (ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)');
   } else {
     if (chain.viaFallback) {
       logResult_(new Date(), 'leave', 'ใบลา ' + leavePage.fullName + ' ขึ้น หัวหน้า สสอ. ทันที (ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)');
     }
-    pushApproverCardWithFallback_(chain.targets.map(s => s.lineUserId), card, leavePage);
+    try {
+      pushApproverCardWithFallback_(chain.targets.map(s => s.lineUserId), card, leavePage);
+    } catch (err) {
+      notificationPending = true;
+      recordLeaveNotificationFailure_(leavePage.pageId);
+      logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติไม่สำเร็จ: ' + err);
+    }
   }
+  updateLeavePage_(leavePage.pageId, {
+    [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
+      ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
+  });
   if (chain.needsSecond && chain.stage === 'first') {
     approverLabel += ' → ส่งต่อ หัวหน้า สสอ.';
   }
@@ -360,24 +469,30 @@ function apiSubmit_(body) {
     ok: true,
     workDays: workDays,
     workDaysLabel: workDaysLabel_(workDays),
+    quotaDays: quotaDays,
+    quotaDaysLabel: quotaDaysLabel_(leaveType, quotaDays),
     period: period,
     approverName: approverLabel,
     needsSecond: chain.needsSecond && chain.stage === 'first',
+    requestId: requestId,
+    pageId: leavePage.pageId,
+    notificationPending: notificationPending,
     warnings: warnings,
   };
 }
 
 // ---------- ใบลาของฉัน: ดูรายการ / ยกเลิก / แก้ไข (apiAction: myLeaves / cancel / update) ----------
 
-/** ใบลาทั้งหมดของคนหนึ่งในปีปฏิทิน (ทุกสถานะ — เจ้าของดูประวัติของตัวเองได้ทั้งหมด)
+/** ใบลาทั้งหมดของคนหนึ่งตั้งแต่ปีที่กำหนดถึงก่อน endYearExclusive
+ *  (ทุกสถานะ — เจ้าของดูประวัติของตัวเองได้ทั้งหมด)
  *  เรียงวันเริ่มลงล่าง (ใบล่าสุดอยู่บน) — ใช้ queryNotionPages_ วน cursor ตามแบบ query ปฏิทิน */
-function getMyLeavesForYear_(leaveDbId, userId, year) {
+function getMyLeavesForYears_(leaveDbId, userId, year, endYearExclusive) {
   const payload = {
     filter: {
       and: [
         { property: PROPS_LEAVE.submitter, rich_text: { equals: userId } },
         { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
-        { property: PROPS_LEAVE.date, date: { before: (year + 1) + '-01-01T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: endYearExclusive + '-01-01T00:00:00+07:00' } },
       ],
     },
     sorts: [{ property: PROPS_LEAVE.date, direction: 'descending' }],
@@ -386,7 +501,7 @@ function getMyLeavesForYear_(leaveDbId, userId, year) {
   return queryNotionPages_(resolveLeaveDataSourceId_(leaveDbId), payload).map(parseLeavePage_);
 }
 
-/** แถวใบลาหนึ่งใบสำหรับหน้า "ของฉัน" (pure) — กติกะปุ่มแก้ไข/ยกเลิกอยู่ฝั่งเซิร์ฟเวอร์ ฝั่งหน้าเว็บแค่ตาม
+/** แถวใบลาหนึ่งใบสำหรับหน้า "ของฉัน" (pure) — กติกาปุ่มแก้ไข/ยกเลิกอยู่ฝั่งเซิร์ฟเวอร์ ฝั่งหน้าเว็บแค่ตาม
  *  แก้ได้: เฉพาะใบที่ยังรออนุมัติ / ยกเลิกได้: รออนุมัติหรืออนุมัติแล้ว และยังไม่ผ่านไป (end >= วันนี้) */
 function buildMyLeaveRow_(leave, todayStr) {
   const isPending = leave.status === LEAVE_STATUS.pendingApprover ||
@@ -401,9 +516,11 @@ function buildMyLeaveRow_(leave, todayStr) {
     status: leave.status,
     workDays: leave.workDays,
     workDaysLabel: workDaysLabel_(leave.workDays),
+    quotaDays: leaveQuotaDays_(leave),
+    quotaDaysLabel: quotaDaysLabel_(leave.leaveType, leaveQuotaDays_(leave)),
     reason: leave.reason,
     canEdit: isPending,
-    canCancel: (isPending || leave.status === LEAVE_STATUS.approved) && effectiveEnd >= todayStr,
+    canCancel: (isPending || leave.status === LEAVE_STATUS.approved) && leave.start > todayStr,
     pendingApproverNames: isPending && leave.currentApprover ? (leave.currentApprover.names || []) : [],
   };
 }
@@ -423,13 +540,16 @@ function apiMyLeaves_(body) {
   let leaves = [];
   let usage = null;
   if (leaveDbId && leaveDbId !== 'your_leave_database_id') {
-    const parsed = getMyLeavesForYear_(leaveDbId, staff.lineUserId, year)
+    // ครอบคลุมปีก่อน (ยื่นย้อนหลังได้), ปีนี้ และปีถัดไป (ยื่นล่วงหน้าได้)
+    // เพื่อไม่ให้ใบรอที่ข้ามขอบปีหายจากหน้าจัดการของเจ้าของ
+    const parsed = getMyLeavesForYears_(leaveDbId, staff.lineUserId, year - 1, year + 2)
       // กันเคส property "ผู้ยื่น (ระบบ)" ถูกแก้ใน Notion จนดึงใบของคนอื่นมาแสดง
       .filter(leave => leave.submitterUserId === profile.userId);
     // ยอดใช้คำนวณจากชุดเดียวกันเลย (ไม่ query ซ้ำ — ก่อนหน้านี้ยิง Notion 4 คำขอ/ครั้งจนโดน rate limit
     // ทำให้การ์ดยอดกลายเป็น "ไม่มีข้อมูล" ทั้งที่รายการด้านล่างแสดงได้) แล้วรวมรายการปรับจากสมุด LeaveBalances
-    usage = buildUsageSummaryWithBalances_(usageFromLeaves_(parsed), readLeaveBalances_(), year,
-      baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year));
+    const currentYearLeaves = parsed.filter(leave => String(leave.start || '').substring(0, 4) === String(year));
+    usage = buildUsageSummaryWithBalances_(usageFromLeaves_(currentYearLeaves), readLeaveBalances_(), year,
+      baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year), staffKey_(staff));
     leaves = parsed.map(leave => buildMyLeaveRow_(leave, todayStr));
   }
 
@@ -471,7 +591,7 @@ function apiCancelLeave_(body) {
 
   // lock ตัวเดียวกับปุ่มอนุมัติและการแก้ไข กัน "ยกเลิก" แข่งกับ "กดอนุมัติ/แก้ไข" พร้อมกันจนสถานะเพี้ยน
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลคำสั่งอื่นอยู่ ลองอีกครั้ง');
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลคำสั่งอื่นอยู่ กรุณาลองอีกครั้ง');
   try {
     const leavePage = parseLeavePage_(getLeavePage_(pageId));
 
@@ -485,8 +605,8 @@ function apiCancelLeave_(body) {
       throw new Error('ใบลานี้ดำเนินการไปแล้วและยกเลิกไม่ได้ (สถานะปัจจุบัน: ' +
         (leavePage.status || 'ไม่ทราบ') + ')');
     }
-    if ((leavePage.end || leavePage.start) < bangkokTodayStr_()) {
-      throw new Error('ใบลาช่วงวันที่ผ่านมาแล้ว ยกเลิกผ่านระบบไม่ได้ — ติดต่อผู้ดูแลระบบ');
+    if (leavePage.start <= bangkokTodayStr_()) {
+      throw new Error('ใบลาที่ถึงวันเริ่มแล้ว ยกเลิกผ่านระบบไม่ได้ — ติดต่อผู้ดูแลเพื่อปรับข้อมูลตามวันที่ใช้จริง');
     }
 
     const wasPending = leavePage.status !== LEAVE_STATUS.approved;
@@ -500,6 +620,8 @@ function apiCancelLeave_(body) {
       [PROPS_LEAVE.audit]: richTextValue_(
         (leavePage.audit ? leavePage.audit + '\n' : '') + formatAuditLine_(staff, 'ยกเลิกโดยผู้ยื่น')),
     });
+    appendAuditEvent_(String(body.requestId || ''), staff.lineUserId, 'leave.cancel', pageId,
+      leavePage.status, LEAVE_STATUS.cancelled);
 
     // แจ้งผู้เกี่ยวข้องหลังบันทึกสำเร็จ — 1:1 เท่านั้น ไม่ fallback เข้ากลุ่ม (ใบลาเป็นเรื่องส่วนตัว)
     if (pendingUserIds.length) {
@@ -558,7 +680,7 @@ function apiUpdateLeave_(body) {
   if (!pageId) throw new Error('ไม่พบใบลาที่ต้องการแก้ไข');
 
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลคำสั่งอื่นอยู่ ลองอีกครั้ง');
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลคำสั่งอื่นอยู่ กรุณาลองอีกครั้ง');
   try {
     const rawPage = getLeavePage_(pageId);
     const leavePage = parseLeavePage_(rawPage);
@@ -574,16 +696,27 @@ function apiUpdateLeave_(body) {
 
     // คำนวณใหม่ทั้งใบ: หักใบเดิมออกจากยอดใช้ก่อน (usage นับใบรออนุมัติรวมอยู่แล้ว)
     // แล้วรวม "รายการปรับ" จากสมุด LeaveBalances เข้ายอดใช้/สิทธิ์เหมือนตอนยื่นใหม่
-    const workDays = computeWorkDays_(input.start, input.end, readHolidaySet_(), input.period);
-    const rawUsage = subtractLeaveFromUsage_(getLeaveUsageForYear_(leaveDbId, staff.lineUserId, new Date()), leavePage);
-    const year = Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'));
+    const holidaySet = readHolidaySet_();
+    const workDays = computeWorkDays_(input.start, input.end, holidaySet, input.period);
+    const quotaDays = computeLeaveQuotaDays_(input.leaveType, input.start, input.end, workDays);
+    if (quotaDays <= 0 || (workDays <= 0 && !usesCalendarDayQuota_(input.leaveType))) {
+      throw new Error('ช่วงวันที่เลือกไม่มีวันทำการ กรุณาเลือกวันทำการอย่างน้อย 1 วัน');
+    }
+    const year = Number(input.start.substring(0, 4));
+    const leaveYearDate = new Date(input.start + 'T00:00:00+07:00');
+    const targetYearUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, leaveYearDate);
+    // หักใบเดิมเฉพาะเมื่อยังอยู่ปีเดียวกับวันที่ใหม่; ถ้าย้ายใบข้ามปี ใบเดิมไม่ได้อยู่ในยอดปีเป้าหมาย
+    const rawUsage = subtractLeaveFromTargetYearUsage_(targetYearUsage, leavePage, year);
     const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
-    baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year));
+      baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year), staffKey_(staff));
     const effectiveQuota = summary && summary[input.leaveType] ? summary[input.leaveType].quota : null;
-    const warnings = buildLeaveWarnings_(input.leaveType, workDays, summary ? usageFromSummary_(summary) : null, effectiveQuota);
+    const warnings = buildLeaveWarnings_(input.leaveType, quotaDays,
+      summary ? usageFromSummary_(summary) : null, effectiveQuota);
+    appendAdvanceNoticeWarning_(input.leaveType, bangkokTodayStr_(), input.start, holidaySet, warnings);
     appendAssigneeConflictWarning_(settings, staff.firstName, input.start, input.end, warnings);
     const usedLabel = summary && effectiveQuota != null
-      ? 'ยอดปีนี้ (รวมใบนี้): ' + workDaysLabel_((summary[input.leaveType].used || 0) + workDays) + ' / ' + effectiveQuota + ' วันทำการ'
+      ? quotaUsageNote_(input.leaveType, year,
+        (summary[input.leaveType].used || 0) + quotaDays, effectiveQuota)
       : '';
     const systemNote = [usedLabel].concat(warnings).filter(Boolean).join('\n');
     const oldUserIds = leavePage.currentApprover ? (leavePage.currentApprover.userIds || []) : [];
@@ -618,6 +751,7 @@ function apiUpdateLeave_(body) {
       [PROPS_LEAVE.status]: { select: { name: newStatus } },
       [PROPS_LEAVE.currentApprover]: richTextValue_(currentApproverJson),
       [PROPS_LEAVE.workDays]: { number: workDays },
+      [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
       [PROPS_LEAVE.audit]: richTextValue_(
         (leavePage.audit ? leavePage.audit + '\n' : '') + formatAuditLine_(staff, 'ผู้ยื่นแก้ไขใบลา — ส่งขออนุมัติใหม่')),
     };
@@ -636,6 +770,8 @@ function apiUpdateLeave_(body) {
     }
 
     const updatedPage = parseLeavePage_(updateLeavePage_(pageId, properties));
+    appendAuditEvent_(String(body.requestId || ''), staff.lineUserId, 'leave.update', pageId,
+      leavePage.status, updatedPage.status);
 
     // แจ้งผู้อนุมัติชุดเก่า "ที่ไม่อยู่ในชุดใหม่" ว่าใบถูกแก้ — การ์ดเก่าในแชทเป็นข้อมูลเก่าแล้ว
     // (ชุดที่ซ้ำกับชุดใหม่จะได้การ์ดใหม่อยู่แล้ว ไม่ต้องเปลือง push ซ้ำ)
@@ -649,6 +785,7 @@ function apiUpdateLeave_(body) {
       });
     });
 
+    let notificationPending = false;
     if (newStatus === LEAVE_STATUS.approved) {
       // โหมดแจ้งลาอัตโนมัติ: แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก — ใบลาขึ้นสรุปเช้าได้ทันทีเพราะยังเป็น "อนุมัติ"
       try {
@@ -659,18 +796,32 @@ function apiUpdateLeave_(body) {
           contents: buildLeaveNoticeBubble_(updatedPage),
         });
       } catch (notifyErr) {
+        notificationPending = true;
         logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลา (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
       }
     } else if (viaPool) {
       try {
         sendLineMessage_(settings.line_group_id, buildLeaveApprovalBubble_(updatedPage));
       } catch (err) {
+        notificationPending = true;
         logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติ (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + err);
-        throw new Error('ส่งเรื่องให้ผู้อนุมัติไม่สำเร็จ โปรดลองอีกครั้ง (หากยังไม่สำเร็จติดต่อผู้ดูแล)');
       }
     } else {
-      pushApproverCardWithFallback_(chainTargets.map(s => s.lineUserId), buildLeaveApprovalBubble_(updatedPage), updatedPage);
+      try {
+        pushApproverCardWithFallback_(chainTargets.map(s => s.lineUserId),
+          buildLeaveApprovalBubble_(updatedPage), updatedPage);
+      } catch (err) {
+        notificationPending = true;
+        logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติ (แก้ไข) ไม่สำเร็จ: ' + err);
+      }
     }
+
+    updateLeavePage_(updatedPage.pageId, {
+      [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
+        ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
+    });
+    if (notificationPending) recordLeaveNotificationFailure_(updatedPage.pageId);
+    else clearLeaveNotificationFailure_(updatedPage.pageId);
 
     logResult_(new Date(), 'leave-edit',
       updatedPage.fullName + ' แก้ไขใบลาเป็น' + input.leaveType + ' ' +
@@ -680,10 +831,13 @@ function apiUpdateLeave_(body) {
       ok: true,
       workDays: workDays,
       workDaysLabel: workDaysLabel_(workDays),
+      quotaDays: quotaDays,
+      quotaDaysLabel: quotaDaysLabel_(input.leaveType, quotaDays),
       period: input.period,
       approverName: approverLabel,
       needsSecond: needsSecond,
       autoApproved: newStatus === LEAVE_STATUS.approved,
+      notificationPending: notificationPending,
       warnings: warnings,
     };
   } finally {

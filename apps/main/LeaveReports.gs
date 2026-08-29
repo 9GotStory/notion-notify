@@ -26,25 +26,22 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
   const todayStr = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM-dd');
   const dataSourceId = resolveLeaveDataSourceId_(dbId);
   const payload = {
-    filter: { property: PROPS_LEAVE.status, select: { equals: LEAVE_STATUS.approved } },
+    // Notion เทียบ date filter กับวันเริ่ม จึงย้อนหลังตามช่วงใบลาสูงสุดของระบบแล้วกรอง overlap ซ้ำ
+    // ช่วยไม่ต้องอ่านใบลาอนุมัติทั้งหมดตั้งแต่เริ่มใช้ระบบทุกเช้า
+    filter: {
+      and: [
+        { property: PROPS_LEAVE.status, select: { equals: LEAVE_STATUS.approved } },
+        { property: PROPS_LEAVE.date, date: { on_or_after: shiftDateStr_(todayStr, -LEAVE_MAX_SPAN_DAYS) + 'T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: shiftDateStr_(todayStr, 1) + 'T00:00:00+07:00' } },
+      ],
+    },
     sorts: [{ property: PROPS_LEAVE.date, direction: 'descending' }],
     page_size: 100,
   };
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
-    method: 'post',
-    contentType: 'application/json',
-    headers: notionHeaders_(),
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true,
-  });
-  if (response.getResponseCode() >= 300) {
-    throw new Error('ดึงใบลาจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' + response.getContentText());
-  }
-  const data = JSON.parse(response.getContentText());
   const holidays = readHolidaySet_();
   let roster = null;
   try { roster = readStaffRoster_(); } catch (err) { /* ไม่มีชีต Staff → ตัดชื่อจากชื่อเต็มแทน */ }
-  return (data.results || [])
+  return queryNotionPages_(dataSourceId, payload)
     .map(parseLeavePage_)
     // กรอง overlap ฝั่งโค้ดแทนฝาก semantics ของ date-range filter ไว้กับ Notion (ดูหมายเหตุใน getNotionItemsForDay_)
     .filter(leave => leave.start && leaveRangeOverlap_(leave.start, leave.end, todayStr))
@@ -72,7 +69,7 @@ function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr) {
       filter: {
         and: [
           { property: PROPS_LEAVE.status, select: { equals: LEAVE_STATUS.approved } },
-          { property: PROPS_LEAVE.date, date: { on_or_after: shiftDateStr_(fromStr, -RANGE_PADDING_DAYS) + 'T00:00:00+07:00' } },
+          { property: PROPS_LEAVE.date, date: { on_or_after: shiftDateStr_(fromStr, -LEAVE_MAX_SPAN_DAYS) + 'T00:00:00+07:00' } },
           { property: PROPS_LEAVE.date, date: { before: toStr + 'T00:00:00+07:00' } },
         ],
       },

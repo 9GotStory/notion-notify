@@ -3,7 +3,7 @@
  * - ใช้ one-time trigger นัดเวลาส่งครั้งถัดไปตาม notify_time โดยตรง
  *   เมื่อทำงานเสร็จจะสร้าง trigger สำหรับวันถัดไป และ retry เฉพาะเมื่อส่งล้มเหลว
  * - อ่านค่าตั้งค่าและวันหยุดจากชีต "Settings" / "Holidays" ทุกครั้งที่รัน
- *   เมื่อแก้ notify_time ให้กดเมนูติดตั้ง/อัปเดตเวลาส่งอัตโนมัติเพื่อนัด trigger ใหม่
+ *   หน้า admin จะนัด trigger ใหม่อัตโนมัติ; ถ้าแก้ notify_time ในชีตโดยตรงให้กดเมนูติดตั้ง/อัปเดตเวลา
  * - ถ้าวันนั้นไม่มีงานเลย จะไม่ส่งข้อความเข้ากลุ่มใดๆ ทั้งสิ้น (เงียบ)
  *   แต่ยังบันทึกไว้ในชีต Logs ว่าเช็คแล้วและไม่มีงาน เพื่อยืนยันว่าระบบยังทำงานปกติ
  *   (ระบบลางาน: เงียบเฉพาะเมื่อไม่มีงาน "และ" ไม่มีผู้ลาที่อนุมัติแล้วคร่อมวันนั้น — ดู Leave.gs)
@@ -50,6 +50,14 @@ const THAI_MONTH_NAMES = [
 
 const FAIL_LIMIT = 3; // ลองส่งไม่เกินกี่ครั้ง/วัน ก่อนหยุดลองและรอวันถัดไป (หรือกด "ทดสอบส่งตอนนี้" เองหลังแก้ปัญหา)
 
+function notificationConfigurationReady_(settings) {
+  const s = settings || {};
+  const notionId = String(s.notion_database_id || '').trim().replace(/-/g, '');
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(normalizeScheduleTime_(s.notify_time)) &&
+    /^[0-9a-f]{32}$/i.test(notionId) &&
+    /^C[0-9a-f]{32}$/i.test(String(s.line_group_id || '').trim());
+}
+
 // วันเสาร์-อาทิตย์ของวันที่กำหนด อิงเวลา Asia/Bangkok เสมอ ไม่พึ่ง timezone ของเซิร์ฟเวอร์ที่รันสคริปต์
 // (แปลงเป็นสตริง yyyy-MM-dd ในโซนกรุงเทพฯ ก่อน แล้วอ่านซ้ำแบบ UTC midnight เพื่อไม่ให้ผูกกับ timezone ของเครื่องที่รัน)
 function isWeekend_(date) {
@@ -94,11 +102,11 @@ function checkAndSendNotification() {
 
     cleanupOldFailCounts_(props, todayStr);
 
-    if (!settings.notify_time || !settings.notion_database_id || !settings.line_group_id) {
+    if (!notificationConfigurationReady_(settings)) {
       // ตั้งค่าไม่ครบ — log วันละครั้ง ให้เห็นใน Logs/หน้าเว็บว่าทำไมระบบไม่ส่ง
       // return เงียบแบบไม่มีร่องรอยเลยถ้าลืมกรอกอะไรสักฟิลด์
       if (props.getProperty('LAST_CHECKED_DATE') !== todayStr) {
-        logResult_(now, 'skip', 'ตั้งค่าไม่ครบ (notify_time/notion_database_id/line_group_id) — เปิดชีต Settings หรือหน้าเว็บตั้งค่าเพื่อกรอกให้ครบ');
+        logResult_(now, 'skip', 'ตั้งค่าไม่ครบหรือรูปแบบไม่ถูกต้อง (notify_time/notion_database_id/line_group_id) — เปิดชีต Settings หรือหน้าเว็บตั้งค่าเพื่อตรวจสอบ');
         props.setProperty('LAST_CHECKED_DATE', todayStr);
       }
       return;
@@ -171,7 +179,7 @@ function checkAndSendNotification() {
     lock.releaseLock();
     try {
       if (shouldRetryToday) scheduleRetryNotification_(new Date());
-      else scheduleNextNotification_(new Date());
+      else syncNotificationTrigger_(new Date());
     } catch (scheduleErr) {
       console.error('ตั้ง trigger ครั้งถัดไปไม่สำเร็จ: ' + (scheduleErr.stack || scheduleErr));
     }
@@ -514,9 +522,7 @@ function nextScheduledDate_(now, notifyTime) {
 }
 
 function replaceNotificationTrigger_(runAt) {
-  ScriptApp.getProjectTriggers()
-    .filter(t => t.getHandlerFunction() === NOTIFICATION_TRIGGER_HANDLER)
-    .forEach(t => ScriptApp.deleteTrigger(t));
+  removeNotificationTriggers_();
 
   ScriptApp.newTrigger(NOTIFICATION_TRIGGER_HANDLER)
     .timeBased()
@@ -525,8 +531,26 @@ function replaceNotificationTrigger_(runAt) {
   return runAt;
 }
 
+function removeNotificationTriggers_() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === NOTIFICATION_TRIGGER_HANDLER)
+    .forEach(t => ScriptApp.deleteTrigger(t));
+}
+
 function scheduleNextNotification_(now) {
   const settings = getSettings_();
+  return replaceNotificationTrigger_(nextScheduledDate_(now || new Date(), settings.notify_time));
+}
+
+function syncNotificationTrigger_(now) {
+  const settings = getSettings_();
+  if (String(settings.enabled || '').toUpperCase() !== 'TRUE') {
+    removeNotificationTriggers_();
+    return null;
+  }
+  if (!notificationConfigurationReady_(settings)) {
+    throw new Error('ตั้งค่า notify_time, notion_database_id หรือ line_group_id ไม่ครบ/รูปแบบไม่ถูกต้อง');
+  }
   return replaceNotificationTrigger_(nextScheduledDate_(now || new Date(), settings.notify_time));
 }
 
@@ -539,11 +563,29 @@ function scheduleRetryNotification_(now) {
 
 function installTrigger() {
   try {
-    const nextRun = scheduleNextNotification_(new Date());
+    const nextRun = syncNotificationTrigger_(new Date());
+    if (!nextRun) {
+      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger เดิมแล้ว');
+      return;
+    }
     const nextLabel = thaiDateLabel_(nextRun) + ' เวลา ' +
       Utilities.formatDate(nextRun, 'Asia/Bangkok', 'HH:mm');
     SpreadsheetApp.getUi().alert('ตั้งเวลาส่งอัตโนมัติแล้ว\n\nครั้งถัดไป: ' + nextLabel);
   } catch (err) {
     SpreadsheetApp.getUi().alert('ติดตั้ง trigger ไม่สำเร็จ: ' + err);
   }
+}
+
+function notificationRuntimeHealth_() {
+  const settings = getSettings_();
+  const enabled = String(settings.enabled || '').toUpperCase() === 'TRUE';
+  const configReady = notificationConfigurationReady_(settings);
+  const triggerInstalled = ScriptApp.getProjectTriggers().some(
+    trigger => trigger.getHandlerFunction() === NOTIFICATION_TRIGGER_HANDLER);
+  return {
+    enabled: enabled,
+    configReady: configReady,
+    triggerInstalled: triggerInstalled,
+    healthy: !enabled || (configReady && triggerInstalled),
+  };
 }

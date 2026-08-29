@@ -2,34 +2,34 @@
  * จุดเข้าเดียวของ deployment นี้ รับ 2 อย่าง (แยกเส้นทางด้วยโครงสร้าง body):
  * 1. Webhook จาก LINE — เดิมใช้แค่จับ Group ID ตอนติดตั้ง ตอนนี้เพิ่มรองรับปุ่มอนุมัติใบลา (postback)
  *    ดังนั้น deployment นี้ต้องค้างไว้ถาวรแล้ว (ไม่ใช่จับ Group ID แล้วปิดตามคำแนะนำเดิม)
- * 2. API ของหน้าฟอร์ม LIFF — body มีฟิลด์ apiAction (session/bind/submit/myLeaves/cancel/update/calendar/schedule)
- *    เรียกจาก GitHub Pages ด้วย POST Content-Type: text/plain (เลี่ยง CORS preflight ที่ Apps Script
- *    ตอบ OPTIONS ไม่ได้) — การตอบกลับเป็น JSON ที่ Apps Script ใส่ Access-Control-Allow-Origin: * ให้
+ * 2. API ภายในจาก security gateway — body เป็น signed envelope ที่บรรจุ apiAction
  *
- * หมายเหตุด้านความปลอดภัย: endpoint นี้เป็น public URL และไม่สามารถตรวจ X-Line-Signature ได้
- * (Apps Script เข้าถึง custom request header ไม่ได้โดยตรง) จึงใช้ชั้นป้องกันแทน 3 ชั้น:
+ * หมายเหตุด้านความปลอดภัย: Apps Script อ่าน X-Line-Signature ไม่ได้ จึงต้องให้ LINE และ browser
+ * เรียกผ่าน security gateway เท่านั้นหลังตั้ง GATEWAY_SHARED_SECRET:
+ *   - gateway ตรวจลายเซ็น LINE จาก raw body ก่อนส่ง signed envelope มาที่นี่
  *   - ทุก apiAction ต้องแนบ LINE access token ที่ระบบตรวจกับ api.line.me จริง (verifyLineToken_ ใน LeaveApi.gs)
  *   - ปุ่มอนุมัติตรวจว่า userId ของผู้กดตรงกับ "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion ของใบลานั้น
  *     (ผู้ปลอมต้องรูทั้ง pageId และ userId ของผู้อนุมัติจริงจึงจะผ่านได้)
  *   - dedup ด้วย webhookEventId กัน LINE ยิงซ้ำ (ตอบช้า) ทำให้ประมวลผลซ้ำสองรอบ
- * ผลกระทบของคนนอกยิงเข้ามาเองจึงจำกัดอยู่ที่ "ได้รับข้อความปฏิเสธ" เท่านั้น
+ * เมื่อจบ migration ให้ลบ ALLOW_LEGACY_DIRECT เพื่อบังคับเส้นทางนี้ทุกคำขอ
  *
  * วิธีติดตั้ง (ครั้งแรก/จับ Group ID):
- * 1. Deploy > New deployment > เลือกประเภท "Web app"
+ * 1. Deploy > New deployment > เลือกประเภท "Web app" (ใช้เป็น backend ภายในของ gateway)
  *    - Execute as: Me, Who has access: Anyone → กด Deploy แล้วคัดลอก Web app URL
- * 2. LINE Developers Console > channel (Messaging API tab): วาง URL ลงช่อง Webhook URL กด Verify
+ * 2. Deploy security gateway แล้ววาง URL ลง LINE Developers Console: <gateway>/line/webhook
  *    เปิด "Use webhook" และ "Allow bot to join group chats"
  * 3. เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความอะไรก็ได้ 1 ข้อความ — line_group_id จะถูกเติมในชีต Settings
  * 4. หลังจากนั้นปล่อย deployment นี้ค้างไว้ถาวร (ปุ่มอนุมัติใบลาและ API ของ LIFF วิ่งผ่าน URL เดียวกันนี้)
  *    ถ้าแก้โค้ดให้ Deploy > Manage deployments > Edit > New version เสมอ (URL ไม่เปลี่ยน)
  */
 
-// API จากหน้า LIFF ใช้ GET (query params) — เพราะบาง WebView ตาม redirect 302 ของ POST ไปไม่ได้
-// (browser ต้อง rewrite POST→GET ตาม spec ซึ่งเป็นจุดที่เพี้ยนได้ใน WebView รุ่นเก่า)
-// รองรับ JSONP ด้วยผ่าน ?callback=fn — เหลือกสำรองกรณี CORS ถูกบล็อกทั้งคู่
+// Legacy GET ใช้เฉพาะช่วง migration ก่อนตั้ง GATEWAY_SHARED_SECRET เท่านั้น
 function doGet(e) {
   const params = (e && e.parameter) || {};
   if (params.apiAction) {
+    if (gatewayRequired_()) {
+      return jsonOutput_({ ok: false, code: 'GATEWAY_REQUIRED', error: 'คำขอนี้ต้องส่งผ่าน security gateway ด้วย POST' });
+    }
     const result = handleApiRequest_(params); // รูปทรงเดียวกับ body ของ POST จึงใช้ router เดิมได้เลย
     if (params.callback && /^[A-Za-z0-9_.]{1,64}$/.test(params.callback)) {
       return ContentService
@@ -43,7 +43,7 @@ function doGet(e) {
     '<div style="font-family:sans-serif;padding:48px 24px;max-width:560px;margin:auto;color:#333;line-height:1.7">' +
     '<h2 style="margin:0 0 12px;color:#0F6E56">ระบบแจ้งเตือนปฏิทิน + ระบบลางาน</h2>' +
     '<p>URL นี้คือ <b>endpoint ของ webhook และ API</b> (ให้ LINE และหน้าฟอร์ม LIFF เรียกใช้) ' +
-    'ไม่ใช่หน้าเว็บสำหรับเปิดดูด้วยตนเอง — การตั้งค่าระบบทำที่ใดึ่งนี้แทน:</p>' +
+    'ไม่ใช่หน้าเว็บสำหรับเปิดดูด้วยตนเอง — ตั้งค่าระบบได้จากช่องทางต่อไปนี้:</p>' +
     '<ol style="padding-left:20px">' +
     '<li><b>Google Sheet หลัก</b> — แก้ชีต Settings/Approvers/Holidays ได้ตรงๆ หรือใช้เมนู "ระบบแจ้งเตือนปฏิทิน"</li>' +
     '<li><b>หน้าเว็บตั้งค่า (ถ้าต้องการ)</b> — deploy จากโปรเจกต์ Apps Script แยกตามคู่มือ SETUP.md ข้อ 10</li>' +
@@ -52,31 +52,51 @@ function doGet(e) {
 }
 
 function doPost(e) {
+  let requestKind = 'unknown';
   try {
-    const body = JSON.parse(e.postData.contents);
+    const rawBody = JSON.parse(e.postData.contents);
+    if (rawBody && Array.isArray(rawBody.events)) requestKind = 'line';
+    const viaGateway = !!rawBody.gatewayEnvelope;
+    const body = unwrapGatewayEnvelope_(rawBody);
+
+    if (body && body.internalAction === 'reschedule-notification') {
+      if (!viaGateway) throw new Error('คำสั่งภายในต้องผ่าน security gateway');
+      const nextRun = syncNotificationTrigger_(new Date());
+      return jsonOutput_({ ok: true, nextRun: nextRun ? nextRun.toISOString() : null });
+    }
+    if (body && body.internalAction === 'notification-health') {
+      if (!viaGateway) throw new Error('คำสั่งภายในต้องผ่าน security gateway');
+      return jsonOutput_({ ok: true, health: notificationRuntimeHealth_() });
+    }
 
     // API จากหน้า LIFF (สัญญา: มีฟิลด์ apiAction) — ตอบ JSON กลับไปให้ browser
     if (body && body.apiAction) {
+      requestKind = 'api';
       return jsonOutput_(handleApiRequest_(body));
     }
 
     // Webhook จาก LINE (สัญญา: มีฟิลด์ events)
+    requestKind = 'line';
     const events = body.events || [];
-    const webhookEventId = body.webhookEventId || '';
-    events.forEach(event => {
+    for (let i = 0; i < events.length; i++) {
+      const event = events[i];
       // เหตุการณ์ mode "standby" คือช่วง channel กำลังถูก migrate — เอกสาร LINE ให้เมินได้เลย
-      if (event.mode === 'standby') return;
+      if (event.mode === 'standby') continue;
       const source = event.source || {};
       if (source.type === 'group' && source.groupId) {
         recordGroupId_(source.groupId);
       }
       if (event.type === 'postback') {
-        handleLeavePostback_(event, webhookEventId);
+        handleLeavePostback_(event, event.webhookEventId || '');
       }
-    });
+    }
   } catch (err) {
-    // เก็บ error ไว้ดูใน Executions/Logs; ไม่ throw กลับไปหา LINE เพราะ LINE จะ retry รัวๆ ถ้าเห็น error
     console.error(err);
+    if (requestKind === 'line') {
+      // gateway แปลงผลนี้เป็น HTTP 502 เพื่อให้ LINE retry เหตุการณ์ที่ล้มเหลวชั่วคราว
+      return jsonOutput_({ status: 'error', code: 'PROCESSING_FAILED' });
+    }
+    return jsonOutput_({ ok: false, code: 'REQUEST_REJECTED', error: 'คำขอไม่ผ่านการตรวจสอบ' });
   }
 
   return jsonOutput_({ status: 'ok' });

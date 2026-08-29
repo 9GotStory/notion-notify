@@ -22,7 +22,7 @@ AdminViews.holidays = {
       '<input id="hdName" type="text" maxlength="120" placeholder="เช่น วันสงกรานต์" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
       '</div>' +
       '<button id="hdAddBtn" type="button" class="mt-3 h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">เพิ่มวันหยุด</button>' +
-      '<p class="text-xs text-slate-400 mt-2">ตรวจทานกับประกาศของ สนง.คณะกรรมการข้าราชการพลเรือน (soc.go.th) ทุกต้นปี</p>' +
+      '<p class="text-xs text-slate-400 mt-2">ตรวจทานกับประกาศวันหยุดราชการจากหน่วยงานเจ้าของประกาศทุกต้นปี</p>' +
       '</div>' +
 
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">' +
@@ -56,9 +56,16 @@ AdminViews.holidays = {
       const del = UI.el('button', 'text-xs text-red-500 hover:underline', 'ลบ');
       del.addEventListener('click', async () => {
         if (!confirm('ลบวันหยุด ' + h.date + ' — ' + h.name + '?')) return;
-        await AdminAPI.call('delete_holiday', { row: h.row });
-        UI.showToast('ลบแล้ว');
-        await this.reload(); // โหลดใหม่เสมอ — เลขแถวที่เหลือเปลี่ยนไปแล้ว
+        del.disabled = true;
+        try {
+          await AdminAPI.call('delete_holiday', { row: h.row, version: h.version });
+          UI.showToast('ลบแล้ว');
+          await this.reload(); // โหลดใหม่เสมอ — เลขแถวที่เหลือเปลี่ยนไปแล้ว
+        } catch (e) {
+          UI.showToast(e.message, true);
+        } finally {
+          del.disabled = false;
+        }
       });
       td.appendChild(del);
       tr.appendChild(td);

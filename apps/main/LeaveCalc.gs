@@ -8,7 +8,15 @@ function bangkokTodayStr_() {
 }
 
 function isValidDateStr_(value) {
-  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '').trim());
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || '').trim());
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day;
 }
 
 function daysBetweenDateStrs_(startStr, endStr) {
@@ -31,6 +39,9 @@ function parseLeaveDateRange_(start, end, todayStr) {
   }
   if (daysBetweenDateStrs_(startStr, endStr) < 0) {
     throw new Error('วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
+  }
+  if (startStr.substring(0, 4) !== endStr.substring(0, 4)) {
+    throw new Error('ใบลาต้องอยู่ในปีปฏิทินเดียวกัน กรุณาแยกยื่นตามปี');
   }
   if (daysBetweenDateStrs_(todayStr, startStr) > LEAVE_MAX_DAYS_AHEAD) {
     throw new Error('ยื่นล่วงหน้าได้ไม่เกิน ' + LEAVE_MAX_DAYS_AHEAD + ' วัน');
@@ -67,10 +78,13 @@ function leaveRangeOverlap_(startStr, endStr, todayStr) {
 
 // ตรวจความถูกต้องของช่วงวัน + จับคู่กับประเภทที่ลาครึ่งวันได้ (ครึ่งวันใช้ได้เฉพาะลา 1 วัน)
 function normalizeLeavePeriod_(period, leaveType, startStr, endStr) {
-  const value = LEAVE_PERIODS.includes(period) ? period : 'เต็มวัน';
+  const value = String(period || '').trim() || 'เต็มวัน';
+  if (!LEAVE_PERIODS.includes(value)) {
+    throw new Error('ช่วงเวลาการลาไม่ถูกต้อง');
+  }
   const singleDay = !endStr || endStr === startStr;
   if (value !== 'เต็มวัน' && (!singleDay || !HALF_DAY_TYPES.includes(leaveType))) {
-    return 'เต็มวัน'; // ครึ่งวันใช้ไม่ได้กับประเภท/ช่วงหลายวัน → คืนเป็นเต็มวันเงียบๆ
+    throw new Error('เลือกครึ่งวันได้เฉพาะใบลา 1 วันและประเภทที่รองรับ');
   }
   return value;
 }
@@ -82,8 +96,51 @@ function computeWorkDays_(startStr, endStr, holidaySet, period) {
   return days;
 }
 
+function usesCalendarDayQuota_(leaveType) {
+  return CALENDAR_DAY_QUOTA_TYPES.includes(String(leaveType || '').trim());
+}
+
+/** จำนวนวันที่ใช้ตัดสิทธิ์: ลาคลอด/อุปสมบทนับวันปฏิทินต่อเนื่อง ส่วนประเภทอื่นใช้วันทำการ */
+function computeLeaveQuotaDays_(leaveType, startStr, endStr, workDays) {
+  const effectiveEnd = endStr || startStr;
+  if (usesCalendarDayQuota_(leaveType) &&
+      isValidDateStr_(startStr) && isValidDateStr_(effectiveEnd) && effectiveEnd >= startStr) {
+    return daysBetweenDateStrs_(startStr, effectiveEnd) + 1;
+  }
+  const numericWorkDays = Number(workDays);
+  return Number.isFinite(numericWorkDays) && numericWorkDays >= 0 ? numericWorkDays : 0;
+}
+
+function leaveQuotaDays_(leave) {
+  return computeLeaveQuotaDays_(leave && leave.leaveType, leave && leave.start,
+    leave && leave.end, leave && leave.workDays);
+}
+
+function quotaUnitLabel_(leaveType) {
+  return usesCalendarDayQuota_(leaveType) ? 'วันปฏิทิน' : 'วันทำการ';
+}
+
+function quotaBasis_(leaveType) {
+  return MANUAL_REVIEW_QUOTA_TYPES.includes(String(leaveType || '').trim()) ? 'manual_event' : 'annual';
+}
+
+function quotaDaysLabel_(leaveType, days) {
+  return workDaysLabel_(days) + (usesCalendarDayQuota_(leaveType) ? 'ปฏิทิน' : 'ทำการ');
+}
+
+function quotaUsageNote_(leaveType, year, usedIncludingRequest, quota) {
+  if (quota == null) return '';
+  const prefix = 'ยอดปี พ.ศ. ' + (year + 543) + ' (รวมใบนี้): ' +
+    quotaDaysLabel_(leaveType, usedIncludingRequest);
+  return quotaBasis_(leaveType) === 'manual_event'
+    ? prefix + '; เกณฑ์อ้างอิง ' + quota + ' ' + quotaUnitLabel_(leaveType) +
+      ' ต่อเหตุการณ์/ตามสถานภาพ — HR ต้องตรวจสิทธิ์จริง'
+    : prefix + ' / ' + quota + ' ' + quotaUnitLabel_(leaveType);
+}
+
 // แปลงเป็นข้อความ เช่น 0.5 → "½ วัน" / 1 → "1 วัน" / 2.5 → "2½ วัน"
 function workDaysLabel_(days) {
+  if (Number(days) === 0) return '0 วัน';
   const whole = Math.floor(days);
   const half = days - whole >= 0.5;
   if (days === 0.5) return '½ วัน';
@@ -92,36 +149,64 @@ function workDaysLabel_(days) {
 
 /**
  * คำเตือนตามระเบียบฯ สำหรับใบลาที่กำลังยื่น (pure)
- * usage = ยอดวันทำการที่ใช้ไปแล้วของปีนี้แยกตามประเภท (จาก getLeaveUsageForYear_) หรือ null ถ้าหาไม่ได้
+ * usage = ยอดวันใช้สิทธิ์ของปีนี้แยกตามประเภท (จาก getLeaveUsageForYear_) หรือ null ถ้าหาไม่ได้
  * effectiveQuota (ไม่บังคับ) = สิทธิ์สูงสุดหลังรวม "ยกมา" จากสมุดรายการปรับ (LeaveBalances) —
  *   ไม่ส่งมาใช้โควตาตามระเบียบ (LEAVE_QUOTAS) ตรงๆ ส่งมาเมื่อคนนั้นมีสิทธิ์สะสม/ปรับพิเศษ
  *   (used ที่เทียบต้องเป็นยอดที่ "รวมใช้เพิ่ม" แล้วด้วย จึงเทียบแอปเปิลกับแอปเปิล)
  * นโยบาย: "เตือนอย่างเดียว" — ไม่มีการบล็อก ให้ผู้อนุมัติใช้ดุลพินิจ (คำเตือนถูกเก็บลงใบลาและแสดงในการ์ด)
  */
-function buildLeaveWarnings_(leaveType, workDays, usage, effectiveQuota) {
+function buildLeaveWarnings_(leaveType, quotaDays, usage, effectiveQuota) {
   const warnings = [];
   const used = usage ? (usage[leaveType] || 0) : 0;
   const quota = effectiveQuota != null ? effectiveQuota : LEAVE_QUOTAS[leaveType];
+  const unit = quotaUnitLabel_(leaveType);
+  const manualEvent = quotaBasis_(leaveType) === 'manual_event';
 
-  if (quota != null && usage) {
-    const total = used + workDays;
+  if (quota != null && usage && !manualEvent) {
+    const total = used + quotaDays;
     if (total > quota) {
       warnings.push('⚠ เกินสิทธิ์ตามระเบียบ: ใช้ไปแล้ว ' + workDaysLabel_(used) + ' + ใบนี้ ' +
-        workDaysLabel_(workDays) + ' = ' + workDaysLabel_(total) + ' (สิทธิ์สูงสุด ' + quota + ' วันทำการ/ปี)');
+        workDaysLabel_(quotaDays) + ' = ' + workDaysLabel_(total) + ' (สิทธิ์สูงสุด ' + quota + ' ' + unit + '/ปี)');
     } else if (total === quota) {
-      warnings.push('ℹ ใบนี้ทำให้ครบสิทธิ์ ' + quota + ' วันทำการ/ปี พอดี — ใบถัดไปจะเกินสิทธิ์');
+      warnings.push('ℹ ใบนี้ทำให้ครบสิทธิ์ ' + quota + ' ' + unit + '/ปี พอดี — ใบถัดไปจะเกินสิทธิ์');
     }
   }
-  if (leaveType === 'ลาพักร้อน' && workDays > 10) {
+  if (quota != null && manualEvent) {
+    if (quotaDays > quota) {
+      warnings.push('⚠ ใบนี้เกินเกณฑ์อ้างอิง ' + quota + ' ' + unit + ': ใบนี้ ' +
+        workDaysLabel_(quotaDays) + ' — ให้ HR ตรวจเงื่อนไขและเอกสารประกอบ');
+    }
+    warnings.push('ℹ สิทธิ์ประเภทนี้ขึ้นกับเหตุการณ์/อายุงาน/สถานภาพ ไม่ใช่เพดานรายปีทั่วไป ' +
+      'ระบบแสดงยอดปีเพื่อประกอบการพิจารณาเท่านั้น ให้ HR ตรวจสิทธิ์จริงก่อนอนุมัติ');
+  }
+  if (leaveType === 'ลาพักร้อน' && quotaDays > 10) {
     warnings.push('⚠ ลาพักผ่อนเกิน 10 วันทำการ/ครั้ง — ตามระเบียบต้องเป็นการใช้สิทธิ์สะสม (รวมต่อครั้งไม่เกิน 45 วันทำการ) โปรดตรวจสอบสิทธิ์สะสม');
   }
-  if (leaveType === 'ลาป่วย' && workDays > 3 && workDays < 30) {
+  if (leaveType === 'ลาป่วย' && quotaDays > 3 && quotaDays < 30) {
     warnings.push('⚠ ลาป่วยเกิน 3 วันทำการ ตามระเบียบต้องมีใบรับรองแพทย์แนบประกอบใบลา');
   }
-  if (leaveType === 'ลาป่วย' && workDays >= 30) {
+  if (leaveType === 'ลาป่วย' && quotaDays >= 30) {
     warnings.push('⚠ ลาป่วยตั้งแต่ 30 วันทำการขึ้นไป ต้องมีใบรับรองแพทย์ทุกครั้ง และอาจเข้าเกณฑ์ทางการแพทย์ (โปรดปรึกษาฝ่ายกำลังคน)');
   }
   return warnings;
+}
+
+function businessDaysBeforeLeave_(todayStr, startStr, holidaySet) {
+  if (!isValidDateStr_(todayStr) || !isValidDateStr_(startStr) || startStr <= todayStr) return 0;
+  const first = new Date(todayStr + 'T00:00:00Z');
+  const last = new Date(startStr + 'T00:00:00Z');
+  first.setUTCDate(first.getUTCDate() + 1);
+  last.setUTCDate(last.getUTCDate() - 1);
+  if (first > last) return 0;
+  const from = Utilities.formatDate(first, 'UTC', 'yyyy-MM-dd');
+  const to = Utilities.formatDate(last, 'UTC', 'yyyy-MM-dd');
+  return countBusinessDays_(from, to, holidaySet || new Set());
+}
+
+function appendAdvanceNoticeWarning_(leaveType, todayStr, startStr, holidaySet, warnings) {
+  if (leaveType === 'ลากิจ' && businessDaysBeforeLeave_(todayStr, startStr, holidaySet) < 3) {
+    warnings.push('⚠ แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — โปรดตรวจสอบเหตุผลความจำเป็น');
+  }
 }
 
 // สรุปยอดใช้/สิทธิ์สำหรับแสดงบนฟอร์ม (pure) — ครอบทุกประเภทมาตรฐานที่มีโควตา + ลาป่วย (ไม่จำกัด)
@@ -129,19 +214,26 @@ function buildUsageSummary_(usage) {
   if (!usage) return null;
   const summary = {};
   Object.keys(usage).forEach(type => {
-    summary[type] = { used: usage[type], quota: LEAVE_QUOTAS[type] != null ? LEAVE_QUOTAS[type] : null };
+    summary[type] = {
+      used: usage[type],
+      quota: LEAVE_QUOTAS[type] != null ? LEAVE_QUOTAS[type] : null,
+      unit: quotaUnitLabel_(type),
+      basis: quotaBasis_(type),
+    };
   });
   Object.keys(LEAVE_QUOTAS).forEach(type => {
-    if (!(type in summary)) summary[type] = { used: 0, quota: LEAVE_QUOTAS[type] };
+    if (!(type in summary)) summary[type] = {
+      used: 0, quota: LEAVE_QUOTAS[type], unit: quotaUnitLabel_(type), basis: quotaBasis_(type),
+    };
   });
   return summary;
 }
 
-/** แผนที่โควตาพื้นฐานของ "ประเภทบุคลากรหนึ่ง ในปีหนึ่ง" (pure)
+/** แผนที่เกณฑ์สิทธิ์พื้นฐานของ "ประเภทบุคลากรหนึ่ง สำหรับนโยบายปีหนึ่ง" (pure)
  *  profiles = แถวจาก readQuotaProfiles_() / employmentType = สถานะของคนนั้น (ว่างได้) / year = ค.ศ.
  *  กติกา: แถวที่ระบุปีชัดจนถึง (yearBE = ปีนั้น) ชนะแถว "ทุกปี" (yearBE = null) ชนะค่าเริ่มต้น LEAVE_QUOTAS
  *  ประเภทการลาที่ไม่มีแถวเลย = ใช้ค่าเริ่มต้นของระบบ (ระเบียบราชการ) / โควตา 0 = ไม่มีสิทธิ์ (แสดง 0 ไม่ใช่ซ่อน)
- *  คืน {ประเภทการลา: โควตา หรือ null = ไม่จำกัด} */
+ *  คืน {ประเภทการลา: เกณฑ์ หรือ null = ไม่จำกัด}; ผู้เรียกดู quotaBasis_ เพื่อแยกรายปีกับรายเหตุการณ์ */
 function baseQuotaMap_(profiles, employmentType, year) {
   const map = {};
   Object.keys(LEAVE_QUOTAS).forEach(type => { map[type] = LEAVE_QUOTAS[type]; });
@@ -174,7 +266,7 @@ function usageFromSummary_(summary) {
  *  quotaMap (ไม่บังคับ) = โควตาพื้นฐานตามประเภทบุคลากรของคนนั้นจาก baseQuotaMap_ — ไม่ส่ง = ค่าเริ่มต้นระบบ (ระเบียบราชการ)
  *  "ใช้เพิ่ม" รวมเข้า used / "ยกมา" รวมเข้า quota — remaining = quota - used ใช้สูตรเดิมได้ทุกจุด
  *  คืน {ประเภท: {used, quota, carryIn?, usedExtra?}} หรือ null เมื่อไม่มีทั้งยอดใบลาและรายการปรับ */
-function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap) {
+function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap, staffName) {
   const quotaOf = (type) => {
     if (quotaMap && Object.prototype.hasOwnProperty.call(quotaMap, type)) return quotaMap[type];
     return LEAVE_QUOTAS[type] != null ? LEAVE_QUOTAS[type] : null;
@@ -182,18 +274,26 @@ function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap) {
   const summary = buildUsageSummary_(usage) || {};
   // สร้างใหม่บนฐานโควตาของคนนั้น (buildUsageSummary_ ใช้ค่าเริ่มต้นระบบ — แทนที่ด้วย quotaMap ทีละช่อง)
   Object.keys(summary).forEach(type => { summary[type].quota = quotaOf(type); });
-  const yearRows = (balances || []).filter(b => b.yearBE === year + 543);
+  const normalizedStaffName = String(staffName || '').trim().replace(/\s+/g, ' ');
+  const yearRows = normalizedStaffName
+    ? (balances || []).filter(b => b.yearBE === year + 543 && b.name === normalizedStaffName)
+    : [];
   if (!usage) {
     // ใบลาอ่านไม่ได้และไม่มีรายการปรับของปีนี้เลย = ไม่มีข้อมูลจะสรุป (คืน null ให้หน้าเว็บแสดงตามเดิม)
     if (!yearRows.length) return null;
     // มีรายการปรับ — ยังสรุปได้จากฐานโควตาของคนนั้นเพียงลำพัง (กันหน้า "ของฉัน" ว่างเปล่าทั้งที่มีข้อมูลปรับ)
     Object.keys(quotaMap || LEAVE_QUOTAS).forEach(type => {
-      if (!(type in summary)) summary[type] = { used: 0, quota: quotaOf(type) };
+      if (!(type in summary)) summary[type] = {
+        used: 0, quota: quotaOf(type), unit: quotaUnitLabel_(type), basis: quotaBasis_(type),
+      };
     });
   }
   yearRows.forEach(b => {
     if (!summary[b.leaveType]) {
-      summary[b.leaveType] = { used: 0, quota: quotaOf(b.leaveType) };
+      summary[b.leaveType] = {
+        used: 0, quota: quotaOf(b.leaveType), unit: quotaUnitLabel_(b.leaveType),
+        basis: quotaBasis_(b.leaveType),
+      };
     }
     const cell = summary[b.leaveType];
     cell.carryIn = (cell.carryIn || 0) + b.carryIn;
@@ -205,7 +305,7 @@ function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap) {
 }
 
 /**
- * ยอดวันทำการที่ใช้ไปแล้วของปีปฏิทินปัจจุบัน แยกตามประเภท — อ่านจากใบลาจริงใน Notion ทั้งหมด
+ * ยอดวันใช้สิทธิ์ของปีปฏิทินตามวันที่ now แยกตามประเภท — อ่านจากใบลาจริงใน Notion ทั้งหมด
  * นับใบสถานะ "อนุมัติ" และใบที่กำลังรออนุมัติ (กันยื่นพร้อมกันหลายใบแล้วทะลุโควตาโดยไม่รู้ตัว)
  * คืน { 'ลากิจ': 3.5, ... } หรือ null ถ้ายังไม่ตั้งค่า/อ่านไม่สำเร็จ (ไม่ throw — การตรวจสิทธิ์ต้องไม่ทำให้ยื่นลาไม่ได้)
  */
@@ -228,23 +328,10 @@ function getLeaveUsageForYear_(leaveDbId, submitterUserId, now) {
       },
       page_size: 100,
     };
-    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
-      method: 'post',
-      contentType: 'application/json',
-      headers: notionHeaders_(),
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true,
-    });
-    if (response.getResponseCode() >= 300) {
-      logResult_(now, 'error', 'อ่านยอดวันลาสะสมไม่สำเร็จ (' + response.getResponseCode() + '): ' +
-        response.getContentText().substring(0, 200));
-      return null;
-    }
-    const data = JSON.parse(response.getContentText());
     const usage = {};
-    (data.results || []).forEach(page => {
+    queryNotionPages_(dataSourceId, payload).forEach(page => {
       const leave = parseLeavePage_(page);
-      if (leave.leaveType) usage[leave.leaveType] = (usage[leave.leaveType] || 0) + (leave.workDays || 0);
+      if (leave.leaveType) usage[leave.leaveType] = (usage[leave.leaveType] || 0) + leaveQuotaDays_(leave);
     });
     return usage;
   } catch (err) {
@@ -261,7 +348,7 @@ function usageFromLeaves_(leaves) {
   const usage = {};
   (leaves || []).forEach(leave => {
     if (counted.includes(leave.status) && leave.leaveType) {
-      usage[leave.leaveType] = (usage[leave.leaveType] || 0) + (leave.workDays || 0);
+      usage[leave.leaveType] = (usage[leave.leaveType] || 0) + leaveQuotaDays_(leave);
     }
   });
   return usage;
@@ -306,16 +393,25 @@ function subtractLeaveFromUsage_(usage, leave) {
   if (!usage) return null;
   const next = Object.assign({}, usage);
   if (leave && leave.leaveType) {
-    next[leave.leaveType] = Math.max(0, (next[leave.leaveType] || 0) - (leave.workDays || 0));
+    next[leave.leaveType] = Math.max(0, (next[leave.leaveType] || 0) - leaveQuotaDays_(leave));
   }
   return next;
 }
 
+/** หักใบเดิมออกจากยอดปีเป้าหมายเฉพาะเมื่อใบเดิมอยู่ปีนั้น (ใช้ตอนย้ายวันที่ของใบรอข้ามปี) */
+function subtractLeaveFromTargetYearUsage_(usage, leave, targetYear) {
+  return String((leave && leave.start) || '').substring(0, 4) === String(targetYear)
+    ? subtractLeaveFromUsage_(usage, leave)
+    : usage;
+}
+
 function leaveSummaryText_(leavePage) {
   const periodSuffix = leavePage.period && leavePage.period !== 'เต็มวัน' ? ' (' + leavePage.period + ')' : '';
+  const quotaSuffix = usesCalendarDayQuota_(leavePage.leaveType)
+    ? ' (ใช้สิทธิ์ ' + quotaDaysLabel_(leavePage.leaveType, leaveQuotaDays_(leavePage)) + ')' : '';
   return 'ประเภท: ' + leavePage.leaveType +
     '\nวันที่: ' + leaveDateLabel_(leavePage.start, leavePage.end) + periodSuffix +
-    (leavePage.workDays ? ' (' + workDaysLabel_(leavePage.workDays) + 'ทำการ)' : '');
+    (leavePage.workDays ? ' (' + workDaysLabel_(leavePage.workDays) + 'ทำการ)' : '') + quotaSuffix;
 }
 
 // หา "วันทำการถัดไป" ถัดจากวันที่กำหนด (ข้ามเสาร์-อาทิตย์และวันหยุด) — pure

@@ -1,5 +1,8 @@
 # dependencies ของหน้าฟอร์ม (ติดตั้งด้วย npm install — CI ทำ npm ci เอง)
 web/liff-form/node_modules/
 
+# gateway ไม่มี dependency จริง แต่กันไว้กรณีติดตั้งเพิ่มในอนาคต
+gateway/node_modules/
+
 # CSS ที่คอมไพล์แล้วในเครื่อง (บน GitHub Pages ถูกสร้างโดย Actions ตอน deploy)
 web/liff-form/styles.css

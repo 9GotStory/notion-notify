@@ -21,6 +21,8 @@ function buildLeavePagePayload_(leave) {
     [PROPS_LEAVE.status]: { select: { name: leave.initialStatus } },
     [PROPS_LEAVE.currentApprover]: richTextValue_(leave.currentApprover),
     [PROPS_LEAVE.workDays]: { number: leave.workDays },
+    [PROPS_LEAVE.requestId]: richTextValue_(leave.requestId),
+    [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
   };
   if (leave.period && leave.period !== 'เต็มวัน') {
     properties[PROPS_LEAVE.period] = richTextValue_(leave.period);
@@ -56,8 +58,18 @@ function createNotionLeavePage_(payload) {
   return JSON.parse(response.getContentText());
 }
 
+function normalizeNotionPageId_(pageId) {
+  const value = String(pageId || '').trim();
+  const compact = value.replace(/-/g, '');
+  if (!/^[0-9a-f]{32}$/i.test(compact)) {
+    throw new Error('รหัสใบลาไม่ถูกต้อง กรุณาโหลดรายการใหม่');
+  }
+  return value;
+}
+
 function getLeavePage_(pageId) {
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + pageId, {
+  const safePageId = normalizeNotionPageId_(pageId);
+  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + encodeURIComponent(safePageId), {
     method: 'get',
     headers: notionHeaders_(),
     muteHttpExceptions: true,
@@ -70,7 +82,8 @@ function getLeavePage_(pageId) {
 }
 
 function updateLeavePage_(pageId, properties) {
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + pageId, {
+  const safePageId = normalizeNotionPageId_(pageId);
+  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + encodeURIComponent(safePageId), {
     method: 'patch',
     contentType: 'application/json',
     headers: notionHeaders_(),
@@ -100,7 +113,7 @@ function parseLeavePage_(page) {
     fullName: plainText_(props[PROPS_LEAVE.title] && props[PROPS_LEAVE.title].title),
     groupName: plainText_(props[PROPS_LEAVE.groupName] && props[PROPS_LEAVE.groupName].rich_text),
     submitterUserId: plainText_(props[PROPS_LEAVE.submitter] && props[PROPS_LEAVE.submitter].rich_text),
-    leaveType: ((props[PROPS_LEAVE.type] && props[PROPS_LEAVE.type].select) || {}).name || '',
+    leaveType: normalizeLeaveTypeName_(((props[PROPS_LEAVE.type] && props[PROPS_LEAVE.type].select) || {}).name),
     start: dateProp.start || '',
     end: dateProp.end || '',
     period: plainText_(props[PROPS_LEAVE.period] && props[PROPS_LEAVE.period].rich_text) || 'เต็มวัน',
@@ -110,7 +123,19 @@ function parseLeavePage_(page) {
     audit: plainText_(props[PROPS_LEAVE.audit] && props[PROPS_LEAVE.audit].rich_text),
     systemNote: plainText_(props[PROPS_LEAVE.systemNote] && props[PROPS_LEAVE.systemNote].rich_text),
     workDays: (props[PROPS_LEAVE.workDays] && props[PROPS_LEAVE.workDays].number) || 0,
+    requestId: plainText_(props[PROPS_LEAVE.requestId] && props[PROPS_LEAVE.requestId].rich_text),
+    notificationState: ((props[PROPS_LEAVE.notificationState] && props[PROPS_LEAVE.notificationState].select) || {}).name || '',
   };
+}
+
+function findLeaveByRequestId_(leaveDatabaseId, requestId) {
+  const payload = {
+    filter: { property: PROPS_LEAVE.requestId, rich_text: { equals: requestId } },
+    page_size: 2,
+  };
+  const pages = queryNotionPages_(resolveLeaveDataSourceId_(leaveDatabaseId), payload, 1);
+  if (pages.length > 1) throw new Error('พบ Request ID ซ้ำใน Notion กรุณาติดต่อผู้ดูแลระบบ');
+  return pages.length ? parseLeavePage_(pages[0]) : null;
 }
 
 // ---------- การ์ดขออนุมัติ (Flex) ----------
@@ -118,12 +143,15 @@ function parseLeavePage_(page) {
 /** สร้างการ์ดขออนุมัติจากข้อมูลหน้า Notion ล้วนๆ — ใช้ได้ทั้งขั้นหัวหน้าและขั้นส่งต่อ ผอ. */
 function buildLeaveApprovalBubble_(leavePage) {
   const dateLabel = leaveDateLabel_(leavePage.start, leavePage.end);
+  const quotaDays = leaveQuotaDays_(leavePage);
   const fields = [
     { label: 'กลุ่มงาน', value: leavePage.groupName },
     { label: 'ประเภท', value: leavePage.leaveType },
     { label: 'วันที่ลา', value: dateLabel },
     { label: 'ช่วงวัน', value: leavePage.period && leavePage.period !== 'เต็มวัน' ? leavePage.period : '' },
     { label: 'วันทำการ', value: workDaysLabel_(leavePage.workDays) },
+    { label: 'วันใช้สิทธิ์', value: usesCalendarDayQuota_(leavePage.leaveType)
+      ? quotaDaysLabel_(leavePage.leaveType, quotaDays) : '' },
     { label: 'เหตุผล', value: leavePage.reason || '—' },
     { label: 'ตรวจสอบสิทธิ์', value: leavePage.systemNote || '' },
   ].filter(f => f.value);
@@ -246,6 +274,130 @@ function pushPrivateMessage_(userId, messageObj) {
   }
 }
 
+// ---------- Retry การแจ้งใบลาที่บันทึกใน Notion แล้ว แต่ส่ง LINE ไม่สำเร็จ ----------
+
+const LEAVE_NOTIFICATION_RETRY_LIMIT = 5;
+const LEAVE_NOTIFICATION_RETRY_KEY_PREFIX = 'LEAVE_NOTIFY_RETRY_';
+const LEAVE_NOTIFICATION_RETRY_HANDLER = 'retryFailedLeaveNotificationsJob';
+const LEAVE_NOTIFICATION_RETRY_DELAY_MS = 30 * 60 * 1000;
+
+function leaveNotificationRetryKey_(pageId) {
+  return LEAVE_NOTIFICATION_RETRY_KEY_PREFIX + String(pageId || '').replace(/[^A-Za-z0-9_-]/g, '');
+}
+
+function recordLeaveNotificationFailure_(pageId) {
+  const props = PropertiesService.getScriptProperties();
+  const key = leaveNotificationRetryKey_(pageId);
+  const attempts = Number(props.getProperty(key) || '0') + 1;
+  props.setProperty(key, String(attempts));
+  try {
+    scheduleLeaveNotificationRetry_(false);
+  } catch (scheduleErr) {
+    console.error('ตั้ง trigger ส่งการแจ้งใบลาซ้ำไม่สำเร็จ: ' + scheduleErr);
+  }
+  return attempts;
+}
+
+function clearLeaveNotificationFailure_(pageId) {
+  PropertiesService.getScriptProperties().deleteProperty(leaveNotificationRetryKey_(pageId));
+}
+
+function scheduleLeaveNotificationRetry_(replaceExisting) {
+  const triggers = ScriptApp.getProjectTriggers()
+    .filter(trigger => trigger.getHandlerFunction() === LEAVE_NOTIFICATION_RETRY_HANDLER);
+  if (triggers.length && !replaceExisting) return;
+  triggers.forEach(trigger => ScriptApp.deleteTrigger(trigger));
+  ScriptApp.newTrigger(LEAVE_NOTIFICATION_RETRY_HANDLER)
+    .timeBased()
+    .at(new Date(Date.now() + LEAVE_NOTIFICATION_RETRY_DELAY_MS))
+    .create();
+}
+
+function retryFailedLeaveNotificationsJob() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    scheduleLeaveNotificationRetry_(true);
+    return;
+  }
+  let retryAgain = false;
+  try {
+    const result = retryFailedLeaveNotifications_(getSettings_());
+    retryAgain = result.failed > 0;
+  } catch (err) {
+    retryAgain = true;
+    logResult_(new Date(), 'leave-notify-retry', 'ประมวลผลคิวแจ้งใบลาไม่สำเร็จ: ' + err);
+    throw err;
+  } finally {
+    lock.releaseLock();
+    if (retryAgain) scheduleLeaveNotificationRetry_(true);
+  }
+}
+
+function sendStoredLeaveNotification_(leavePage, settings) {
+  if (leavePage.status === LEAVE_STATUS.approved) {
+    sendLineMessage_(settings.line_group_id, {
+      type: 'flex',
+      altText: '🏖️ แจ้งลาอัตโนมัติ: ' + leavePage.fullName + ' — ' + leavePage.leaveType + ' ' +
+        leaveDateLabel_(leavePage.start, leavePage.end),
+      contents: buildLeaveNoticeBubble_(leavePage),
+    });
+    return;
+  }
+  if (leavePage.status === LEAVE_STATUS.pendingApprover ||
+      leavePage.status === LEAVE_STATUS.pendingChiefOffice) {
+    const userIds = leavePage.currentApprover && leavePage.currentApprover.userIds
+      ? leavePage.currentApprover.userIds.filter(Boolean) : [];
+    const card = buildLeaveApprovalBubble_(leavePage);
+    if (userIds.length) pushApproverCardWithFallback_(userIds, card, leavePage);
+    else sendLineMessage_(settings.line_group_id, card);
+  }
+}
+
+/**
+ * เรียกจาก retry trigger: ส่งใบที่สถานะการแจ้งเป็น "รอแจ้ง/แจ้งไม่สำเร็จ" สูงสุด 5 ครั้ง
+ * ถ้ายังไม่สำเร็จให้เปลี่ยนเป็น "ต้องตรวจสอบ" เพื่อหยุดยิงซ้ำและทำให้ผู้ดูแลเห็น dead-letter ใน Notion
+ */
+function retryFailedLeaveNotifications_(settings) {
+  const leaveDbId = String((settings && settings.leave_database_id) || '').trim();
+  if (!leaveDbId || leaveDbId === 'your_leave_database_id') return { retried: 0, failed: 0, manual: 0 };
+  const pages = queryNotionPages_(resolveLeaveDataSourceId_(leaveDbId), {
+    filter: { or: [LEAVE_NOTIFICATION_STATE.pending, LEAVE_NOTIFICATION_STATE.failed].map(state => ({
+      property: PROPS_LEAVE.notificationState, select: { equals: state },
+    })) },
+    page_size: 100,
+  });
+  const result = { retried: 0, failed: 0, manual: 0 };
+  pages.forEach(page => {
+    const leavePage = parseLeavePage_(page);
+    const key = leaveNotificationRetryKey_(leavePage.pageId);
+    const attempts = Number(PropertiesService.getScriptProperties().getProperty(key) || '0');
+    if (attempts >= LEAVE_NOTIFICATION_RETRY_LIMIT) {
+      updateLeavePage_(leavePage.pageId, {
+        [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.manual } },
+      });
+      result.manual++;
+      logResult_(new Date(), 'leave-notify-dead-letter',
+        'แจ้งใบลาไม่สำเร็จครบ ' + attempts + ' ครั้ง ต้องตรวจสอบใน Notion: ' + leavePage.pageId);
+      return;
+    }
+    try {
+      sendStoredLeaveNotification_(leavePage, settings);
+      updateLeavePage_(leavePage.pageId, {
+        [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.sent } },
+      });
+      clearLeaveNotificationFailure_(leavePage.pageId);
+      result.retried++;
+      logResult_(new Date(), 'leave-notify-retry', 'ส่งซ้ำสำเร็จ: ' + leavePage.pageId);
+    } catch (err) {
+      const nextAttempts = recordLeaveNotificationFailure_(leavePage.pageId);
+      result.failed++;
+      logResult_(new Date(), 'leave-notify-retry',
+        'ส่งซ้ำครั้งที่ ' + nextAttempts + '/' + LEAVE_NOTIFICATION_RETRY_LIMIT + ' ไม่สำเร็จ: ' + err);
+    }
+  });
+  return result;
+}
+
 // ---------- รับปุ่มอนุมัติจาก webhook (เรียกจาก doPost ใน Webhook.gs) ----------
 
 function formatAuditLine_(approverStaff, actionLabel) {
@@ -260,19 +412,13 @@ function handleLeavePostback_(event, webhookEventId) {
   // "ผู้ยื่นยกเลิก/แก้ไข" พร้อมกันจนสถานะเพี้ยน — ได้ lock ไม่ทันให้ return เลย (ยังไม่ mark dedup
   // เพื่อให้ webhook retry รอบถัดไปของ LINE มีโอกาสได้ lock; ผู้กดก็กดซ้ำเองได้)
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) return;
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังประมวลผลใบลาอื่นอยู่');
   try {
-    // LINE ยิง webhook ซ้ำเมื่อตอบช้า — เก็บ webhookEventId กันประมวลผลซ้ำ
-    // (mark หลังได้ lock เท่านั้น: ถ้า mark ก่อนแล้วไม่ได้ทำงาน retry จะถูก dedup กลืนทิ้งจนใบลาค้าง)
-    if (webhookEventId) {
-      const cache = CacheService.getScriptCache();
-      const dedupKey = 'wh_' + webhookEventId;
-      if (cache.get(dedupKey)) return;
-      cache.put(dedupKey, '1', 600);
-    }
-
     const data = JSON.parse(event.postback.data || '{}');
     if (data.t !== 'leave') return;
+    if (data.a !== 'approve' && data.a !== 'reject') {
+      throw new Error('คำสั่งอนุมัติใบลาไม่ถูกต้อง');
+    }
     const tapperUserId = (event.source || {}).userId || '';
 
     const page = getLeavePage_(data.p);
@@ -317,7 +463,7 @@ function handleLeavePostback_(event, webhookEventId) {
       if (needsSecond) {
         const submitterKey = submitter ? staffKey_(submitter) : '';
         const second = registeredStaffByNames_(roster, secondApproverNames_(settings))
-          .filter(s => staffKey_(s) !== submitterKey);
+          .filter(s => staffKey_(s) !== submitterKey && s.lineUserId !== tapperUserId);
         const nextTargets = second.length
           ? second
           : allApproverPool_(config, settings, roster, submitterKey)
@@ -338,20 +484,33 @@ function handleLeavePostback_(event, webhookEventId) {
           [PROPS_LEAVE.status]: { select: { name: LEAVE_STATUS.pendingChiefOffice } },
           [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_('second', nextTargets)),
           [PROPS_LEAVE.audit]: richTextValue_(auditText),
+          [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
         });
+        // บันทึก dedup หลัง mutation สำเร็จ สถานะใบลา + lock เป็นตัวกันซ้ำระหว่างทำงาน
+        if (webhookEventId) claimSecurityEventOnce_(
+          'line-webhook', webhookEventId, 30 * 24 * 60 * 60 * 1000);
+        appendAuditEvent_(webhookEventId, tapperUserId, 'leave.approve.first', leavePage.pageId,
+          leavePage.status, LEAVE_STATUS.pendingChiefOffice);
 
         const secondCard = buildLeaveApprovalBubble_(
           Object.assign({}, leavePage, { status: LEAVE_STATUS.pendingChiefOffice }));
-        if (second.length) {
-          pushApproverCardWithFallback_(second.map(s => s.lineUserId), secondCard, leavePage);
-        } else {
-          // ไม่มี หัวหน้า สสอ. ที่ลงทะเบียน — การ์ดเข้ากลุ่มหลักให้ผู้อนุมัติรายอื่นที่กำหนดไว้กดแทน
-          try {
+        let notificationFailed = false;
+        try {
+          if (second.length) {
+            pushApproverCardWithFallback_(second.map(s => s.lineUserId), secondCard, leavePage);
+          } else {
+            // ไม่มี หัวหน้า สสอ. ที่ลงทะเบียน — การ์ดเข้ากลุ่มหลักให้ผู้อนุมัติรายอื่นที่กำหนดไว้กดแทน
             sendLineMessage_(settings.line_group_id, secondCard);
-          } catch (err) {
-            logResult_(new Date(), 'error', 'ส่งการ์ดขั้น หัวหน้า สสอ. เข้ากลุ่มไม่สำเร็จ: ' + err);
           }
+        } catch (err) {
+          notificationFailed = true;
+          recordLeaveNotificationFailure_(leavePage.pageId);
+          logResult_(new Date(), 'error', 'ส่งการ์ดขั้น หัวหน้า สสอ. ไม่สำเร็จ: ' + err);
         }
+        updateLeavePage_(leavePage.pageId, {
+          [PROPS_LEAVE.notificationState]: { select: { name: notificationFailed
+            ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
+        });
         pushPrivateMessage_(leavePage.submitterUserId, {
           type: 'text',
           text: '⏳ ผู้อนุมัติอนุมัติแล้ว รอ หัวหน้า สสอ. พิจารณาต่อ\n' + leaveSummaryText_(leavePage),
@@ -372,6 +531,10 @@ function handleLeavePostback_(event, webhookEventId) {
       [PROPS_LEAVE.currentApprover]: richTextValue_(''),
       [PROPS_LEAVE.audit]: richTextValue_(auditText),
     });
+    if (webhookEventId) claimSecurityEventOnce_(
+      'line-webhook', webhookEventId, 30 * 24 * 60 * 60 * 1000);
+    appendAuditEvent_(webhookEventId, tapperUserId,
+      isApprove ? 'leave.approve.final' : 'leave.reject', leavePage.pageId, leavePage.status, finalStatus);
     pushPrivateMessage_(leavePage.submitterUserId, {
       type: 'text',
       text: (isApprove ? '✅ ใบลาของคุณได้รับการอนุมัติ' : '❌ ใบลาไม่ได้รับการอนุมัติ') +
@@ -385,8 +548,8 @@ function handleLeavePostback_(event, webhookEventId) {
     });
     logResult_(new Date(), 'leave-approve', leavePage.fullName + ' ' + finalStatus + ' โดย ' + staffDisplayName_(tapper));
   } catch (err) {
-    // ไม่ throw กลับไปหา LINE (เดี๋ยวถูก retry รัวๆ) — เก็บไว้ดูใน Logs/Executions
     logResult_(new Date(), 'error', 'ประมวลผลปุ่มใบลาไม่สำเร็จ: ' + err);
+    throw err;
   } finally {
     lock.releaseLock();
   }

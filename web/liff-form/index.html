@@ -167,6 +167,7 @@
 
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
       <p class="text-sm font-semibold text-slate-600 mb-2.5">ช่วงวันที่ลา</p>
+      <p id="calendarWarning" class="hidden mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">โหลดรายการวันหยุดไม่สำเร็จ ตัวเลขตัวอย่างอาจคลาดเคลื่อน แต่ระบบจะตรวจซ้ำก่อนบันทึก</p>
       <div class="grid grid-cols-2 gap-2 mb-2.5">
         <div>
           <label for="dateStart" class="block text-xs text-slate-500 mb-1">ตั้งแต่</label>
@@ -206,11 +207,11 @@
             class="w-full py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ส่งใบลา</button>
   </section>
 
-  <!-- ===== ของฉัน: ยอดวันลาปีนี้ + รายการใบลาทั้งหมด (แก้ไข/ยกเลิกได้เอง) ===== -->
+  <!-- ===== ของฉัน: ยอดวันลาปีนี้ + รายการใบลาปีก่อนถึงปีถัดไป (แก้ไข/ยกเลิกได้เอง) ===== -->
   <section id="view-mine" class="hidden">
     <header class="mb-4">
       <h1 class="text-lg font-bold">ของฉัน</h1>
-      <p class="text-sm text-slate-500 mt-1">ยอดวันลาของปีนี้ และใบลาทั้งหมดที่ยื่นไป — ใบที่ยังรออนุมัติแก้ไขได้ ยกเลิกได้ทั้งใบรอและใบอนุมัติแล้วที่ยังไม่ถึงวัน</p>
+      <p class="text-sm text-slate-500 mt-1">ยอดวันลาของปีนี้ และใบลาตั้งแต่ปีก่อนถึงปีถัดไป — ใบที่ยังรออนุมัติแก้ไขได้ และยกเลิกได้ก่อนถึงวันเริ่มลา</p>
     </header>
 
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
@@ -219,14 +220,14 @@
       <p class="text-xs text-slate-400 mt-3">* ยอด "ใช้ไปแล้ว" รวมใบที่กำลังรออนุมัติด้วย และแถวที่มี <span class="text-sky-700">*</span> รวมยอดยกมา/รายการปรับของผู้ดูแลแล้ว</p>
     </div>
 
-    <p class="text-sm font-semibold text-slate-600 mb-2">ใบลาของฉัน (ปีนี้)</p>
+    <p class="text-sm font-semibold text-slate-600 mb-2">ใบลาของฉัน (ปีก่อน–ปีถัดไป)</p>
     <div id="mineLoading" class="hidden py-10 text-center">
       <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="text-sm text-slate-500 mt-3">กำลังโหลด…</p>
     </div>
     <p id="mineError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
     <p id="mineEmpty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-2xl p-6 text-center">
-      ยังไม่มีใบลาในปีนี้ — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
+      ยังไม่มีใบลาในช่วงปีที่แสดง — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
     <div id="mineList"></div>
   </section>
 
@@ -234,7 +235,7 @@
   <section id="view-success" class="hidden py-10 text-center">
     <div class="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
     <h1 id="successTitle" class="text-lg font-bold mb-1">ส่งใบลาเรียบร้อย</h1>
-    <p class="text-sm text-slate-500 mb-5">ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้</p>
+    <p id="successMessage" class="text-sm text-slate-500 mb-5">ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้</p>
     <div id="successCard" class="text-left bg-white border border-slate-200 rounded-2xl p-5 mb-5 text-sm space-y-2"></div>
     <button id="btnAgain" type="button" class="w-full py-3.5 rounded-xl font-semibold text-primary bg-primary-light">ยื่นอีกใบ</button>
   </section>
@@ -255,22 +256,24 @@
   // คำอธิบายประเภทลา (รายการประเภทจริงมาจาก Settings ผ่าน session — ที่นี่เก็บแค่คำอธิบายของชื่อที่รู้จัก)
   const TYPE_DESCRIPTIONS = {
     'ลาป่วย': 'ไม่สบาย แจ้งได้ทันที/ย้อนหลัง — เกิน 3 วันทำการต้องมีใบรับรองแพทย์',
-    'ลากิจ': 'ธุระจำเป็น 10 วันทำการ/ปี — ควรแจ้งล่วงหน้า 3 วันทำการ',
-    'ลาพักร้อน': 'พักผ่อนประจำปี 10 วัน/ปี (สะสมได้)',
-    'ลาคลอด': 'คลอดบุตร 90 วัน',
-    'ลาอุปสมบถ/ลาบวช': 'อุปสมบท/บวช 15 วัน',
-    'ลาช่วยเหลือภริยาคลอดบุตร': 'ช่วยเหลือภริยาคลอดบุตร 15 วัน',
+    'ลากิจ': 'ธุระจำเป็น — ควรแจ้งล่วงหน้าอย่างน้อย 3 วันทำการ',
+    'ลาพักร้อน': 'ลาพักผ่อนประจำปี — สิทธิ์และการสะสมขึ้นกับประเภทบุคลากร',
+    'ลาคลอด': 'สิทธิ์ขึ้นกับประเภทบุคลากรและระเบียบที่ใช้บังคับ',
+    'ลาอุปสมบท/ลาบวช': 'สิทธิ์ขึ้นกับประเภทบุคลากร อายุงาน และระเบียบที่ใช้บังคับ',
+    'ลาช่วยเหลือภริยาคลอดบุตร': 'สิทธิ์ขึ้นกับประเภทบุคลากรและระเบียบที่ใช้บังคับ',
     'อื่นๆ': 'ระบุรายละเอียดในช่องเหตุผล',
   };
+  const CALENDAR_QUOTA_TYPES = ['ลาคลอด', 'ลาอุปสมบท/ลาบวช'];
 
   const state = {
     options: { prefixes: [], groups: [], positions: [], employmentTypes: [], leaveTypes: [], halfDayTypes: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
-    holidays: new Set(), today: '', leaveType: '', period: 'เต็มวัน',
+    holidays: new Set(), calendarAvailable: true, today: '', leaveType: '', period: 'เต็มวัน',
     user: null, sending: false, usage: null, leaveYear: '',
+    submitRequestId: '', submitRequestKey: '',
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
     mine: { loading: false, error: '', leaves: [], usage: null, leaveYear: '' },
-    editing: null, // ใบลาที่กำลังแก้ไข (null = โหมดยื่นใหม่) — ฟอร์มเดิวมันเดิมสลับได้สองโหมด
+    editing: null, // ใบลาที่กำลังแก้ไข (null = โหมดยื่นใหม่) — ฟอร์มเดิมสลับได้สองโหมด
   };
 
   // ---------- เครื่องมือเล็กๆ ----------
@@ -321,6 +324,19 @@
     }[c]));
   }
   function pad(n) { return String(n).padStart(2, '0'); }
+  function newRequestId_() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+      throw new Error('เบราว์เซอร์นี้ไม่รองรับการสร้างรหัสคำขอที่ปลอดภัย กรุณาเปิดผ่าน LINE รุ่นปัจจุบัน');
+    }
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+    return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' +
+      hex.slice(16, 20) + '-' + hex.slice(20);
+  }
   function todayLocal() {
     const d = new Date();
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
@@ -393,11 +409,26 @@
       relogin_();
       throw new Error('กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่');
     }
-    // ใช้ GET (query params) แทน POST — browser/WebView บางรุ่นตาม redirect 302 ของ Apps Script
-    // ไปได้เฉพาะเมื่อ method เป็น GET (POST ต้องถูก rewrite เป็น GET ตาม spec ซึ่งเพี้ยนได้)
-    const params = new URLSearchParams(
-      Object.assign({ apiAction: action, accessToken: accessToken }, extra || {}));
-    const res = await fetch(CONFIG.API_URL + '?' + params.toString(), { method: 'GET' });
+    let res;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    try {
+      res = await fetch(CONFIG.API_URL.replace(/\/$/, '') + '/api/liff', {
+        method: 'POST',
+        headers: {
+          'authorization': 'Bearer ' + accessToken,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(Object.assign({ apiAction: action }, extra || {})),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      throw new Error(err && err.name === 'AbortError'
+        ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+        : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง');
+    } finally {
+      clearTimeout(timeout);
+    }
     let data = null;
     try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
     if (!res.ok || !data || data.ok === false) {
@@ -407,7 +438,7 @@
   }
 
   function showError(message) {
-    $('errorMessage').textContent = message || 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ';
+    $('errorMessage').textContent = message || 'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
     show('error');
   }
 
@@ -417,7 +448,7 @@
     show('loading');
     armBootWatchdog_();
     if (typeof liff === 'undefined') {
-      showError('โหลด LINE SDK ไม่สำเร็จ — ตรวจอินเทอร์เน็ตแล้วปิดหน้านี้แล้วเปิดใหม่ หากยังไม่หายติดต่อผู้ดูแลระบบ');
+      showError('โหลดส่วนเชื่อมต่อ LINE ไม่สำเร็จ — กรุณาตรวจสอบอินเทอร์เน็ต ปิดหน้านี้แล้วเปิดใหม่ หากยังไม่สำเร็จให้ติดต่อผู้ดูแลระบบ');
       return;
     }
     // กันเคสหน้าถูกเสิร์ฟโดยไม่ผ่าน GitHub Actions (placeholder ยังไม่ถูกแทนที่)
@@ -467,8 +498,10 @@
     try {
       const cal = await api('calendar');
       state.holidays = new Set(cal.holidays || []);
+      state.calendarAvailable = true;
       state.today = cal.today || todayLocal();
     } catch (err) {
+      state.calendarAvailable = false;
       state.today = todayLocal(); // ยังใช้ฟอร์มได้ แค่นับวันหยุดไม่ได้ (ฝั่งเซิร์ฟเวอร์นับให้อยู่ดีตอน submit)
     }
   }
@@ -586,6 +619,7 @@
       const data = await api('myLeaves');
       state.mine.leaves = data.leaves || [];
       state.mine.usage = data.usage || null;
+      state.usage = data.usage || null;
       state.mine.leaveYear = data.leaveYear || '';
       state.mine.loading = false;
       renderMineState_();
@@ -604,11 +638,15 @@
     Object.keys(usage).forEach(t => { if (!types.includes(t)) types.push(t); });
     return types.map(type => {
       const info = usage[type] || { used: 0, quota: null };
-      const remaining = info.quota == null ? 'ไม่จำกัด' : daysText_(Math.max(0, info.quota - info.used));
+      const manualEvent = info.basis === 'manual_event';
+      const remaining = manualEvent ? 'ตรวจรายกรณี' :
+        (info.quota == null ? 'ไม่จำกัด' : daysText_(Math.max(0, info.quota - info.used)));
       return {
         type: type,
         used: daysText_(info.used || 0),
         quota: info.quota,
+        unit: info.unit || (CALENDAR_QUOTA_TYPES.includes(type) ? 'วันปฏิทิน' : 'วันทำการ'),
+        manualEvent: manualEvent,
         remaining: remaining,
         adjusted: !!(info.carryIn || info.usedExtra),
       };
@@ -631,6 +669,8 @@
       ? ' · รอ: ' + leave.pendingApproverNames.join(', ') : '';
     const periodNote = leave.period && leave.period !== 'เต็มวัน' ? ' (' + leave.period + ')' : '';
     const workLabel = leave.workDaysLabel ? leave.workDaysLabel + 'ทำการ' : usedLabel_(leave.workDays) + ' วันทำการ';
+    const quotaLabel = CALENDAR_QUOTA_TYPES.includes(leave.leaveType) && leave.quotaDaysLabel
+      ? ' · ใช้สิทธิ์ ' + leave.quotaDaysLabel : '';
     const buttons = [];
     if (leave.canEdit) {
       buttons.push('<button type="button" data-act="edit" data-page-id="' + escapeHtml(leave.pageId) +
@@ -646,7 +686,7 @@
         '<span class="' + statusBadgeClasses_(leave.status) + ' flex-none">' + escapeHtml(leave.status) + '</span>' +
       '</div>' +
       '<p class="text-xs text-slate-600 mt-1.5">' +
-        escapeHtml(dateRangeLabel(leave.start, leave.end) + periodNote + ' · ' + workLabel + pendingNote) + '</p>' +
+        escapeHtml(dateRangeLabel(leave.start, leave.end) + periodNote + ' · ' + workLabel + quotaLabel + pendingNote) + '</p>' +
       (leave.reason ? '<p class="text-xs text-slate-400 mt-1 truncate">' + escapeHtml(leave.reason) + '</p>' : '') +
       (buttons.length ? '<div class="flex gap-2 mt-3">' + buttons.join('') + '</div>' : '') +
       '</div>';
@@ -660,8 +700,9 @@
         '<div class="flex items-center justify-between gap-3 py-2">' +
           '<span class="text-slate-700">' + escapeHtml(row.type) + (row.adjusted ? ' <span class="text-sky-700" title="รวมยอดยกมา/รายการปรับของผู้ดูแล">*</span>' : '') + '</span>' +
           '<span class="text-xs text-slate-500 flex-none">ใช้ ' + escapeHtml(row.used) +
-            (row.quota != null ? ' / ' + escapeHtml(String(row.quota)) : '') +
-            ' · <span class="font-semibold text-primary-dark">เหลือ ' + escapeHtml(row.remaining) + '</span></span>' +
+            (row.quota != null ? (row.manualEvent ? ' · เกณฑ์ ' : ' / ') + escapeHtml(String(row.quota)) : '') +
+            ' ' + escapeHtml(row.unit) + ' · <span class="font-semibold text-primary-dark">เหลือ ' +
+            escapeHtml(row.remaining) + '</span></span>' +
         '</div>').join('');
     } else {
       usageBox.innerHTML = '<p class="text-sm text-slate-400 py-2">ยังไม่มีข้อมูลยอดวันลา (ระบบลายังไม่ได้ตั้งค่าครบ)</p>';
@@ -717,7 +758,7 @@
         show('mine');
         loadMyLeaves_();
       } else {
-        show('form');
+        showForm();
       }
     });
   });
@@ -736,6 +777,7 @@
     // อักษรแรกของชื่อ (ตัดคำนำหน้าออกก่อน) ไว้ทำอวตารกลมๆ
     const nameForInitial = (state.user.name || 'ก').replace(/^(นาย|นางสาว|นาง|ดร\.|พญ\.|แพทย์หญิง)\s*/, '');
     $('userInitial').textContent = nameForInitial.charAt(0) || (state.user.name || 'ก').charAt(0);
+    $('calendarWarning').classList.toggle('hidden', state.calendarAvailable);
     renderTypeGrid();
     $('dateStart').min = addDays(state.today, -90);
     $('dateStart').max = addDays(state.today, 365);
@@ -782,8 +824,16 @@
       const selected = name === state.leaveType;
       btn.className = 'type-btn text-left p-3.5 rounded-xl border transition-colors motion-reduce:transition-none ' +
         (selected ? 'bg-primary-light border-primary' : 'border-slate-200 hover:border-primary');
+      const info = state.usage && state.usage[name];
+      const quotaUnit = info && info.unit ? info.unit :
+        (CALENDAR_QUOTA_TYPES.includes(name) ? 'วันปฏิทิน' : 'วันทำการ');
+      const quotaText = info && info.quota != null
+        ? (info.basis === 'manual_event'
+          ? ' · เกณฑ์อ้างอิง ' + info.quota + ' ' + quotaUnit + ' (HR ตรวจรายกรณี)'
+          : ' · สิทธิ์ปี ' + (state.leaveYear || 'ปัจจุบัน') + ' ' + info.quota + ' ' + quotaUnit) : '';
       btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(name) + '</span>' +
-        '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' + escapeHtml(TYPE_DESCRIPTIONS[name] || '') + '</span>';
+        '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' +
+        escapeHtml((TYPE_DESCRIPTIONS[name] || '') + quotaText) + '</span>';
       btn.addEventListener('click', () => {
         state.leaveType = name;
         document.querySelectorAll('.type-btn').forEach(b => {
@@ -804,15 +854,26 @@
     const info = state.leaveType && state.usage ? state.usage[state.leaveType] : null;
     if (!info) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
-    el.textContent = 'สิทธิ์ปี ' + (state.leaveYear || '') + ': ใช้ไปแล้ว ' + usedLabel_(info.used) +
-      (info.quota != null ? ' / สูงสุด ' + info.quota + ' วันทำการ' : ' วันทำการ (ไม่จำกัด)');
+    const start = $('dateStart').value;
+    const selectedYearBE = /^\d{4}-/.test(start) ? Number(start.substring(0, 4)) + 543 : null;
+    if (selectedYearBE && String(selectedYearBE) !== String(state.leaveYear || '')) {
+      el.textContent = 'ใบนี้อยู่ในปี ' + selectedYearBE + ' — ระบบจะตรวจยอดและสิทธิ์ของปีนั้นจากข้อมูลจริงเมื่อส่ง';
+      return;
+    }
+    const quotaUnit = info.unit ||
+      (CALENDAR_QUOTA_TYPES.includes(state.leaveType) ? 'วันปฏิทิน' : 'วันทำการ');
+    el.textContent = info.basis === 'manual_event'
+      ? 'ใช้ในปี ' + (state.leaveYear || '') + ' แล้ว ' + usedLabel_(info.used) + ' ' + quotaUnit +
+        (info.quota != null ? ' · เกณฑ์อ้างอิง ' + info.quota + ' ' + quotaUnit + ' (HR ตรวจรายกรณี)' : '')
+      : 'สิทธิ์ปี ' + (state.leaveYear || '') + ': ใช้ไปแล้ว ' + usedLabel_(info.used) +
+        (info.quota != null ? ' / สูงสุด ' + info.quota + ' ' + quotaUnit : ' ' + quotaUnit + ' (ไม่จำกัด)');
   }
 
   function usedLabel_(days) {
     const whole = Math.floor(days);
     const half = days - whole >= 0.5;
     if (days === 0.5) return '½';
-    return (whole || '') + (half ? '½' : '');
+    return (whole || (half ? '' : '0')) + (half ? '½' : '');
   }
 
   function refreshDayCount() {
@@ -837,23 +898,40 @@
     const workDays = countBusinessDays(start, end);
     const effective = workDays === 1 && state.period !== 'เต็มวัน' ? 0.5 : workDays;
     const total = daysBetween(start, end) + 1;
+    const calendarQuota = CALENDAR_QUOTA_TYPES.includes(state.leaveType);
+    const quotaDays = calendarQuota ? total : effective;
+    const quotaUnit = calendarQuota ? 'วันปฏิทิน' : 'วันทำการ';
     box.classList.remove('hidden');
     box.textContent = thaiShort(start) + (end !== start ? ' – ' + thaiShort(end) : '') +
       (state.period !== 'เต็มวัน' ? ' (' + state.period + ')' : '') +
-      ' · ' + usedLabel_(effective) + ' วันทำการ' + (total > 1 ? ' (รวม ' + total + ' วันปฏิทิน)' : '');
+      ' · ' + usedLabel_(effective) + ' วันทำการ' +
+      (calendarQuota ? ' · ใช้สิทธิ์ ' + total + ' วันปฏิทิน' :
+        (total > 1 ? ' (รวม ' + total + ' วันปฏิทิน)' : ''));
 
     // คำเตือนนุ่มๆ ตามระเบียบ (ไม่บล็อก — ปล่อยให้ผู้อนุมัติตัดสิน เพราะลากิจฉุกเฉินยื่นวันเดียวกันได้จริง)
-    if (state.leaveType === 'ลากิจ' && start <= addDays(state.today, 2)) {
+    const noticeStart = addDays(state.today, 1);
+    const noticeEnd = addDays(start, -1);
+    const businessNoticeDays = noticeEnd >= noticeStart ? countBusinessDays(noticeStart, noticeEnd) : 0;
+    if (state.leaveType === 'ลากิจ' && businessNoticeDays < 3) {
       warn.classList.remove('hidden');
       warn.textContent = 'แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — ระบบจะยื่นให้ตามปกติ แต่ควรระบุเหตุผลความจำเป็นในช่องเหตุผลให้ชัดเจน';
     }
 
     // คำเตือนสิทธิ์/ใบแพทย์ — mirror กติกาฝั่งเซิร์ฟเวอร์ (ฝั่งนั้นตรวจซ้ำและบันทึกลงใบลาให้ผู้อนุมัติเห็น)
     const warnings = [];
-    const info = state.usage ? state.usage[state.leaveType] : null;
-    if (info && info.quota != null && info.used + effective > info.quota) {
-      warnings.push('⚠ เกินสิทธิ์ ' + info.quota + ' วันทำการ/ปี: ใช้ไปแล้ว ' + usedLabel_(info.used) +
-        ' + ใบนี้ ' + usedLabel_(effective) + ' — ยื่นได้แต่ผู้อนุมัติจะเห็นคำเตือนนี้');
+    const selectedYearBE = Number(start.substring(0, 4)) + 543;
+    const info = String(selectedYearBE) === String(state.leaveYear || '') && state.usage
+      ? state.usage[state.leaveType] : null;
+    if (info && info.quota != null && info.basis !== 'manual_event' && info.used + quotaDays > info.quota) {
+      warnings.push('⚠ เกินสิทธิ์ ' + info.quota + ' ' + quotaUnit + '/ปี: ใช้ไปแล้ว ' + usedLabel_(info.used) +
+        ' + ใบนี้ ' + usedLabel_(quotaDays) + ' — ยื่นได้แต่ผู้อนุมัติจะเห็นคำเตือนนี้');
+    }
+    if (info && info.quota != null && info.basis === 'manual_event') {
+      if (quotaDays > info.quota) {
+        warnings.push('⚠ ใบนี้เกินเกณฑ์อ้างอิง ' + info.quota + ' ' + quotaUnit +
+          ' — ยื่นได้แต่ HR ต้องตรวจเงื่อนไขและเอกสาร');
+      }
+      warnings.push('ℹ สิทธิ์ประเภทนี้ตรวจเป็นรายเหตุการณ์/ตามสถานภาพ ระบบไม่ตัดสินจากยอดปีอัตโนมัติ');
     }
     if (state.leaveType === 'ลาป่วย' && effective > 3 && effective < 30) {
       warnings.push('⚠ ลาป่วยเกิน 3 วันทำการ — ต้องมีใบรับรองแพทย์แนบประกอบใบลา');
@@ -886,6 +964,7 @@
     if ($('dateStart').value && $('dateEnd').value && $('dateEnd').value < $('dateStart').value) {
       $('dateEnd').value = $('dateStart').value;
     }
+    refreshUsageLine_();
     refreshDayCount();
   }));
   $('quickToday').addEventListener('click', () => { $('dateStart').value = state.today; $('dateEnd').value = state.today; refreshDayCount(); });
@@ -910,23 +989,47 @@
         period: state.period, reason: $('reason').value.trim(),
       };
       if (editing) params.pageId = state.editing.pageId;
+      if (!editing) {
+        const requestKey = JSON.stringify(params);
+        if (!state.submitRequestId || state.submitRequestKey !== requestKey) {
+          state.submitRequestId = newRequestId_();
+          state.submitRequestKey = requestKey;
+        }
+        params.requestId = state.submitRequestId;
+      }
       // สอง action ให้ response รูปเดียวกัน — การ์ดสรุปผลจึง render ร่วมกันได้
       const result = await api(editing ? 'update' : 'submit', params);
+      $('successMessage').textContent = result.notificationPending
+        ? 'บันทึกใบลาแล้ว แต่ยังส่งการแจ้งเตือนผ่าน LINE ไม่สำเร็จ ระบบจะลองส่งซ้ำอัตโนมัติ'
+        : (result.autoApproved
+          ? 'บันทึกเป็นอนุมัติแล้วและแจ้งเข้ากลุ่มหลักเรียบร้อย'
+          : 'ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้');
       const periodNote = result.period && result.period !== 'เต็มวัน' ? ' (' + result.period + ')' : '';
       $('successCard').innerHTML =
         '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(state.leaveType) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end) + periodNote) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + escapeHtml(result.workDaysLabel || (result.workDays + ' วัน')) + '</span></div>' +
+        (CALENDAR_QUOTA_TYPES.includes(state.leaveType)
+          ? '<div class="flex justify-between"><span class="text-slate-500">วันใช้สิทธิ์</span><span class="font-semibold">' + escapeHtml(result.quotaDaysLabel || '') + '</span></div>' : '') +
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
-        (result.autoApproved
+        (result.autoApproved && !result.notificationPending
           ? '<span class="block text-xs text-sky-700 mt-1">ระบบปิดการอนุมัติอยู่ — บันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลักแล้ว ไม่ต้องรอใครกดอนุมัติ</span>'
           : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) +
         (result.warnings && result.warnings.length
           ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2 whitespace-pre-line">' + escapeHtml(result.warnings.join('\n')) + '</span>'
+          : '') +
+        (result.notificationPending
+          ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2">ข้อมูลถูกบันทึกแล้ว แต่การแจ้งเตือนผ่าน LINE ยังไม่สำเร็จ ระบบจะลองส่งซ้ำอัตโนมัติ ผู้ดูแลตรวจสอบสถานะได้ใน Notion</span>'
           : '') + '</div>';
+      if (!editing) {
+        state.submitRequestId = '';
+        state.submitRequestKey = '';
+      }
       $('successTitle').textContent = editing ? 'บันทึกการแก้ไขเรียบร้อย' : 'ส่งใบลาเรียบร้อย';
       $('btnAgain').textContent = editing ? 'กลับไปหน้าของฉัน' : 'ยื่นอีกใบ';
       show('success');
+      state.mine.loading = false;
+      loadMyLeaves_(); // รีเฟรชยอด canonical หลังทุก mutation โดยไม่หน่วงหน้าสำเร็จ
     } catch (submitErr) {
       err.textContent = submitErr.message;
       err.classList.remove('hidden');
