@@ -77,7 +77,7 @@ AdminViews.reports = {
       const res = await AdminAPI.call('get_leave_report', { year: year, month: month ? year + '-' + month : '' });
       if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
       this.lastReport = res;
-      this.render(res);
+      this.renderReport(res);
     } catch (e) {
       if (this._isStale && this._isStale()) return;
       this.showError(e.message);
@@ -98,7 +98,7 @@ AdminViews.reports = {
     p.classList.remove('hidden');
   },
 
-  render(res) {
+  renderReport(res) {
     if (!UI.$('reportHead')) return; // ตารางไม่อยู่แล้ว (หน้าถูกเปลี่ยน)
     UI.$('btnReportCsv').disabled = false;
     UI.$('reportHead').innerHTML =

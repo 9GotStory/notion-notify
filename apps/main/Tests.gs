@@ -1430,7 +1430,7 @@ function testQuotaProfileSeed_() {
   Object.keys(byEmployment).forEach(type => {
     assertEqual_(byEmployment[type], knownLeaveTypes.size - 1, type + ' ต้องมีครบทุกประเภทการลา');
   });
-  QUOTA_PROFILE_SEED.filter(row => row[2] === 'ลาช่วยเหลือภริยาคลอดบุตร')
+  QUOTA_PROFILE_SEED.filter(row => row[2] === 'ลาช่วยเหลือภรรยาคลอดบุตร')
     .forEach(row => assertEqual_(row[3], 15, row[1] + ' ต้องมีค่าเริ่มต้นสิทธินี้ 15 วัน'));
 }
 

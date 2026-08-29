@@ -949,7 +949,7 @@ function api_getLeaveReport(year, month) {
     });
 
     // คอลัมน์ประเภท: เรียงตามลำดับมาตรฐานของระบบก่อน แล้วประเภทพิเศษตามตัวอักษรไทย
-    const standardOrder = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'ลาคลอด', 'ลาอุปสมบท/ลาบวช', 'ลาช่วยเหลือภริยาคลอดบุตร', 'อื่นๆ'];
+    const standardOrder = ['ลาป่วย', 'ลากิจ', 'ลาพักร้อน', 'ลาคลอด', 'ลาอุปสมบท/ลาบวช', 'ลาช่วยเหลือภรรยาคลอดบุตร', 'อื่นๆ'];
     const found = {};
     leaves.forEach(leave => { found[leave.leaveType] = true; });
     const types = standardOrder.filter(t => found[t]);

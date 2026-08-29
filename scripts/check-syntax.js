@@ -23,6 +23,21 @@ function check(source, filename) {
   }
 }
 
+function checkAdminViewContracts() {
+  const context = vm.createContext({ AdminViews: {}, AdminAPI: {}, UI: {} });
+  const filename = 'web/admin/js/views/reports.js';
+  try {
+    vm.runInContext(fs.readFileSync(path.join(root, filename), 'utf8'), context, { filename });
+    const reports = context.AdminViews.reports;
+    if (!reports || reports.render.constructor.name !== 'AsyncFunction' || typeof reports.renderReport !== 'function') {
+      throw new Error('Reports view must keep async render(root, isStale) separate from renderReport(data)');
+    }
+  } catch (err) {
+    console.error(err.stack || err);
+    process.exitCode = 1;
+  }
+}
+
 walk(path.join(root, 'apps'))
   .filter(file => file.endsWith('.gs'))
   .forEach(file => check(fs.readFileSync(file, 'utf8'), path.relative(root, file)));
@@ -43,4 +58,6 @@ walk(path.join(root, 'web'))
     }
   });
 
-if (!process.exitCode) console.log('Syntax check passed');
+checkAdminViewContracts();
+
+if (!process.exitCode) console.log('Syntax and admin view contract checks passed');

@@ -102,7 +102,7 @@ function setupSheet() {
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
     ['leave_system_enabled', 'TRUE', 'สวิตช์ระบบลา: FALSE = ปิดรับลงทะเบียน/ยื่นลาใหม่ (ใช้เมนู "เปิด/ปิดระบบลา" สลับให้ได้) — ค่าอื่นใด/แถวหาย = เปิด'],
     ['leave_approval_enabled', 'TRUE', 'โหมดการอนุมัติ: FALSE = แจ้งลาอัตโนมัติ (บันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก ไม่ต้องมีผู้อนุมัติ) — ใช้เมนู "เปิด/ปิดการอนุมัติใบลา" สลับได้'],
-    ['leave_type_options', 'ลาป่วย,ลากิจ,ลาพักร้อน,ลาคลอด,ลาอุปสมบท/ลาบวช,ลาช่วยเหลือภริยาคลอดบุตร,อื่นๆ', 'รายการประเภทการลาในฟอร์ม (คั่นด้วยจุลภาค) — ชื่อที่ตรงตามระเบียบจะได้รับการตรวจสิทธิ์/คำเตือนอัตโนมัติ'],
+    ['leave_type_options', 'ลาป่วย,ลากิจ,ลาพักร้อน,ลาคลอด,ลาอุปสมบท/ลาบวช,ลาช่วยเหลือภรรยาคลอดบุตร,อื่นๆ', 'รายการประเภทการลาในฟอร์ม (คั่นด้วยจุลภาค) — ชื่อที่ตรงตามระเบียบจะได้รับการตรวจสิทธิ์/คำเตือนอัตโนมัติ'],
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['monthly_leave_summary_enabled', 'TRUE', 'สรุปวันลารายเดือน (FALSE = ปิด): วันทำการแรกของแต่ละเดือน แนบสรุปใบลาที่อนุมัติของเดือนก่อนท้ายข้อความเช้า — รวมข้อความเดียวกัน ไม่เพิ่มโควตา LINE'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
@@ -136,7 +136,7 @@ function setupSheet() {
   const seeded = seedLeaveQuotaDefaults_();
   if (seeded.blocked) status.push('⚠ ' + seeded.blocked);
   else if (seeded.added) status.push('เติมสิทธิ์วันลาตามระเบียบ ' + seeded.added + ' รายการ ลงชีต QuotaProfiles');
-  if (seeded.migrated) status.push('ปรับสิทธิ์ลาช่วยเหลือภริยาคลอดบุตรจาก seed เก่าที่ยังไม่เคยแก้ ' + seeded.migrated + ' รายการ');
+  if (seeded.migrated) status.push('ปรับสิทธิ์ลาช่วยเหลือภรรยาคลอดบุตรจาก seed เก่าที่ยังไม่เคยแก้ ' + seeded.migrated + ' รายการ');
 
   // migration: ตัวเลือกประเภทบุคลากรเดิมยังไม่มี "พนักงานกระทรวงสาธารณสุข" — เติมให้โดยแทรกก่อน "อื่นๆ"
   // (ระบบโควตาใช้ชื่อนี้จับคู่แถวใน QuotaProfiles — รายการอื่นที่ผู้ดูแลปรับไว้เองไม่ถูกแตะ)
@@ -257,8 +257,8 @@ function migrateKnownQuotaDefaults_() {
   values.forEach((row, index) => {
     const employmentType = String(row[1]).trim();
     const target = QUOTA_PROFILE_SEED.find(seed =>
-      seed[1] === employmentType && seed[2] === 'ลาช่วยเหลือภริยาคลอดบุตร');
-    if (target && String(row[2]).trim() === 'ลาช่วยเหลือภริยาคลอดบุตร' &&
+      seed[1] === employmentType && seed[2] === 'ลาช่วยเหลือภรรยาคลอดบุตร');
+    if (target && String(row[2]).trim() === 'ลาช่วยเหลือภรรยาคลอดบุตร' &&
         String(row[3]).trim() === '0' && String(row[4]).trim() === legacyNotes[employmentType]) {
       sheet.getRange(index + 3, 4, 1, 2).setValues([[target[3], target[4]]]);
       migrated++;
