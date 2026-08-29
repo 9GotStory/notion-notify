@@ -37,10 +37,10 @@ AdminViews.leave = {
       '<!-- ===== โควตาตามประเภทบุคลากร ===== -->' +
       '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
       '<p class="text-sm font-semibold text-slate-600 mb-1">โควตาสิทธิ์ตามประเภทบุคลากร</p>' +
-      '<p class="text-xs text-slate-500 mb-3">ปีเว้นว่าง = ทุกปี ใส่ปี (เช่น 2569) = เฉพาะปีนั้น · โควตา <b>0 = ไม่มีสิทธิ์</b> · คลอด/บวชนับวันปฏิทิน ประเภทอื่นนับวันทำการ · ค่าเริ่มต้นต้องให้ HR ตรวจและลงวันที่ leave_policy_reviewed_at ก่อนใช้จริง</p>' +
+      '<p class="text-xs text-slate-500 mb-3">ใช้ปีงบประมาณ 1 ต.ค.–30 ก.ย. ปีเว้นว่าง = ทุกปี ใส่ปี (เช่น 2570) = เฉพาะปีงบประมาณนั้น · โควตา <b>0 = ไม่มีสิทธิ์</b> · คลอด/บวชนับวันปฏิทิน ประเภทอื่นนับวันทำการ · ค่าเริ่มต้นต้องให้ HR ตรวจและลงวันที่ leave_policy_reviewed_at ก่อนใช้จริง</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ. ว่าง = ทุกปี)</label>' +
-      '<input id="q-year" type="number" inputmode="numeric" placeholder="เช่น 2569" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
+      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปีงบประมาณ (พ.ศ. ว่าง = ทุกปี)</label>' +
+      '<input id="q-year" type="number" inputmode="numeric" placeholder="เช่น 2570" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทบุคลากร</label>' +
       '<select id="q-emptype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>' +
@@ -58,7 +58,7 @@ AdminViews.leave = {
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">' +
       '<div class="overflow-x-auto"><table class="w-full text-sm">' +
       '<thead><tr class="text-left text-xs text-slate-500 font-semibold">' +
-      '<th class="px-4 py-2.5">ปี</th><th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5">ประเภทการลา</th>' +
+      '<th class="px-4 py-2.5">ปีงบประมาณ</th><th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5">ประเภทการลา</th>' +
       '<th class="px-4 py-2.5 text-right">โควตา</th><th class="px-4 py-2.5">หมายเหตุ</th><th class="px-4 py-2.5"></th>' +
       '</tr></thead><tbody id="quotaBody" class="divide-y divide-slate-200"></tbody></table></div>' +
       '<p id="quotaEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีโควตา — รันเมนู "เติมสิทธิ์วันลาตามระเบียบ" ใน Google Sheet ก่อน</p>' +
@@ -69,8 +69,8 @@ AdminViews.leave = {
       '<p class="text-sm font-semibold text-slate-600 mb-1">สมุดรายการปรับยอดวันลา (ยกมา / ใช้เพิ่ม)</p>' +
       '<p class="text-xs text-slate-500 mb-3">ยอดที่แสดงทุกจุดของระบบ = ใบลาจริงใน Notion + รายการในสมุดนี้ — <b>ยกมา</b> เพิ่มสิทธิ์ (เช่น พักร้อนสะสมจากปีก่อน) · <b>ใช้เพิ่ม</b> เพิ่มยอดที่ใช้ไปแล้ว (เช่น ลาก่อนใช้ระบบ)</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ.)</label>' +
-      '<input id="b-year" type="number" inputmode="numeric" placeholder="เช่น 2569" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
+      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปีงบประมาณ (พ.ศ.)</label>' +
+      '<input id="b-year" type="number" inputmode="numeric" placeholder="เช่น 2570" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ชื่อ สกุล</label>' +
       '<select id="b-name" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>' +
@@ -92,7 +92,7 @@ AdminViews.leave = {
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">' +
       '<div class="overflow-x-auto"><table class="w-full text-sm">' +
       '<thead><tr class="text-left text-xs text-slate-500 font-semibold">' +
-      '<th class="px-4 py-2.5">ปี</th><th class="px-4 py-2.5">ชื่อ สกุล</th><th class="px-4 py-2.5">ประเภท</th>' +
+      '<th class="px-4 py-2.5">ปีงบประมาณ</th><th class="px-4 py-2.5">ชื่อ สกุล</th><th class="px-4 py-2.5">ประเภท</th>' +
       '<th class="px-4 py-2.5 text-right">ยกมา</th><th class="px-4 py-2.5 text-right">ใช้เพิ่ม</th>' +
       '<th class="px-4 py-2.5">เหตุผล</th><th class="px-4 py-2.5"></th>' +
       '</tr></thead><tbody id="balanceBody" class="divide-y divide-slate-200"></tbody></table></div>' +
@@ -266,7 +266,7 @@ AdminViews.leave = {
       usedExtra: UI.$('b-extra').value.trim(),
       reason: UI.$('b-reason').value.trim(),
     };
-    if (!payload.yearBE || !payload.name || !payload.leaveType) { UI.showToast('กรอกปี ชื่อ และประเภทการลาให้ครบ', true); return; }
+    if (!payload.yearBE || !payload.name || !payload.leaveType) { UI.showToast('กรอกปีงบประมาณ ชื่อ และประเภทการลาให้ครบ', true); return; }
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     const wasEditing = this.editingBalanceRow;
     try {

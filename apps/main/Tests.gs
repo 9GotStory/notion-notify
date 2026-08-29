@@ -37,6 +37,7 @@ function runUnitTests() {
     testLeaveDisplayEnrichment_,
     testFindDuplicates_,
     testCountBusinessDays_,
+    testFiscalYearHelpers_,
     testLeaveRangeOverlap_,
     testLeaveDateLabel_,
     testSplitConfigNames_,
@@ -670,6 +671,26 @@ function testCountBusinessDays_() {
   assertEqual_(countBusinessDays_('2026-08-22', '2026-08-22', new Set()), 0);
 }
 
+function testFiscalYearHelpers_() {
+  assertEqual_(fiscalYearCEForDateStr_('2026-09-30'), 2026);
+  assertEqual_(fiscalYearCEForDateStr_('2026-10-01'), 2027);
+  assertEqual_(fiscalYearCEForDateStr_('2027-01-01'), 2027);
+  assertEqual_(fiscalYearCEForDate_(new Date('2026-09-30T23:59:59+07:00')), 2026);
+  assertEqual_(fiscalYearCEForDate_(new Date('2026-10-01T00:00:00+07:00')), 2027);
+  const bounds = fiscalYearBounds_(2027);
+  assertEqual_(bounds.from, '2026-10-01');
+  assertEqual_(bounds.to, '2027-10-01');
+
+  const acrossCalendarYear = parseLeaveDateRange_('2026-12-31', '2027-01-01', '2026-12-01');
+  assertEqual_(acrossCalendarYear.end, '2027-01-01');
+  assertThrows_(function () {
+    parseLeaveDateRange_('2026-09-30', '2026-10-01', '2026-09-01');
+  }, 'ปีงบประมาณเดียวกัน');
+  assertTrue_(isFiscalYearCrossingLeave_({ start: '2026-09-30', end: '2026-10-01' }));
+  assertFalse_(isFiscalYearCrossingLeave_({ start: '2026-12-31', end: '2027-01-01' }));
+  assertFalse_(isFiscalYearCrossingLeave_({ start: '2026-09-30', end: '' }));
+}
+
 function testLeaveRangeOverlap_() {
   assertTrue_(leaveRangeOverlap_('2026-08-18', '2026-08-22', '2026-08-20'));
   assertFalse_(leaveRangeOverlap_('2026-08-18', '2026-08-22', '2026-08-23'));
@@ -1016,11 +1037,6 @@ function testParseLeaveSubmissionInput_() {
   }, 'รูปแบบวันที่ไม่ถูกต้อง');
   assertThrows_(function () {
     parseLeaveSubmissionInput_({
-      leaveType: 'ลากิจ', start: '2026-12-31', end: '2027-01-01',
-    }, settings);
-  }, 'ปีปฏิทินเดียวกัน');
-  assertThrows_(function () {
-    parseLeaveSubmissionInput_({
       leaveType: 'ลากิจ', start: today, end: today, period: 'ครึ่งวันเช้า',
     }, Object.assign({}, settings, { leave_type_options: 'ลาคลอด' }));
   }, 'ประเภทการลาไม่ถูกต้อง');
@@ -1114,8 +1130,8 @@ function testSubtractLeaveFromUsage_() {
 function testSubtractLeaveFromTargetYearUsage_() {
   const usage = { 'ลากิจ': 3 };
   const oldLeave = { start: '2026-12-20', leaveType: 'ลากิจ', workDays: 2 };
-  assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2026)['ลากิจ'], 1);
-  assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2027)['ลากิจ'], 3);
+  assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2027)['ลากิจ'], 1);
+  assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2026)['ลากิจ'], 3);
 }
 
 function testPreviousMonthKey_() {
@@ -1344,6 +1360,13 @@ function testUsageSummaryWithBalances_() {
   const fromBalancesOnly = buildUsageSummaryWithBalances_(null, balances, 2026, null, 'สมศักดิ์ ใจดี');
   assertEqual_(fromBalancesOnly['ลาพักร้อน'].quota, 15);
 
+  // ปีงบประมาณ 2570 ใช้ key 2027 และต้องไม่ดึงแถว 2569 มาปน
+  const nextFiscal = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 1 }, [
+    { yearBE: 2570, name: 'สมศักดิ์ ใจดี', leaveType: 'ลาพักร้อน', carryIn: 7, usedExtra: 2 },
+  ], 2027, null, 'สมศักดิ์ ใจดี');
+  assertEqual_(nextFiscal['ลาพักร้อน'].quota, 17);
+  assertEqual_(nextFiscal['ลาพักร้อน'].used, 3);
+
   // ไม่มีทั้งคู่ → null (หน้า "ของฉัน" แสดง "ยังไม่มีข้อมูล" ตามเดิม)
   assertEqual_(buildUsageSummaryWithBalances_(null, [], 2026, null, 'สมศักดิ์ ใจดี'), null);
   assertEqual_(buildUsageSummaryWithBalances_(null, balances, 2026, null, 'ไม่มี คนนี้'), null);
@@ -1382,6 +1405,7 @@ function testBaseQuotaMap_() {
   // ข้าราชการปี 2569 (2026): แถวปีเฉพาะ (5) ชนะแถวทุกปี (10) / ปีอื่น (2025) ใช้แถวทุกปี
   assertEqual_(baseQuotaMap_(profiles, 'ข้าราชการ', 2026)['ลาพักร้อน'], 5);
   assertEqual_(baseQuotaMap_(profiles, 'ข้าราชการ', 2025)['ลาพักร้อน'], 10);
+  assertEqual_(baseQuotaMap_(profiles, 'ข้าราชการ', 2027)['ลาพักร้อน'], 8);
 
   // สถานะว่าง (ยังไม่ระบุ) = ค่าเริ่มต้นทั้งชุด / ไม่มี profiles เลยก็คืนค่าเริ่มต้น
   const blank = baseQuotaMap_(profiles, '', 2026);

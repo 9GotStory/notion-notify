@@ -91,18 +91,18 @@ function apiSession_(body) {
     halfDayTypes: HALF_DAY_TYPES,
   };
   if (staff) {
+    const fiscalYear = fiscalYearCEForDate_(new Date());
     return Object.assign({
       ok: true, registered: true,
       name: staffDisplayName_(staff), groupName: staff.groupName, position: staff.position,
-      // ยอดวันลาที่ใช้ไปแล้วของปีนี้ (จากใบลาจริงใน Notion) เพื่อแสดงบนฟอร์ม — null ถ้ายังไม่ตั้งค่า/อ่านไม่ได้
+      // ยอดวันลาที่ใช้ไปแล้วของปีงบประมาณนี้จากใบจริงใน Notion
       usage: buildUsageSummaryWithBalances_(
         getLeaveUsageForYear_(settings.leave_database_id, staff.lineUserId, new Date()),
         readLeaveBalances_(),
-        Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')),
-        baseQuotaMap_(readQuotaProfiles_(), staff.employmentType,
-          Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'))),
+        fiscalYear,
+        baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, fiscalYear),
         staffKey_(staff)),
-      leaveYear: String(Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy')) + 543),
+      leaveYear: String(fiscalYear + 543),
     }, common, leaveStatus);
   }
   const config = readApproversConfig_();
@@ -323,7 +323,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
   if (quotaDays <= 0 || (workDays <= 0 && !usesCalendarDayQuota_(leaveType))) {
     throw new Error('ช่วงวันที่เลือกไม่มีวันทำการ กรุณาเลือกวันทำการอย่างน้อย 1 วัน');
   }
-  const year = Number(range.start.substring(0, 4));
+  const year = fiscalYearCEForDateStr_(range.start);
   const leaveYearDate = new Date(range.start + 'T00:00:00+07:00');
   const rawUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, leaveYearDate);
   const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
@@ -483,16 +483,18 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
 
 // ---------- ใบลาของฉัน: ดูรายการ / ยกเลิก / แก้ไข (apiAction: myLeaves / cancel / update) ----------
 
-/** ใบลาทั้งหมดของคนหนึ่งตั้งแต่ปีที่กำหนดถึงก่อน endYearExclusive
+/** ใบลาทั้งหมดของคนหนึ่งตั้งแต่ปีงบประมาณที่กำหนดถึงก่อน endYearExclusive
  *  (ทุกสถานะ — เจ้าของดูประวัติของตัวเองได้ทั้งหมด)
  *  เรียงวันเริ่มลงล่าง (ใบล่าสุดอยู่บน) — ใช้ queryNotionPages_ วน cursor ตามแบบ query ปฏิทิน */
 function getMyLeavesForYears_(leaveDbId, userId, year, endYearExclusive) {
+  const from = fiscalYearBounds_(year).from;
+  const to = fiscalYearBounds_(endYearExclusive).from;
   const payload = {
     filter: {
       and: [
         { property: PROPS_LEAVE.submitter, rich_text: { equals: userId } },
-        { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
-        { property: PROPS_LEAVE.date, date: { before: endYearExclusive + '-01-01T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { on_or_after: from + 'T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: to + 'T00:00:00+07:00' } },
       ],
     },
     sorts: [{ property: PROPS_LEAVE.date, direction: 'descending' }],
@@ -534,20 +536,21 @@ function apiMyLeaves_(body) {
   const settings = getSettings_();
   const now = new Date();
   const todayStr = bangkokTodayStr_();
-  const year = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy'));
+  const year = fiscalYearCEForDate_(now);
 
   const leaveDbId = String(settings.leave_database_id || '').trim();
   let leaves = [];
   let usage = null;
   if (leaveDbId && leaveDbId !== 'your_leave_database_id') {
-    // ครอบคลุมปีก่อน (ยื่นย้อนหลังได้), ปีนี้ และปีถัดไป (ยื่นล่วงหน้าได้)
+    // ครอบคลุมปีงบประมาณก่อน (ยื่นย้อนหลังได้), ปีนี้ และปีถัดไป (ยื่นล่วงหน้าได้)
     // เพื่อไม่ให้ใบรอที่ข้ามขอบปีหายจากหน้าจัดการของเจ้าของ
     const parsed = getMyLeavesForYears_(leaveDbId, staff.lineUserId, year - 1, year + 2)
       // กันเคส property "ผู้ยื่น (ระบบ)" ถูกแก้ใน Notion จนดึงใบของคนอื่นมาแสดง
       .filter(leave => leave.submitterUserId === profile.userId);
     // ยอดใช้คำนวณจากชุดเดียวกันเลย (ไม่ query ซ้ำ — ก่อนหน้านี้ยิง Notion 4 คำขอ/ครั้งจนโดน rate limit
     // ทำให้การ์ดยอดกลายเป็น "ไม่มีข้อมูล" ทั้งที่รายการด้านล่างแสดงได้) แล้วรวมรายการปรับจากสมุด LeaveBalances
-    const currentYearLeaves = parsed.filter(leave => String(leave.start || '').substring(0, 4) === String(year));
+    const currentYearLeaves = parsed.filter(leave =>
+      isValidDateStr_(leave.start) && fiscalYearCEForDateStr_(leave.start) === year);
     usage = buildUsageSummaryWithBalances_(usageFromLeaves_(currentYearLeaves), readLeaveBalances_(), year,
       baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year), staffKey_(staff));
     leaves = parsed.map(leave => buildMyLeaveRow_(leave, todayStr));
@@ -702,10 +705,10 @@ function apiUpdateLeave_(body) {
     if (quotaDays <= 0 || (workDays <= 0 && !usesCalendarDayQuota_(input.leaveType))) {
       throw new Error('ช่วงวันที่เลือกไม่มีวันทำการ กรุณาเลือกวันทำการอย่างน้อย 1 วัน');
     }
-    const year = Number(input.start.substring(0, 4));
+    const year = fiscalYearCEForDateStr_(input.start);
     const leaveYearDate = new Date(input.start + 'T00:00:00+07:00');
     const targetYearUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, leaveYearDate);
-    // หักใบเดิมเฉพาะเมื่อยังอยู่ปีเดียวกับวันที่ใหม่; ถ้าย้ายใบข้ามปี ใบเดิมไม่ได้อยู่ในยอดปีเป้าหมาย
+    // หักใบเดิมเฉพาะเมื่อยังอยู่ปีงบประมาณเดียวกับวันที่ใหม่
     const rawUsage = subtractLeaveFromTargetYearUsage_(targetYearUsage, leavePage, year);
     const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
       baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year), staffKey_(staff));

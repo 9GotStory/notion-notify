@@ -32,6 +32,10 @@ function checkAdminViewContracts() {
     if (!reports || reports.render.constructor.name !== 'AsyncFunction' || typeof reports.renderReport !== 'function') {
       throw new Error('Reports view must keep async render(root, isStale) separate from renderReport(data)');
     }
+    const bangkokBoundary = reports.bangkokYearMonth_(new Date('2026-09-30T18:00:00Z'));
+    if (bangkokBoundary.year !== 2026 || bangkokBoundary.month !== 10) {
+      throw new Error('Reports view must derive the current month in Asia/Bangkok');
+    }
   } catch (err) {
     console.error(err.stack || err);
     process.exitCode = 1;
@@ -42,7 +46,8 @@ function checkDirectModeContracts() {
   const contracts = [
     {
       file: 'web/liff-form/index.html',
-      required: ["new URLSearchParams", "accessToken: accessToken", "CONFIG.API_URL + '?'", "method: 'GET'"],
+      required: ["new URLSearchParams", "accessToken: accessToken", "CONFIG.API_URL + '?'", "method: 'GET'",
+        'fiscalYearBEForDateStr(start) !== fiscalYearBEForDateStr(end)'],
       forbidden: ["'/api/liff'"],
     },
     {

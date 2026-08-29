@@ -47,6 +47,7 @@ function onOpen() {
     .addItem('ทดสอบส่งตอนนี้', 'testSendNow')
     .addItem('ทดสอบการ์ดใบลา', 'testLeaveCardNow')
     .addItem('ทดสอบสรุปรายเดือน', 'testMonthlyLeaveSummaryNow')
+    .addItem('ตรวจใบลาคร่อมปีงบประมาณ', 'auditFiscalYearCrossingLeaves')
     .addItem('ร่างยอดยกมาปีถัดไป', 'draftCarryOverNextYear')
     .addItem('รัน Unit Tests', 'runUnitTests')
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
@@ -66,6 +67,8 @@ function onOpen() {
 function setupSheet() {
   const ss = SpreadsheetApp.getActive();
   const status = [];
+
+  migrateFiscalYearHeaders_(ss, status);
 
   ensureSheet_(ss, 'Settings', 'การตั้งค่าระบบแจ้งเตือน + ระบบลางาน', ['คีย์', 'ค่า', 'คำอธิบาย'], status);
   ensureSheet_(ss, 'Holidays', 'วันหยุดราชการ (ตรวจทานกับ soc.go.th ทุกต้นปี)', ['วันที่', 'ชื่อวันหยุด', 'ประเภท'], status);
@@ -174,12 +177,54 @@ function setupSheet() {
   }
 }
 
+/** เปลี่ยนเฉพาะหัวคอลัมน์เดิมให้ระบุว่าเป็นปีงบประมาณ ข้อมูลและเลขปีเดิมไม่ถูกแตะ */
+function migrateFiscalYearHeaders_(ss, status) {
+  [
+    ['LeaveBalances', 'ปี (พ.ศ.)', BALANCE_SHEET_COLUMNS[0],
+      'สมุดรายการปรับยอดวันลาแยกตามปีงบประมาณ — ยอดที่แสดงทุกจุด = ใบลาจริง + รายการในนี้'],
+    ['QuotaProfiles', 'ปี (พ.ศ. เว้นว่าง = ทุกปี)', QUOTA_PROFILE_COLUMNS[0], QUOTA_PROFILE_SHEET_TITLE],
+  ].forEach(function (item) {
+    const sheet = ss.getSheetByName(item[0]);
+    if (!sheet || String(sheet.getRange(2, 1).getDisplayValue()).trim() !== item[1]) return;
+    sheet.getRange(1, 1).setValue(item[3]);
+    sheet.getRange(2, 1).setValue(item[2]);
+    status.push('ปรับหัวคอลัมน์ปีเป็นปีงบประมาณ: ' + item[0]);
+  });
+}
+
+/** รายงานใบเดิมที่ต้องให้ HR แยก ไม่แก้หรือลบข้อมูลใน Notion อัตโนมัติ */
+function auditFiscalYearCrossingLeaves() {
+  try {
+    const settings = getSettings_();
+    const dbId = String(settings.leave_database_id || '').trim();
+    if (!dbId || dbId === 'your_leave_database_id') {
+      throw new Error('ยังไม่ได้ตั้งค่า leave_database_id ในชีต Settings');
+    }
+    const leaves = getFiscalYearCrossingLeaves_(new Date(), dbId);
+    const text = leaves.length
+      ? 'พบใบลาที่ยังมีผลและคร่อม 30 กันยายน/1 ตุลาคม ' + leaves.length + ' ใบ:\n\n' +
+        leaves.slice(0, 20).map(leave =>
+          '• ' + (leave.fullName || leave.pageId) + ' — ' + leave.start.substring(0, 10) +
+          ' ถึง ' + String(leave.end || leave.start).substring(0, 10)).join('\n') +
+        (leaves.length > 20 ? '\n…และอีก ' + (leaves.length - 20) + ' ใบ' : '') +
+        '\n\nให้ HR แยกเป็นใบสิ้นสุด 30 กันยายน และใบเริ่ม 1 ตุลาคม ก่อนใช้ยอดหรือร่างยอดยกมา'
+      : 'ไม่พบใบลาที่ยังมีผลซึ่งคร่อม 30 กันยายน/1 ตุลาคม';
+    SpreadsheetApp.getUi().alert('ตรวจใบลาคร่อมปีงบประมาณ', text, SpreadsheetApp.getUi().ButtonSet.OK);
+    return { count: leaves.length, leaves: leaves };
+  } catch (err) {
+    logResult_(new Date(), 'error (manual test)', 'ตรวจใบลาคร่อมปีงบประมาณไม่สำเร็จ: ' + err);
+    try { SpreadsheetApp.getUi().alert('ตรวจใบลาคร่อมปีงบประมาณไม่สำเร็จ: ' + err); } catch (e2) { console.error(String(err)); }
+    throw err;
+  }
+}
+
 // เติมแถวสิทธิ์จาก QUOTA_PROFILE_SEED ลงชีต QuotaProfiles — เฉพาะคู่ (ประเภทบุคลากร+ประเภทการลา)
 // ที่ยังไม่มีแถวใดๆ แถวที่ผู้ดูแลเพิ่ม/แก้เองไว้แล้วจะไม่ถูกแตะ (idempotent — รันซ้ำกี่ครั้งก็ปลอดภัย)
 // สร้างชีตให้เองถ้ายังไม่มี จึงรันจากเมนูเฉพาะตัวได้แม้ยังไม่เคยรัน setupSheet
 // คืน {added, kept, blocked?} — blocked ตอนชีตเป็นโครงคอลัมน์รุ่นเก่า (เขียนไม่ได้ ไม่เสียข้อมูล)
 function seedLeaveQuotaDefaults_() {
   const ensureStatus = [];
+  migrateFiscalYearHeaders_(SpreadsheetApp.getActive(), ensureStatus);
   const usable = ensureSheet_(SpreadsheetApp.getActive(), 'QuotaProfiles',
     QUOTA_PROFILE_SHEET_TITLE, QUOTA_PROFILE_COLUMNS, ensureStatus);
   if (!usable) {
@@ -572,10 +617,15 @@ function draftCarryOverNextYear() {
   try {
     const settings = getSettings_();
     const now = new Date();
-    const year = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy'));
+    const year = fiscalYearCEForDate_(now);
     const roster = readStaffRoster_();
     const balances = readLeaveBalances_();
     const profiles = readQuotaProfiles_();
+    const crossingLeaves = getFiscalYearCrossingLeaves_(now, settings.leave_database_id);
+    if (crossingLeaves.length) {
+      throw new Error('พบใบลาคร่อม 30 กันยายน/1 ตุลาคม ' + crossingLeaves.length +
+        ' ใบ กรุณารันเมนู "ตรวจใบลาคร่อมปีงบประมาณ" และให้ HR แยกใบก่อน');
+    }
     const leaves = getActiveLeavesForYear_(now, settings.leave_database_id, year);
 
     const lines = [];
@@ -597,13 +647,13 @@ function draftCarryOverNextYear() {
     });
 
     const text = lines.length
-      ? 'ร่างรายการ "ยกมา" ลาพักร้อน ปี ' + (year + 1 + 543) + ' (ยังไม่ได้บันทึก):\n\n' + lines.join('\n') +
+      ? 'ร่างรายการ "ยกมา" ลาพักร้อน ปีงบประมาณ ' + (year + 1 + 543) + ' (ยังไม่ได้บันทึก):\n\n' + lines.join('\n') +
         '\n\nบันทึกจริงที่: หน้าเว็บตั้งค่า > แท็บ "ยอดวันลา" หรือเพิ่มแถวในชีต LeaveBalances เอง' +
         '\nหมายเหตุ: ระบบจำกัดยอดยกมาไว้ไม่เกินสิทธิ์รายปี (' + LEAVE_QUOTAS['ลาพักร้อน'] + ' วันทำการ) — กรณีสะสมหลายปี (รวมไม่เกิน 45) ปรับตัวเลขเองตามระเบียบจริง'
-      : 'ไม่มีใครเหลือวันลาพักร้อนให้ยกมาในปี ' + (year + 543) +
+      : 'ไม่มีใครเหลือวันลาพักร้อนให้ยกมาในปีงบประมาณ ' + (year + 543) +
         (String(settings.leave_database_id || '').trim() === 'your_leave_database_id' ? ' (หรือยังไม่ได้ตั้งค่า leave_database_id)' : '');
     SpreadsheetApp.getUi().alert(text);
-    logResult_(now, 'success (manual test)', 'ร่างยอดยกมาปี ' + (year + 1 + 543) + ': ' + lines.length + ' รายชื่อ');
+    logResult_(now, 'success (manual test)', 'ร่างยอดยกมาปีงบประมาณ ' + (year + 1 + 543) + ': ' + lines.length + ' รายชื่อ');
   } catch (err) {
     logResult_(new Date(), 'error (manual test)', 'คำนวณร่างยกมาไม่สำเร็จ: ' + err);
     try { SpreadsheetApp.getUi().alert('คำนวณร่างยกมาไม่สำเร็จ: ' + err); } catch (e2) { console.error(String(err)); }

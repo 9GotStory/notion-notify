@@ -6,19 +6,27 @@ AdminViews.reports = {
   lastReport: null, // เก็บผลล่าสุดไว้ใช้กับปุ่ม CSV (ไม่ยิงเซิร์ฟเวอร์ซ้ำ)
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
+  bangkokYearMonth_(date) {
+    const values = {};
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Bangkok', year: 'numeric', month: 'numeric',
+    }).formatToParts(date).forEach(part => { values[part.type] = Number(part.value); });
+    return { year: values.year, month: values.month };
+  },
+
   async render(root, isStale) {
     this._isStale = isStale;
     root.innerHTML =
       '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
       '<div class="flex flex-wrap items-end gap-2">' +
-      '<div><label for="r-year" class="block text-xs font-semibold text-slate-500 mb-1.5">ปี (พ.ศ.)</label>' +
+      '<div><label for="r-year" class="block text-xs font-semibold text-slate-500 mb-1.5">ปีงบประมาณ (พ.ศ.)</label>' +
       '<select id="r-year" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"></select></div>' +
       '<div><label for="r-month" class="block text-xs font-semibold text-slate-500 mb-1.5">เดือน</label>' +
       '<select id="r-month" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">ทั้งปี</option></select></div>' +
       '<button id="btnRunReport" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">แสดง</button>' +
       '<button id="btnReportCsv" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-primary bg-primary-light disabled:opacity-50 disabled:cursor-default">ดาวน์โหลด CSV</button>' +
       '</div>' +
-      '<p class="text-xs text-slate-500 mt-3">สรุปเฉพาะใบลาสถานะ "อนุมัติ" เป็นวันทำการตามเดือนที่ใบเริ่ม (ใบคร่อมเดือนนับเดือนที่เริ่ม) ใช้ดูภาพกำลังคน ไม่ใช่เกณฑ์วินิจฉัยสิทธิ์คลอด/บวช</p>' +
+      '<p class="text-xs text-slate-500 mt-3">ปีงบประมาณเริ่ม 1 ตุลาคมและสิ้นสุด 30 กันยายน · สรุปเฉพาะใบลาสถานะ "อนุมัติ" เป็นวันทำการตามเดือนที่ใบเริ่ม (ใบคร่อมเดือนนับเดือนที่เริ่ม) ใช้ดูภาพกำลังคน ไม่ใช่เกณฑ์วินิจฉัยสิทธิ์คลอด/บวช</p>' +
       '</div>' +
 
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">' +
@@ -40,24 +48,26 @@ AdminViews.reports = {
   },
 
   initControls() {
-    const now = new Date();
-    const beYear = now.getFullYear() + 543;
+    const now = this.bangkokYearMonth_(new Date());
+    const fiscalYear = now.month >= 10 ? now.year + 1 : now.year;
+    const beYear = fiscalYear + 543;
     const yearSel = UI.$('r-year');
     for (let y = beYear; y >= beYear - 3; y--) {
       const opt = document.createElement('option');
-      opt.value = String(y - 543); // แสดง พ.ศ. ส่งเป็น ค.ศ. ตามสัญญาของ get_leave_report
+      opt.value = String(y - 543); // ปีงบประมาณ ค.ศ. ที่สิ้นสุด
       opt.textContent = String(y);
       yearSel.appendChild(opt);
     }
     const monthSel = UI.$('r-month');
     monthSel.innerHTML = '<option value="">ทั้งปี</option>';
-    UI.THAI_MONTHS.forEach((name, i) => {
+    [9, 10, 11, 0, 1, 2, 3, 4, 5, 6, 7, 8].forEach(i => {
+      const name = UI.THAI_MONTHS[i];
       const opt = document.createElement('option');
       opt.value = String(i + 1).padStart(2, '0');
       opt.textContent = name;
       monthSel.appendChild(opt);
     });
-    monthSel.value = String(now.getMonth() + 1).padStart(2, '0'); // เลือกเดือนปัจจุบันเป็นค่าเริ่มต้น
+    monthSel.value = String(now.month).padStart(2, '0'); // เลือกเดือนปัจจุบันตามเวลาไทย
   },
 
   reportDays_(value) {
@@ -74,7 +84,10 @@ AdminViews.reports = {
     UI.$('reportError').classList.add('hidden');
     UI.$('reportEmpty').classList.add('hidden');
     try {
-      const res = await AdminAPI.call('get_leave_report', { year: year, month: month ? year + '-' + month : '' });
+      const monthNumber = Number(month || 0);
+      const calendarYear = monthNumber >= 10 ? Number(year) - 1 : Number(year);
+      const monthKey = month ? calendarYear + '-' + month : '';
+      const res = await AdminAPI.call('get_leave_report', { year: year, month: monthKey });
       if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
       this.lastReport = res;
       this.renderReport(res);
@@ -124,7 +137,7 @@ AdminViews.reports = {
 
     const empty = UI.$('reportEmpty');
     if (!res.rows.length) {
-      empty.textContent = 'ไม่มีข้อมูลวันลา' + (res.month ? 'เดือน ' + res.monthLabel : 'ปี ' + res.year) + ' — ลองเลือกช่วงอื่น';
+      empty.textContent = 'ไม่มีข้อมูลวันลา ' + res.monthLabel + ' — ลองเลือกช่วงอื่น';
       empty.classList.remove('hidden');
     }
   },
@@ -139,6 +152,6 @@ AdminViews.reports = {
       rows.push([row.name, row.group || ''].concat(row.cells.map(String)).concat([String(row.total)]));
     });
     rows.push(['รวมทุกคน', ''].concat(res.columnTotals.map(String)).concat([String(res.grandTotal)]));
-    UI.downloadCsv('รายงานวันลา-' + (res.month ? res.month : res.year) + '.csv', rows);
+    UI.downloadCsv('รายงานวันลา-' + (res.month ? res.month : 'ปีงบประมาณ-' + (Number(res.year) + 543)) + '.csv', rows);
   },
 };

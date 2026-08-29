@@ -207,20 +207,20 @@
             class="w-full py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ส่งใบลา</button>
   </section>
 
-  <!-- ===== ของฉัน: ยอดวันลาปีนี้ + รายการใบลาปีก่อนถึงปีถัดไป (แก้ไข/ยกเลิกได้เอง) ===== -->
+  <!-- ===== ของฉัน: ยอดปีงบประมาณนี้ + รายการใบลาปีงบประมาณก่อนถึงปีถัดไป ===== -->
   <section id="view-mine" class="hidden">
     <header class="mb-4">
       <h1 class="text-lg font-bold">ของฉัน</h1>
-      <p class="text-sm text-slate-500 mt-1">ยอดวันลาของปีนี้ และใบลาตั้งแต่ปีก่อนถึงปีถัดไป — ใบที่ยังรออนุมัติแก้ไขได้ และยกเลิกได้ก่อนถึงวันเริ่มลา</p>
+      <p class="text-sm text-slate-500 mt-1">ยอดวันลาของปีงบประมาณนี้ (1 ต.ค.–30 ก.ย.) และใบลาตั้งแต่ปีงบประมาณก่อนถึงปีถัดไป — ใบที่ยังรออนุมัติแก้ไขได้ และยกเลิกได้ก่อนถึงวันเริ่มลา</p>
     </header>
 
     <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
-      <p class="text-sm font-semibold text-slate-600 mb-1">ยอดวันลา ปี <span id="mineYear"></span></p>
+      <p class="text-sm font-semibold text-slate-600 mb-1">ยอดวันลา ปีงบประมาณ <span id="mineYear"></span></p>
       <div id="mineUsage" class="divide-y divide-slate-100 text-sm"></div>
       <p class="text-xs text-slate-400 mt-3">* ยอด "ใช้ไปแล้ว" รวมใบที่กำลังรออนุมัติด้วย และแถวที่มี <span class="text-sky-700">*</span> รวมยอดยกมา/รายการปรับของผู้ดูแลแล้ว</p>
     </div>
 
-    <p class="text-sm font-semibold text-slate-600 mb-2">ใบลาของฉัน (ปีก่อน–ปีถัดไป)</p>
+    <p class="text-sm font-semibold text-slate-600 mb-2">ใบลาของฉัน (ปีงบประมาณก่อน–ปีถัดไป)</p>
     <div id="mineLoading" class="hidden py-10 text-center">
       <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="text-sm text-slate-500 mt-3">กำลังโหลด…</p>
@@ -346,6 +346,10 @@
     d.setDate(d.getDate() + n);
     return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   }
+  function fiscalYearBEForDateStr(dateStr) {
+    const parts = String(dateStr || '').split('-').map(Number);
+    return parts[0] + (parts[1] >= 10 ? 544 : 543);
+  }
   function daysBetween(a, b) {
     return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
   }
@@ -467,7 +471,7 @@
       state.approvalEnabled = session.approvalEnabled !== false;
       state.options.leaveTypes = session.leaveTypes || (session.options && session.options.leaveTypes) || [];
       state.options.halfDayTypes = session.halfDayTypes || (session.options && session.options.halfDayTypes) || [];
-      state.usage = session.usage || null; // ยอดใช้/สิทธิ์รายปี (มีเฉพาะผู้ที่ลงทะเบียนแล้ว)
+      state.usage = session.usage || null; // ยอดใช้/สิทธิ์รายปีงบประมาณ
       state.leaveYear = session.leaveYear || '';
       if (session.registered) {
         state.user = session;
@@ -826,7 +830,7 @@
       const quotaText = info && info.quota != null
         ? (info.basis === 'manual_event'
           ? ' · เกณฑ์อ้างอิง ' + info.quota + ' ' + quotaUnit + ' (HR ตรวจรายกรณี)'
-          : ' · สิทธิ์ปี ' + (state.leaveYear || 'ปัจจุบัน') + ' ' + info.quota + ' ' + quotaUnit) : '';
+          : ' · สิทธิ์ปีงบประมาณ ' + (state.leaveYear || 'ปัจจุบัน') + ' ' + info.quota + ' ' + quotaUnit) : '';
       btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(name) + '</span>' +
         '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' +
         escapeHtml((TYPE_DESCRIPTIONS[name] || '') + quotaText) + '</span>';
@@ -851,17 +855,17 @@
     if (!info) { el.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const start = $('dateStart').value;
-    const selectedYearBE = /^\d{4}-/.test(start) ? Number(start.substring(0, 4)) + 543 : null;
+    const selectedYearBE = /^\d{4}-/.test(start) ? fiscalYearBEForDateStr(start) : null;
     if (selectedYearBE && String(selectedYearBE) !== String(state.leaveYear || '')) {
-      el.textContent = 'ใบนี้อยู่ในปี ' + selectedYearBE + ' — ระบบจะตรวจยอดและสิทธิ์ของปีนั้นจากข้อมูลจริงเมื่อส่ง';
+      el.textContent = 'ใบนี้อยู่ในปีงบประมาณ ' + selectedYearBE + ' — ระบบจะตรวจยอดและสิทธิ์ของปีนั้นจากข้อมูลจริงเมื่อส่ง';
       return;
     }
     const quotaUnit = info.unit ||
       (CALENDAR_QUOTA_TYPES.includes(state.leaveType) ? 'วันปฏิทิน' : 'วันทำการ');
     el.textContent = info.basis === 'manual_event'
-      ? 'ใช้ในปี ' + (state.leaveYear || '') + ' แล้ว ' + usedLabel_(info.used) + ' ' + quotaUnit +
+      ? 'ใช้ในปีงบประมาณ ' + (state.leaveYear || '') + ' แล้ว ' + usedLabel_(info.used) + ' ' + quotaUnit +
         (info.quota != null ? ' · เกณฑ์อ้างอิง ' + info.quota + ' ' + quotaUnit + ' (HR ตรวจรายกรณี)' : '')
-      : 'สิทธิ์ปี ' + (state.leaveYear || '') + ': ใช้ไปแล้ว ' + usedLabel_(info.used) +
+      : 'สิทธิ์ปีงบประมาณ ' + (state.leaveYear || '') + ': ใช้ไปแล้ว ' + usedLabel_(info.used) +
         (info.quota != null ? ' / สูงสุด ' + info.quota + ' ' + quotaUnit : ' ' + quotaUnit + ' (ไม่จำกัด)');
   }
 
@@ -881,6 +885,14 @@
     warn.classList.add('hidden');
     warnBox.classList.add('hidden');
     if (!start || !end || end < start) { box.classList.add('hidden'); $('periodWrap').classList.add('hidden'); return; }
+    if (fiscalYearBEForDateStr(start) !== fiscalYearBEForDateStr(end)) {
+      box.classList.remove('hidden');
+      box.textContent = thaiShort(start) + ' – ' + thaiShort(end);
+      $('periodWrap').classList.add('hidden');
+      warnBox.classList.remove('hidden');
+      warnBox.textContent = '⛔ ยื่นใบลาคร่อมปีงบประมาณไม่ได้ กรุณาแยกเป็นใบสิ้นสุดวันที่ 30 กันยายน และใบใหม่เริ่มวันที่ 1 ตุลาคม';
+      return;
+    }
 
     // ช่วงวัน (ครึ่งวัน) เลือกได้เฉพาะลา 1 วัน + ประเภทที่ระเบียบอนุญาต
     const singleDay = end === start;
@@ -915,11 +927,11 @@
 
     // คำเตือนสิทธิ์/ใบแพทย์ — mirror กติกาฝั่งเซิร์ฟเวอร์ (ฝั่งนั้นตรวจซ้ำและบันทึกลงใบลาให้ผู้อนุมัติเห็น)
     const warnings = [];
-    const selectedYearBE = Number(start.substring(0, 4)) + 543;
+    const selectedYearBE = fiscalYearBEForDateStr(start);
     const info = String(selectedYearBE) === String(state.leaveYear || '') && state.usage
       ? state.usage[state.leaveType] : null;
     if (info && info.quota != null && info.basis !== 'manual_event' && info.used + quotaDays > info.quota) {
-      warnings.push('⚠ เกินสิทธิ์ ' + info.quota + ' ' + quotaUnit + '/ปี: ใช้ไปแล้ว ' + usedLabel_(info.used) +
+      warnings.push('⚠ เกินสิทธิ์ ' + info.quota + ' ' + quotaUnit + '/ปีงบประมาณ: ใช้ไปแล้ว ' + usedLabel_(info.used) +
         ' + ใบนี้ ' + usedLabel_(quotaDays) + ' — ยื่นได้แต่ผู้อนุมัติจะเห็นคำเตือนนี้');
     }
     if (info && info.quota != null && info.basis === 'manual_event') {
@@ -974,6 +986,11 @@
     const start = $('dateStart').value;
     const end = $('dateEnd').value || start;
     if (!start) { err.textContent = 'กรุณาเลือกวันที่ลา'; err.classList.remove('hidden'); return; }
+    if (fiscalYearBEForDateStr(start) !== fiscalYearBEForDateStr(end)) {
+      err.textContent = 'ยื่นใบลาคร่อมปีงบประมาณไม่ได้ กรุณาแยกใบที่วันที่ 30 กันยายน/1 ตุลาคม';
+      err.classList.remove('hidden');
+      return;
+    }
 
     const editing = !!state.editing;
     state.sending = true;

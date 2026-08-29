@@ -54,6 +54,25 @@ fs.readdirSync(sourceDir)
 const result = vm.runInContext('runUnitTests()', context);
 if (!result || result.failed !== 0) process.exitCode = 1;
 
+const webappContext = vm.createContext({ console, Utilities: { formatDate } });
+const webappSource = fs.readFileSync(path.resolve(__dirname, '../apps/webapp/WebApp.gs'), 'utf8');
+vm.runInContext(webappSource, webappContext, { filename: 'WebApp.gs' });
+const fiscalReportHelpers = vm.runInContext(`({
+  beforeBoundary: reportFiscalYearCEForDate_(new Date('2026-09-30T12:00:00+07:00')),
+  atBoundary: reportFiscalYearCEForDate_(new Date('2026-10-01T00:00:00+07:00')),
+  october: reportFiscalYearCEForMonth_('2026-10'),
+  september: reportFiscalYearCEForMonth_('2027-09'),
+  bounds: reportFiscalYearBounds_(2027),
+})`, webappContext);
+if (fiscalReportHelpers.beforeBoundary !== 2026 || fiscalReportHelpers.atBoundary !== 2027 ||
+    fiscalReportHelpers.october !== 2027 || fiscalReportHelpers.september !== 2027 ||
+    fiscalReportHelpers.bounds.from !== '2026-10-01' || fiscalReportHelpers.bounds.to !== '2027-10-01') {
+  console.error('FAIL testWebappFiscalReportHelpers');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testWebappFiscalReportHelpers');
+}
+
 scriptProperties.set('ALLOW_LEGACY_DIRECT', 'TRUE');
 const directRequest = vm.runInContext("unwrapGatewayEnvelope_({ apiAction: 'session' })", context);
 if (!directRequest || directRequest.apiAction !== 'session') {

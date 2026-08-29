@@ -437,6 +437,21 @@ const REPORT_THAI_MONTHS = [
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
 ];
 
+function reportFiscalYearCEForDate_(date) {
+  const dateStr = Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd');
+  const parts = dateStr.split('-').map(Number);
+  return parts[1] >= 10 ? parts[0] + 1 : parts[0];
+}
+
+function reportFiscalYearBounds_(fiscalYearCE) {
+  return { from: (fiscalYearCE - 1) + '-10-01', to: fiscalYearCE + '-10-01' };
+}
+
+function reportFiscalYearCEForMonth_(monthKey) {
+  const parts = String(monthKey).split('-').map(Number);
+  return parts[1] >= 10 ? parts[0] + 1 : parts[0];
+}
+
 function notionHeadersReadOnly_() {
   const token = PropertiesService.getScriptProperties().getProperty('NOTION_TOKEN_READONLY');
   if (!token) {
@@ -528,7 +543,7 @@ function readReportStaff_() {
 }
 
 // ---------- สมุดรายการปรับยอดวันลา (แท็บ "ยอดวันลา") ----------
-// โครงสร้างคอลัมน์ตรงกับ BALANCE_SHEET_COLUMNS ของโปรเจกต์หลัก: ปี (พ.ศ.) | ชื่อ สกุล | ประเภทการลา
+// โครงสร้างคอลัมน์ตรงกับ BALANCE_SHEET_COLUMNS ของโปรเจกต์หลัก: ปีงบประมาณ (พ.ศ.) | ชื่อ สกุล | ประเภทการลา
 // | ยกมา (วันใช้สิทธิ์) | ใช้เพิ่ม (วันใช้สิทธิ์) | เหตุผล | บันทึกเมื่อ
 // ความหมาย: "ยกมา" เพิ่มเข้าสิทธิ์ของปีนั้น (เช่น พักร้อนสะสม) / "ใช้เพิ่ม" เพิ่มเข้ายอดใช้ (เช่น ลาก่อนมีระบบ)
 
@@ -543,7 +558,7 @@ function adminLeaveTypes_(settings) {
 }
 
 function validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra) {
-  if (!/^(25|26)\d{2}$/.test(String(yearBE || '').trim())) return 'ปี (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2569';
+  if (!/^(25|26)\d{2}$/.test(String(yearBE || '').trim())) return 'ปีงบประมาณ (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2570';
   if (!String(name || '').trim()) return 'กรุณาเลือกชื่อ สกุล';
   if (!String(leaveType || '').trim()) return 'กรุณาเลือกประเภทการลา';
   if (String(name).trim().length > 150) return 'ชื่อ สกุลยาวเกิน 150 ตัวอักษร';
@@ -644,12 +659,12 @@ function api_deleteBalance(rowNumber, version) {
 
 // ---------- โควตาตามประเภทบุคลากร (แท็บ "โควตา") ----------
 // โครงสร้างตรงกับ QUOTA_PROFILE_COLUMNS ของโปรเจกต์หลัก:
-//   ปี (พ.ศ. เว้นว่าง = ทุกปี) | ประเภทบุคลากร | ประเภทการลา | เกณฑ์วันใช้สิทธิ์ | หมายเหตุ
+//   ปีงบประมาณ (พ.ศ. เว้นว่าง = ทุกปี) | ประเภทบุคลากร | ประเภทการลา | เกณฑ์วันใช้สิทธิ์ | หมายเหตุ
 // ไม่มีแถว = ใช้ค่าเริ่มต้นของระบบ (ตามระเบียบข้าราชการ) — ใส่แถวเฉพาะประเภทที่ต่างจากนั้น / โควตา 0 = ไม่มีสิทธิ์
 
 function validateQuotaProfileInput_(yearBE, employmentType, leaveType, quota) {
   const year = String(yearBE || '').trim();
-  if (year && !/^(25|26)\d{2}$/.test(year)) return 'ปี (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2569 หรือเว้นว่าง = ทุกปี';
+  if (year && !/^(25|26)\d{2}$/.test(year)) return 'ปีงบประมาณ (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2570 หรือเว้นว่าง = ทุกปี';
   if (!String(employmentType || '').trim()) return 'กรุณาระบุประเภทบุคลากร';
   if (!String(leaveType || '').trim()) return 'กรุณาเลือกประเภทการลา';
   if (String(employmentType).trim().length > 100) return 'ประเภทบุคลากรยาวเกิน 100 ตัวอักษร';
@@ -886,14 +901,14 @@ function api_saveApprovers_(rows, expectedVersion) {
   });
 }
 
-/** ตารางสรุปวันลา "อนุมัติแล้ว" รายคน×ประเภท ตามปี (+เดือนถ้าเลือก) — นับตามวันเริ่มของใบ
+/** ตารางสรุปวันลา "อนุมัติแล้ว" รายคน×ประเภท ตามปีงบประมาณ (+เดือนถ้าเลือก) — นับตามวันเริ่มของใบ
  *  ให้ตรงแนวคิดโควตา/สรุปรายเดือนในระบบหลัก (ใบคร่อมเดือนนับเดือนที่เริ่ม)
- *  year เป็น ค.ศ. — หน้าเว็บแปลงปี พ.ศ. ให้ตอนแสดงผล และส่งกลับมาเป็น ค.ศ.
+ *  year เป็นปีงบประมาณ ค.ศ. ที่สิ้นสุด — หน้าเว็บแปลงปี พ.ศ. ให้ตอนแสดงผล
  *  คืน { ok, year, month, monthLabel, types, rows, columnTotals, grandTotal } */
 function api_getLeaveReport(year, month) {
   try {
     const rawYear = String(year || '').trim();
-    const yearNum = rawYear ? Number(rawYear) : Number(Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy'));
+    const yearNum = rawYear ? Number(rawYear) : reportFiscalYearCEForDate_(new Date());
     if (!/^\d{4}$/.test(String(yearNum)) || yearNum < 2000 || yearNum > 2200) {
       return { ok: false, error: 'ปีรายงานไม่ถูกต้อง' };
     }
@@ -901,8 +916,8 @@ function api_getLeaveReport(year, month) {
     if (monthStr && !/^\d{4}-(0[1-9]|1[0-2])$/.test(monthStr)) {
       return { ok: false, error: 'รูปแบบเดือนไม่ถูกต้อง (YYYY-MM)' };
     }
-    if (monthStr && monthStr.substring(0, 4) !== String(yearNum)) {
-      return { ok: false, error: 'เดือนรายงานต้องอยู่ในปีที่เลือก' };
+    if (monthStr && reportFiscalYearCEForMonth_(monthStr) !== yearNum) {
+      return { ok: false, error: 'เดือนรายงานต้องอยู่ในปีงบประมาณที่เลือก' };
     }
 
     const settings = api_getSettings();
@@ -921,9 +936,10 @@ function api_getLeaveReport(year, month) {
       to = parts[1] === 12 ? (parts[0] + 1) + '-01-01' : parts[0] + '-' + String(parts[1] + 1).padStart(2, '0') + '-01';
       monthLabel = REPORT_THAI_MONTHS[parts[1] - 1] + ' ' + (parts[0] + 543);
     } else {
-      from = yearNum + '-01-01';
-      to = (yearNum + 1) + '-01-01';
-      monthLabel = 'ปี ' + (yearNum + 543);
+      const bounds = reportFiscalYearBounds_(yearNum);
+      from = bounds.from;
+      to = bounds.to;
+      monthLabel = 'ปีงบประมาณ ' + (yearNum + 543);
     }
 
     const payload = {

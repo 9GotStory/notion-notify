@@ -113,17 +113,18 @@ function expandScheduleLeaveRows_(leave, fromStr, toStr, holidaySet) {
   return rows;
 }
 
-/** ใบลาสถานะ "อนุมัติ + รอทั้งสองขั้น" ของ **ทุกคน** ที่เริ่มในปีนั้น — query เดียว ไม่วนรายคน
+/** ใบลาสถานะ "อนุมัติ + รอทั้งสองขั้น" ของ **ทุกคน** ที่เริ่มในปีงบประมาณนั้น — query เดียว ไม่วนรายคน
  *  ใช้กับเมนู "ร่างยอดยกมาปีถัดไป" (กันกระหน่ำ Notion ด้วย N คน = 1 คำขอ ไม่ใช่ N×2)
  *  คืน [] ถ้ายังไม่ตั้งค่า leave_database_id */
 function getActiveLeavesForYear_(now, leaveDatabaseId, year) {
   const dbId = String(leaveDatabaseId || '').trim();
   if (!dbId || dbId === 'your_leave_database_id') return [];
+  const bounds = fiscalYearBounds_(year);
   const payload = {
     filter: {
       and: [
-        { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
-        { property: PROPS_LEAVE.date, date: { before: (year + 1) + '-01-01T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { on_or_after: bounds.from + 'T00:00:00+07:00' } },
+        { property: PROPS_LEAVE.date, date: { before: bounds.to + 'T00:00:00+07:00' } },
         { or: [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice].map(s => ({
           property: PROPS_LEAVE.status, select: { equals: s },
         })) },
@@ -134,8 +135,34 @@ function getActiveLeavesForYear_(now, leaveDatabaseId, year) {
   try {
     return queryNotionPages_(resolveLeaveDataSourceId_(dbId), payload).map(parseLeavePage_);
   } catch (err) {
-    logResult_(now, 'error', 'ดึงใบลาทั้งปีสำหรับร่างยกมาไม่สำเร็จ: ' + err);
+    logResult_(now, 'error', 'ดึงใบลาทั้งปีงบประมาณสำหรับร่างยกมาไม่สำเร็จ: ' + err);
     return [];
+  }
+}
+
+/** ค้นหาใบเดิมที่คร่อม 30 ก.ย./1 ต.ค. ซึ่งต้องแยกก่อนคำนวณยอดปีงบประมาณ */
+function getFiscalYearCrossingLeaves_(now, leaveDatabaseId) {
+  const dbId = String(leaveDatabaseId || '').trim();
+  if (!dbId || dbId === 'your_leave_database_id') return [];
+  const payload = {
+    filter: {
+      and: [
+        { property: PROPS_LEAVE.date, date: { is_not_empty: true } },
+        { or: [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice].map(s => ({
+          property: PROPS_LEAVE.status, select: { equals: s },
+        })) },
+      ],
+    },
+    sorts: [{ property: PROPS_LEAVE.date, direction: 'ascending' }],
+    page_size: 100,
+  };
+  try {
+    return queryNotionPages_(resolveLeaveDataSourceId_(dbId), payload)
+      .map(parseLeavePage_)
+      .filter(isFiscalYearCrossingLeave_);
+  } catch (err) {
+    logResult_(now, 'error', 'ตรวจใบลาคร่อมปีงบประมาณไม่สำเร็จ: ' + err);
+    throw err;
   }
 }
 

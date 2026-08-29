@@ -25,6 +25,35 @@ function daysBetweenDateStrs_(startStr, endStr) {
   );
 }
 
+/** ปีงบประมาณไทยของวันที่ (คืนปี ค.ศ. ที่ปีงบประมาณสิ้นสุด)
+ *  เช่น 2026-09-30 -> 2026 (พ.ศ. 2569), 2026-10-01 -> 2027 (พ.ศ. 2570) */
+function fiscalYearCEForDateStr_(dateStr) {
+  if (!isValidDateStr_(dateStr)) throw new Error('รูปแบบวันที่ไม่ถูกต้อง');
+  const parts = String(dateStr).split('-').map(Number);
+  return parts[1] >= 10 ? parts[0] + 1 : parts[0];
+}
+
+function fiscalYearCEForDate_(date) {
+  return fiscalYearCEForDateStr_(Utilities.formatDate(date, 'Asia/Bangkok', 'yyyy-MM-dd'));
+}
+
+/** ช่วงปีงบประมาณแบบ [from, to) สำหรับ query Notion */
+function fiscalYearBounds_(fiscalYearCE) {
+  const year = Number(fiscalYearCE);
+  if (!Number.isInteger(year) || year < 2000 || year > 2200) {
+    throw new Error('ปีงบประมาณไม่ถูกต้อง');
+  }
+  return { from: (year - 1) + '-10-01', to: year + '-10-01' };
+}
+
+/** ใบเก่าที่เริ่มและสิ้นสุดคนละปีงบประมาณต้องให้ HR แยกก่อนนำยอดไปคำนวณ */
+function isFiscalYearCrossingLeave_(leave) {
+  const start = String((leave && leave.start) || '').substring(0, 10);
+  const end = String((leave && (leave.end || leave.start)) || '').substring(0, 10);
+  return isValidDateStr_(start) && isValidDateStr_(end) &&
+    fiscalYearCEForDateStr_(start) !== fiscalYearCEForDateStr_(end);
+}
+
 function isWeekendDateStr_(dateStr) {
   const dow = new Date(dateStr + 'T00:00:00Z').getUTCDay();
   return dow === 0 || dow === 6;
@@ -40,8 +69,8 @@ function parseLeaveDateRange_(start, end, todayStr) {
   if (daysBetweenDateStrs_(startStr, endStr) < 0) {
     throw new Error('วันสิ้นสุดต้องไม่ก่อนวันเริ่มต้น');
   }
-  if (startStr.substring(0, 4) !== endStr.substring(0, 4)) {
-    throw new Error('ใบลาต้องอยู่ในปีปฏิทินเดียวกัน กรุณาแยกยื่นตามปี');
+  if (fiscalYearCEForDateStr_(startStr) !== fiscalYearCEForDateStr_(endStr)) {
+    throw new Error('ใบลาต้องอยู่ในปีงบประมาณเดียวกัน กรุณาแยกยื่นที่วันที่ 30 กันยายน/1 ตุลาคม');
   }
   if (daysBetweenDateStrs_(todayStr, startStr) > LEAVE_MAX_DAYS_AHEAD) {
     throw new Error('ยื่นล่วงหน้าได้ไม่เกิน ' + LEAVE_MAX_DAYS_AHEAD + ' วัน');
@@ -130,7 +159,7 @@ function quotaDaysLabel_(leaveType, days) {
 
 function quotaUsageNote_(leaveType, year, usedIncludingRequest, quota) {
   if (quota == null) return '';
-  const prefix = 'ยอดปี พ.ศ. ' + (year + 543) + ' (รวมใบนี้): ' +
+  const prefix = 'ยอดปีงบประมาณ พ.ศ. ' + (year + 543) + ' (รวมใบนี้): ' +
     quotaDaysLabel_(leaveType, usedIncludingRequest);
   return quotaBasis_(leaveType) === 'manual_event'
     ? prefix + '; เกณฑ์อ้างอิง ' + quota + ' ' + quotaUnitLabel_(leaveType) +
@@ -149,7 +178,7 @@ function workDaysLabel_(days) {
 
 /**
  * คำเตือนตามระเบียบฯ สำหรับใบลาที่กำลังยื่น (pure)
- * usage = ยอดวันใช้สิทธิ์ของปีนี้แยกตามประเภท (จาก getLeaveUsageForYear_) หรือ null ถ้าหาไม่ได้
+ * usage = ยอดวันใช้สิทธิ์ของปีงบประมาณนี้แยกตามประเภท (จาก getLeaveUsageForYear_) หรือ null ถ้าหาไม่ได้
  * effectiveQuota (ไม่บังคับ) = สิทธิ์สูงสุดหลังรวม "ยกมา" จากสมุดรายการปรับ (LeaveBalances) —
  *   ไม่ส่งมาใช้โควตาตามระเบียบ (LEAVE_QUOTAS) ตรงๆ ส่งมาเมื่อคนนั้นมีสิทธิ์สะสม/ปรับพิเศษ
  *   (used ที่เทียบต้องเป็นยอดที่ "รวมใช้เพิ่ม" แล้วด้วย จึงเทียบแอปเปิลกับแอปเปิล)
@@ -166,9 +195,9 @@ function buildLeaveWarnings_(leaveType, quotaDays, usage, effectiveQuota) {
     const total = used + quotaDays;
     if (total > quota) {
       warnings.push('⚠ เกินสิทธิ์ตามระเบียบ: ใช้ไปแล้ว ' + workDaysLabel_(used) + ' + ใบนี้ ' +
-        workDaysLabel_(quotaDays) + ' = ' + workDaysLabel_(total) + ' (สิทธิ์สูงสุด ' + quota + ' ' + unit + '/ปี)');
+        workDaysLabel_(quotaDays) + ' = ' + workDaysLabel_(total) + ' (สิทธิ์สูงสุด ' + quota + ' ' + unit + '/ปีงบประมาณ)');
     } else if (total === quota) {
-      warnings.push('ℹ ใบนี้ทำให้ครบสิทธิ์ ' + quota + ' ' + unit + '/ปี พอดี — ใบถัดไปจะเกินสิทธิ์');
+      warnings.push('ℹ ใบนี้ทำให้ครบสิทธิ์ ' + quota + ' ' + unit + '/ปีงบประมาณ พอดี — ใบถัดไปจะเกินสิทธิ์');
     }
   }
   if (quota != null && manualEvent) {
@@ -262,7 +291,7 @@ function usageFromSummary_(summary) {
 
 /** สรุปยอดต่อประเภทของ "ปี" หนึ่ง = ยอดจากใบลาจริง + รายการปรับจากสมุด LeaveBalances (pure)
  *  usage = แผนที่ {ประเภท: วันใช้} จากใบลา (หรือ null — ถ้ามีรายการปรับก็ยังสรุปได้) / balances = ทั้งหมดจาก readLeaveBalances_()
- *  year = ค.ศ. (สมุดเก็บเป็น พ.ศ. จึงเทียบ year+543)
+ *  year = ปีงบประมาณ ค.ศ. ที่สิ้นสุด (สมุดเก็บเป็น พ.ศ. จึงเทียบ year+543)
  *  quotaMap (ไม่บังคับ) = โควตาพื้นฐานตามประเภทบุคลากรของคนนั้นจาก baseQuotaMap_ — ไม่ส่ง = ค่าเริ่มต้นระบบ (ระเบียบราชการ)
  *  "ใช้เพิ่ม" รวมเข้า used / "ยกมา" รวมเข้า quota — remaining = quota - used ใช้สูตรเดิมได้ทุกจุด
  *  คืน {ประเภท: {used, quota, carryIn?, usedExtra?}} หรือ null เมื่อไม่มีทั้งยอดใบลาและรายการปรับ */
@@ -279,7 +308,7 @@ function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap, staffNa
     ? (balances || []).filter(b => b.yearBE === year + 543 && b.name === normalizedStaffName)
     : [];
   if (!usage) {
-    // ใบลาอ่านไม่ได้และไม่มีรายการปรับของปีนี้เลย = ไม่มีข้อมูลจะสรุป (คืน null ให้หน้าเว็บแสดงตามเดิม)
+    // ใบลาอ่านไม่ได้และไม่มีรายการปรับของปีงบประมาณนี้เลย = ไม่มีข้อมูลจะสรุป
     if (!yearRows.length) return null;
     // มีรายการปรับ — ยังสรุปได้จากฐานโควตาของคนนั้นเพียงลำพัง (กันหน้า "ของฉัน" ว่างเปล่าทั้งที่มีข้อมูลปรับ)
     Object.keys(quotaMap || LEAVE_QUOTAS).forEach(type => {
@@ -305,7 +334,7 @@ function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap, staffNa
 }
 
 /**
- * ยอดวันใช้สิทธิ์ของปีปฏิทินตามวันที่ now แยกตามประเภท — อ่านจากใบลาจริงใน Notion ทั้งหมด
+ * ยอดวันใช้สิทธิ์ของปีงบประมาณตามวันที่ now แยกตามประเภท — อ่านจากใบลาจริงใน Notion ทั้งหมด
  * นับใบสถานะ "อนุมัติ" และใบที่กำลังรออนุมัติ (กันยื่นพร้อมกันหลายใบแล้วทะลุโควตาโดยไม่รู้ตัว)
  * คืน { 'ลากิจ': 3.5, ... } หรือ null ถ้ายังไม่ตั้งค่า/อ่านไม่สำเร็จ (ไม่ throw — การตรวจสิทธิ์ต้องไม่ทำให้ยื่นลาไม่ได้)
  */
@@ -313,14 +342,15 @@ function getLeaveUsageForYear_(leaveDbId, submitterUserId, now) {
   const dbId = String(leaveDbId || '').trim();
   if (!dbId || dbId === 'your_leave_database_id' || !submitterUserId) return null;
   try {
-    const year = Number(Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy'));
+    const year = fiscalYearCEForDate_(now);
+    const bounds = fiscalYearBounds_(year);
     const dataSourceId = resolveLeaveDataSourceId_(dbId);
     const payload = {
       filter: {
         and: [
           { property: PROPS_LEAVE.submitter, rich_text: { equals: submitterUserId } },
-          { property: PROPS_LEAVE.date, date: { on_or_after: year + '-01-01T00:00:00+07:00' } },
-          { property: PROPS_LEAVE.date, date: { before: (year + 1) + '-01-01T00:00:00+07:00' } },
+          { property: PROPS_LEAVE.date, date: { on_or_after: bounds.from + 'T00:00:00+07:00' } },
+          { property: PROPS_LEAVE.date, date: { before: bounds.to + 'T00:00:00+07:00' } },
           { or: [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice].map(s => ({
             property: PROPS_LEAVE.status, select: { equals: s },
           })) },
@@ -398,9 +428,10 @@ function subtractLeaveFromUsage_(usage, leave) {
   return next;
 }
 
-/** หักใบเดิมออกจากยอดปีเป้าหมายเฉพาะเมื่อใบเดิมอยู่ปีนั้น (ใช้ตอนย้ายวันที่ของใบรอข้ามปี) */
+/** หักใบเดิมออกจากยอดปีงบประมาณเป้าหมายเฉพาะเมื่อใบเดิมอยู่ปีนั้น */
 function subtractLeaveFromTargetYearUsage_(usage, leave, targetYear) {
-  return String((leave && leave.start) || '').substring(0, 4) === String(targetYear)
+  const start = String((leave && leave.start) || '');
+  return isValidDateStr_(start) && fiscalYearCEForDateStr_(start) === Number(targetYear)
     ? subtractLeaveFromUsage_(usage, leave)
     : usage;
 }
