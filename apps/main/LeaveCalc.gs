@@ -103,6 +103,40 @@ function leaveRangeOverlap_(startStr, endStr, todayStr) {
   return startStr <= todayStr && effectiveEnd >= todayStr;
 }
 
+/** ช่วงวันลาสองช่วงทับซ้อนกันหรือไม่ — นับวันเริ่ม/วันสิ้นสุดรวมทั้งสองด้าน (pure) */
+function leaveDateRangesOverlap_(startA, endA, startB, endB) {
+  if (!isValidDateStr_(startA) || !isValidDateStr_(startB)) return false;
+  const effectiveEndA = endA || startA;
+  const effectiveEndB = endB || startB;
+  if (!isValidDateStr_(effectiveEndA) || !isValidDateStr_(effectiveEndB)) return false;
+  return startA <= effectiveEndB && startB <= effectiveEndA;
+}
+
+/** หาใบลาที่ยังมีผลของคนเดียวกันซึ่งทับซ้อนกับช่วงใหม่ (pure)
+ *  ใบที่ไม่อนุมัติ/ยกเลิกแล้วไม่บล็อก และ excludePageId ใช้ตอนแก้ไขใบเดิม */
+function findOverlappingActiveLeave_(leaves, submitterUserId, startStr, endStr, period, excludePageId) {
+  const activeStatuses = [
+    LEAVE_STATUS.approved,
+    LEAVE_STATUS.pendingApprover,
+    LEAVE_STATUS.pendingChiefOffice,
+  ];
+  const excluded = String(excludePageId || '');
+  return (leaves || []).find(function (leave) {
+    if (!leave || leave.submitterUserId !== submitterUserId ||
+        (excluded && String(leave.pageId || '') === excluded) ||
+        !activeStatuses.includes(leave.status) ||
+        !leaveDateRangesOverlap_(leave.start, leave.end, startStr, endStr)) return false;
+
+    // ครึ่งวันเช้าและครึ่งวันบ่ายในวันเดียวกันไม่ชนกัน ส่วนเต็มวัน/ช่วงเดียวกันยังชนตามปกติ
+    const sameSingleDay = leave.start === (leave.end || leave.start) &&
+      startStr === (endStr || startStr) && leave.start === startStr;
+    const complementaryHalfDays = sameSingleDay &&
+      ((leave.period === 'ครึ่งวันเช้า' && period === 'ครึ่งวันบ่าย') ||
+       (leave.period === 'ครึ่งวันบ่าย' && period === 'ครึ่งวันเช้า'));
+    return !complementaryHalfDays;
+  }) || null;
+}
+
 // ---------- การคำนวณวันลาตามระเบียบสำนักนายกฯ ว่าด้วยการลาฯ (pure — ทดสอบได้) ----------
 
 // ตรวจความถูกต้องของช่วงวัน + จับคู่กับประเภทที่ลาครึ่งวันได้ (ครึ่งวันใช้ได้เฉพาะลา 1 วัน)

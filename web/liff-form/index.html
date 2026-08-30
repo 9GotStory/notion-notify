@@ -229,6 +229,10 @@
       <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="text-sm text-slate-500 mt-3">กำลังโหลด…</p>
     </div>
+    <p id="mineSuccess" role="status" aria-live="polite"
+       class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-4"></p>
+    <p id="mineActionStatus" role="status" aria-live="polite"
+       class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4"></p>
     <p id="mineError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
     <p id="mineEmpty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-2xl p-6 text-center">
       ยังไม่มีใบลาในช่วงปีที่แสดง — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
@@ -278,14 +282,41 @@
     holidays: new Set(), calendarAvailable: true, today: '', leaveType: '', period: '', periodExplicit: false,
     user: null, sending: false, usage: null, leaveYear: '',
     submitRequestId: '', submitRequestKey: '',
+    updateRequestId: '', updateRequestKey: '',
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
-    mine: { loading: false, error: '', leaves: [], usage: null, leaveYear: '' },
+    mine: { loading: false, error: '', success: '', leaves: [], usage: null, leaveYear: '',
+      pendingPageId: '', cancelRequestIds: {} },
     editing: null, // ใบลาที่กำลังแก้ไข (null = โหมดยื่นใหม่) — ฟอร์มเดิมสลับได้สองโหมด
   };
 
   // ---------- เครื่องมือเล็กๆ ----------
 
   function $(id) { return document.getElementById(id); }
+  function setButtonBusy_(button, busy, busyText) {
+    if (!button) return;
+    if (busy) {
+      if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.classList.add('opacity-50', 'cursor-not-allowed');
+      if (busyText) button.textContent = busyText;
+      return;
+    }
+    button.disabled = false;
+    button.removeAttribute('aria-busy');
+    button.classList.remove('opacity-50', 'cursor-not-allowed');
+    if (button.dataset.idleText) button.textContent = button.dataset.idleText;
+    delete button.dataset.idleText;
+  }
+
+  function setMainTabsLocked_(locked) {
+    document.querySelectorAll('.main-tab').forEach(button => {
+      button.disabled = locked;
+      button.setAttribute('aria-disabled', locked ? 'true' : 'false');
+      button.classList.toggle('opacity-50', locked);
+      button.classList.toggle('cursor-not-allowed', locked);
+    });
+  }
   function leaveTypeLabel_(value) {
     const name = String(value || '').trim();
     return LEGACY_TYPE_LABELS[name] || name;
@@ -604,8 +635,7 @@
   $('btnRegBack').addEventListener('click', () => show('register'));
 
   $('btnBind').addEventListener('click', async () => {
-    $('btnBind').disabled = true;
-    $('btnBind').textContent = 'กำลังบันทึก…';
+    setButtonBusy_($('btnBind'), true, 'กำลังบันทึก…');
     try {
       const result = await api('bind', state.reg);
       state.user = result;
@@ -614,8 +644,7 @@
     } catch (err) {
       showError(err.message);
     } finally {
-      $('btnBind').disabled = false;
-      $('btnBind').textContent = 'ยืนยันและเริ่มใช้งาน';
+      setButtonBusy_($('btnBind'), false);
     }
   });
 
@@ -682,14 +711,24 @@
     const workLabel = leave.workDaysLabel ? leave.workDaysLabel + 'ทำการ' : usedLabel_(leave.workDays) + ' วันทำการ';
     const quotaLabel = CALENDAR_QUOTA_TYPES.includes(leave.leaveType) && leave.quotaDaysLabel
       ? ' · ใช้สิทธิ์ ' + leave.quotaDaysLabel : '';
+    const actionPending = !!state.mine.pendingPageId;
+    const cancellingThis = state.mine.pendingPageId === leave.pageId;
+    const disabledAttrs = actionPending ? ' disabled aria-disabled="true"' : '';
+    const disabledClasses = actionPending ? ' opacity-50 cursor-not-allowed' : '';
     const buttons = [];
     if (leave.canEdit) {
       buttons.push('<button type="button" data-act="edit" data-page-id="' + escapeHtml(leave.pageId) +
-        '" class="flex-1 py-2 rounded-lg text-xs font-semibold text-primary bg-primary-light">แก้ไข</button>');
+        '"' + disabledAttrs + ' class="flex-1 py-2 rounded-lg text-xs font-semibold text-primary bg-primary-light' +
+        disabledClasses + '">แก้ไข</button>');
     }
     if (leave.canCancel) {
       buttons.push('<button type="button" data-act="cancel" data-page-id="' + escapeHtml(leave.pageId) +
-        '" class="flex-1 py-2 rounded-lg text-xs font-semibold text-red-700 bg-red-50 border border-red-200">ยกเลิก</button>');
+        '"' + disabledAttrs + (cancellingThis ? ' aria-busy="true"' : '') +
+        ' class="flex flex-1 items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold text-red-700 bg-red-50 border border-red-200' +
+        disabledClasses + '">' +
+        (cancellingThis
+          ? '<span class="w-3.5 h-3.5 border-2 border-red-300 border-t-red-700 rounded-full animate-spin" aria-hidden="true"></span>กำลังยกเลิก…'
+          : 'ยกเลิก') + '</button>');
     }
     return '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-2.5">' +
       '<div class="flex items-center justify-between gap-2">' +
@@ -720,10 +759,17 @@
     }
 
     const hasError = !!state.mine.error;
+    const successEl = $('mineSuccess');
+    successEl.textContent = state.mine.success;
+    successEl.classList.toggle('hidden', !state.mine.success);
     const errEl = $('mineError');
     errEl.textContent = state.mine.error;
     errEl.classList.toggle('hidden', !hasError);
     $('mineLoading').classList.toggle('hidden', !state.mine.loading);
+    const actionStatus = $('mineActionStatus');
+    actionStatus.textContent = state.mine.pendingPageId
+      ? 'กำลังยกเลิกใบลาและอัปเดตยอดวันลา กรุณารอสักครู่…' : '';
+    actionStatus.classList.toggle('hidden', !state.mine.pendingPageId || state.mine.loading);
     const leaves = state.mine.leaves || [];
     $('mineEmpty').classList.toggle('hidden', state.mine.loading || hasError || leaves.length > 0);
     $('mineList').innerHTML = (state.mine.loading || hasError) ? '' : leaves.map(mineLeaveCard_).join('');
@@ -732,7 +778,7 @@
   // ปุ่มในการ์ดแต่ละใบแจ้งเจตนาผ่าน data-act/data-page-id — ผูก listener ครั้งเดียวที่ลิสต์
   $('mineList').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-act]');
-    if (!btn) return;
+    if (!btn || state.mine.pendingPageId) return;
     const leave = (state.mine.leaves || []).find(l => l.pageId === btn.dataset.pageId);
     if (!leave) return;
     if (btn.dataset.act === 'edit') startEdit_(leave);
@@ -740,23 +786,37 @@
   });
 
   async function confirmCancelLeave_(leave) {
+    if (state.mine.pendingPageId) return;
     const summary = leaveTypeLabel_(leave.leaveType) + ' · ' + dateRangeLabel(leave.start, leave.end);
     // ใบอนุมัติแล้วเตือนให้หนักกว่าใบรอ เพราะมีผลกับตารางที่เพื่อนร่วมงานเห็นแล้ว
     const message = leave.status === 'อนุมัติ'
       ? 'ยกเลิกใบลานี้ที่อนุมัติไปแล้ว?\n' + summary + '\n\nระบบจะแจ้งผู้อนุมัติของกลุ่มงานให้ทราบ'
       : 'ยกเลิกใบลานี้?\n' + summary;
     if (!window.confirm(message)) return;
+    const requestId = state.mine.cancelRequestIds[leave.pageId] || newRequestId_();
+    state.mine.cancelRequestIds[leave.pageId] = requestId;
+    state.mine.pendingPageId = leave.pageId;
+    state.mine.error = '';
+    state.mine.success = '';
+    setMainTabsLocked_(true);
+    renderMineState_();
     try {
-      await api('cancel', { pageId: leave.pageId });
+      await api('cancel', { pageId: leave.pageId, requestId: requestId });
+      delete state.mine.cancelRequestIds[leave.pageId];
+      state.mine.success = '✅ ยกเลิกใบลาเรียบร้อยแล้ว — ' + leaveTypeLabel_(leave.leaveType) + ' ' +
+        dateRangeLabel(leave.start, leave.end);
+      await loadMyLeaves_(); // แสดง loading เอง + รีเฟรชทั้งยอดและสถานะ (โควตาคืนทันที)
     } catch (err) {
       state.mine.error = err.message;
+    } finally {
+      state.mine.pendingPageId = '';
+      setMainTabsLocked_(false);
       renderMineState_();
-      return;
     }
-    await loadMyLeaves_(); // แสดง loading เอง + รีเฟรชทั้งยอดและสถานะ (โควตาคืนทันที)
   }
 
   function startEdit_(leave) {
+    state.mine.success = '';
     state.editing = leave;
     state.leaveType = leave.leaveType; // prefill ก่อน renderTypeGrid เพื่อไฮไลต์ปุ่มประเภทให้ถูกใบ
     showForm();
@@ -764,17 +824,21 @@
 
   document.querySelectorAll('.main-tab').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (state.mine.pendingPageId) return;
       if (btn.dataset.view === 'mine') {
         state.editing = null; // ออกจากโหมดแก้ไขเมื่อไปดูรายการของฉัน
         show('mine');
         loadMyLeaves_();
       } else {
+        state.mine.success = '';
         showForm();
       }
     });
   });
 
   $('btnCancelEdit').addEventListener('click', () => {
+    state.updateRequestId = '';
+    state.updateRequestKey = '';
     state.editing = null;
     show('mine');
     loadMyLeaves_();
@@ -1026,15 +1090,21 @@
 
     const editing = !!state.editing;
     state.sending = true;
-    $('btnSubmit').disabled = true;
-    $('btnSubmit').textContent = editing ? 'กำลังบันทึก…' : 'กำลังส่ง…';
+    setButtonBusy_($('btnSubmit'), true, editing ? 'กำลังบันทึก…' : 'กำลังส่ง…');
     try {
       const params = {
         leaveType: state.leaveType, start: start, end: end,
         period: state.period, reason: $('reason').value.trim(),
       };
-      if (editing) params.pageId = state.editing.pageId;
-      if (!editing) {
+      if (editing) {
+        params.pageId = state.editing.pageId;
+        const requestKey = JSON.stringify(params);
+        if (!state.updateRequestId || state.updateRequestKey !== requestKey) {
+          state.updateRequestId = newRequestId_();
+          state.updateRequestKey = requestKey;
+        }
+        params.requestId = state.updateRequestId;
+      } else {
         const requestKey = JSON.stringify(params);
         if (!state.submitRequestId || state.submitRequestKey !== requestKey) {
           state.submitRequestId = newRequestId_();
@@ -1069,6 +1139,9 @@
       if (!editing) {
         state.submitRequestId = '';
         state.submitRequestKey = '';
+      } else {
+        state.updateRequestId = '';
+        state.updateRequestKey = '';
       }
       $('successTitle').textContent = editing ? 'บันทึกการแก้ไขเรียบร้อย' : 'ส่งใบลาเรียบร้อย';
       $('btnAgain').textContent = editing ? 'กลับไปหน้าของฉัน' : 'ยื่นอีกใบ';
@@ -1081,6 +1154,7 @@
     } finally {
       state.sending = false;
       // คืนสถานะปุ่มตามสวิตช์ระบบลาปัจจุบัน (ไม่ใช่เปิดกลับเสมอไป) และป้ายตามโหมดที่ยังอยู่
+      setButtonBusy_($('btnSubmit'), false);
       $('btnSubmit').disabled = state.leaveEnabled === false;
       $('btnSubmit').textContent = state.editing ? 'บันทึกการแก้ไข' : 'ส่งใบลา';
     }

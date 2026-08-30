@@ -39,12 +39,15 @@ const UI = {
     if (busy) {
       button.dataset.origText = button.textContent;
       button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
       button.classList.add('opacity-50', 'cursor-not-allowed');
       if (busyText) button.textContent = busyText;
     } else {
       button.disabled = false;
+      button.removeAttribute('aria-busy');
       button.classList.remove('opacity-50', 'cursor-not-allowed');
       if (button.dataset.origText) button.textContent = button.dataset.origText;
+      delete button.dataset.origText;
     }
   },
 

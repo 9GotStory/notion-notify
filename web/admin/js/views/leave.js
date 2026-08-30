@@ -154,15 +154,18 @@ AdminViews.leave = {
         UI.$('btnCancelEditQuota').classList.remove('hidden');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }));
-      td.appendChild(this.rowButton_('ลบ', 'text-red-700 hover:bg-red-50 ml-1', async () => {
+      const deleteButton = this.rowButton_('ลบ', 'text-red-700 hover:bg-red-50 ml-1', async () => {
         if (!confirm('ลบโควตานี้?\n' + (q.yearBE || 'ทุกปี') + ' · ' + q.employmentType + ' · ' + q.leaveType + ' = ' + q.quota +
           '\n(ถ้าต้องการ "ปิด" สิทธิ์ ให้ตั้งค่าเป็น 0 แทนการลบ — ลบแล้วระบบใช้ค่าเริ่มต้น)')) return;
+        UI.setBusy(deleteButton, true, 'กำลังลบ…');
         try {
           await AdminAPI.call('delete_quota_profile', { row: q.row, version: q.version });
           UI.showToast('ลบแล้ว');
           await this.reload();
         } catch (e) { UI.showToast(e.message, true); }
-      }));
+        finally { UI.setBusy(deleteButton, false); }
+      });
+      td.appendChild(deleteButton);
     });
   },
 
@@ -234,15 +237,18 @@ AdminViews.leave = {
         UI.$('btnCancelEditBalance').classList.remove('hidden');
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }));
-      td.appendChild(this.rowButton_('ลบ', 'text-red-700 hover:bg-red-50 ml-1', async () => {
+      const deleteButton = this.rowButton_('ลบ', 'text-red-700 hover:bg-red-50 ml-1', async () => {
         if (!confirm('ลบรายการปรับยอดนี้?\n' + b.yearBE + ' · ' + b.name + ' · ' + b.leaveType +
           (b.carryIn ? ' · ยกมา ' + b.carryIn : '') + (b.usedExtra ? ' · ใช้เพิ่ม ' + b.usedExtra : ''))) return;
+        UI.setBusy(deleteButton, true, 'กำลังลบ…');
         try {
           await AdminAPI.call('delete_balance', { row: b.row, version: b.version });
           UI.showToast('ลบแล้ว');
           await this.reload();
         } catch (e) { UI.showToast(e.message, true); }
-      }));
+        finally { UI.setBusy(deleteButton, false); }
+      });
+      td.appendChild(deleteButton);
     });
   },
 

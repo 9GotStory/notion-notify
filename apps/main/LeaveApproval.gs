@@ -7,6 +7,12 @@ function richTextValue_(text) {
   return { rich_text: [{ text: { content: String(text == null ? '' : text).substring(0, 2000) } }] };
 }
 
+/** ต่อ audit โดยรักษารายการล่าสุดไว้เสมอเมื่อชนเพดาน rich_text 2,000 ตัวอักษร */
+function appendLeaveAuditLine_(existingAudit, newLine) {
+  const combined = (existingAudit ? String(existingAudit) + '\n' : '') + String(newLine || '');
+  return combined.length <= 2000 ? combined : '…\n' + combined.slice(-1998);
+}
+
 /** สร้าง payload สร้างหน้าใบลา (pure — ทดสอบได้โดยไม่ยิง Notion)
  *  "ช่วงวัน"/"หมายเหตุระบบ" ใส่เฉพาะเมื่อมีค่า เพื่อให้ database รุ่นเก่าที่ยังไม่มีสอง property นี้
  *  ยังบันทึกใบเต็มวันได้ก่อน (เพิ่ม property ใน Notion แล้วของใหม่จะเข้าครบ) */
@@ -460,10 +466,9 @@ function handleLeavePostback_(event, webhookEventId) {
     }
     const tapper = findStaffByUserId_(roster, tapperUserId);
 
-    const auditBase = leavePage.audit ? leavePage.audit + '\n' : '';
     const isApprove = data.a === 'approve';
     const actionLabel = isApprove ? 'อนุมัติ' : 'ไม่อนุมัติ';
-    const auditText = auditBase + formatAuditLine_(tapper, actionLabel);
+    const auditText = appendLeaveAuditLine_(leavePage.audit, formatAuditLine_(tapper, actionLabel));
 
     // อนุมัติขั้นแรก + กลุ่มงานนี้ตั้งค่าให้ส่งต่อ หัวหน้า สสอ. → เปลี่ยนขั้นแทนจบ
     // (อ่านธงส่งต่อสดๆ จากชีต Approvers ทุกครั้ง — ผู้ดูแลสลับค่ากลางทางได้)

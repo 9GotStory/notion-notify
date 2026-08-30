@@ -40,6 +40,7 @@ function runUnitTests() {
     testCountBusinessDays_,
     testFiscalYearHelpers_,
     testLeaveRangeOverlap_,
+    testOverlappingActiveLeave_,
     testLeaveDateLabel_,
     testSplitConfigNames_,
     testBuildLeavePagePayload_,
@@ -758,6 +759,42 @@ function testLeaveRangeOverlap_() {
   assertFalse_(leaveRangeOverlap_('2026-08-20', null, '2026-08-21'));
 }
 
+function testOverlappingActiveLeave_() {
+  assertTrue_(leaveDateRangesOverlap_('2026-09-01', '2026-09-03', '2026-09-03', '2026-09-05'));
+  assertTrue_(leaveDateRangesOverlap_('2026-09-01', null, '2026-09-01', null));
+  assertFalse_(leaveDateRangesOverlap_('2026-09-01', '2026-09-03', '2026-09-04', '2026-09-05'));
+  assertFalse_(leaveDateRangesOverlap_('วันที่ไม่ถูกต้อง', '', '2026-09-01', '2026-09-01'));
+
+  const leaves = [
+    { pageId: 'active', submitterUserId: 'U-owner', status: LEAVE_STATUS.pendingApprover,
+      start: '2026-09-10', end: '2026-09-12' },
+    { pageId: 'cancelled', submitterUserId: 'U-owner', status: LEAVE_STATUS.cancelled,
+      start: '2026-09-20', end: '2026-09-20' },
+    { pageId: 'other', submitterUserId: 'U-other', status: LEAVE_STATUS.approved,
+      start: '2026-09-25', end: '2026-09-25' },
+  ];
+  assertEqual_(findOverlappingActiveLeave_(leaves, 'U-owner', '2026-09-11', '2026-09-11', 'เต็มวัน', '').pageId,
+    'active');
+  assertEqual_(findOverlappingActiveLeave_(leaves, 'U-owner', '2026-09-10', '2026-09-10', 'เต็มวัน', 'active'), null);
+  assertEqual_(findOverlappingActiveLeave_(leaves, 'U-owner', '2026-09-20', '2026-09-20', 'เต็มวัน', ''), null);
+  assertEqual_(findOverlappingActiveLeave_(leaves, 'U-owner', '2026-09-25', '2026-09-25', 'เต็มวัน', ''), null);
+
+  const morning = [{ pageId: 'morning', submitterUserId: 'U-owner', status: LEAVE_STATUS.approved,
+    start: '2026-09-30', end: '2026-09-30', period: 'ครึ่งวันเช้า' }];
+  assertEqual_(findOverlappingActiveLeave_(morning, 'U-owner', '2026-09-30', '2026-09-30',
+    'ครึ่งวันบ่าย', ''), null);
+  assertEqual_(findOverlappingActiveLeave_(morning, 'U-owner', '2026-09-30', '2026-09-30',
+    'ครึ่งวันเช้า', '').pageId, 'morning');
+  assertEqual_(findOverlappingActiveLeave_(morning, 'U-owner', '2026-09-30', '2026-09-30',
+    'เต็มวัน', '').pageId, 'morning');
+
+  const marker = leaveMutationAuditMarker_('cancel', '123e4567-e89b-42d3-a456-426614174000');
+  assertTrue_(leaveAuditHasMutation_('ข้อความเดิม\n' + marker, 'cancel',
+    '123e4567-e89b-42d3-a456-426614174000'));
+  assertFalse_(leaveAuditHasMutation_('ข้อความเดิม\n' + marker, 'update',
+    '123e4567-e89b-42d3-a456-426614174000'));
+}
+
 function testLeaveDateLabel_() {
   assertEqual_(leaveDateLabel_('2026-08-20', null), '20 ส.ค. 2569');
   assertEqual_(leaveDateLabel_('2026-08-20', '2026-08-20'), '20 ส.ค. 2569');
@@ -1125,7 +1162,12 @@ function testParseLeaveSubmissionInput_() {
 function testSubmissionRequestId_() {
   assertEqual_(requireSubmissionRequestId_({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
     '123e4567-e89b-42d3-a456-426614174000');
+  assertEqual_(mutationRequestId_({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
+    '123e4567-e89b-42d3-a456-426614174000');
+  assertEqual_(mutationRequestId_({}), '123e4567-e89b-42d3-a456-426614174000');
   assertThrows_(function () { requireSubmissionRequestId_({ requestId: 'same-value-every-time' }); },
+    'รหัสคำขอไม่ถูกต้อง');
+  assertThrows_(function () { mutationRequestId_({ requestId: 'same-value-every-time' }); },
     'รหัสคำขอไม่ถูกต้อง');
   assertThrows_(function () { requireSubmissionRequestId_({}); }, 'รหัสคำขอไม่ถูกต้อง');
 }
@@ -1378,6 +1420,10 @@ function testRichTextValueLimit_() {
   assertEqual_(richTextValue_('สั้น').rich_text[0].text.content, 'สั้น');
   assertEqual_(richTextValue_('x'.repeat(2500)).rich_text[0].text.content.length, 2000);
   assertEqual_(richTextValue_(null).rich_text[0].text.content, '');
+  const newest = 'รายการล่าสุด [action:update request:123e4567-e89b-42d3-a456-426614174000]';
+  const audit = appendLeaveAuditLine_('x'.repeat(1990), newest);
+  assertEqual_(audit.length, 2000);
+  assertTrue_(audit.endsWith(newest), 'audit ที่ยาวต้องรักษารายการล่าสุดไว้');
 }
 
 // ยอดใช้จากชุดใบลาที่ดึงมาแล้ว — ต้องนับเฉพาะอนุมัติ+รอสองขั้น (เทียบเท่า getLeaveUsageForYear_)

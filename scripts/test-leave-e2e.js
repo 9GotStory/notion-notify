@@ -292,7 +292,32 @@ test('approved future leave can be cancelled by owner but not another user', () 
   const wrong = api({ apiAction: 'cancel', accessToken: 'token-other', pageId: approvalPageId, requestId: requestId(20) });
   assert(!wrong.ok && /ไม่ใช่เจ้าของ/.test(wrong.error), 'non-owner cancellation passed');
   const own = api({ apiAction: 'cancel', accessToken: 'token-owner', pageId: approvalPageId, requestId: requestId(21) });
+  const auditCount = state.audits.filter(item => item.action === 'leave.cancel').length;
+  const retry = api({ apiAction: 'cancel', accessToken: 'token-owner', pageId: approvalPageId, requestId: requestId(21) });
   assert(own.ok && parsed(approvalPageId).status === 'ยกเลิก', 'owner cancellation failed');
+  assert(retry.ok && retry.duplicate, 'cancel retry was not idempotent');
+  assert(state.audits.filter(item => item.action === 'leave.cancel').length === auditCount,
+    'cancel retry appended another audit event');
+});
+
+test('overlapping leave is blocked per owner while cancelled leave no longer blocks', () => {
+  const replacement = submit('token-owner', 30);
+  assert(replacement.ok, 'cancelled leave still blocked a replacement request');
+  const pageCount = state.pages.size;
+
+  const exact = submit('token-owner', 31);
+  const containing = submit('token-owner', 32, { start: '2026-09-01', end: '2026-09-03' });
+  assert(!exact.ok && /ทับซ้อน/.test(exact.error), 'exact duplicate leave was accepted');
+  assert(!containing.ok && /ทับซ้อน/.test(containing.error), 'containing leave range was accepted');
+  assert(state.pages.size === pageCount, 'overlap rejection created a leave record');
+
+  const otherOwner = submit('token-other', 33);
+  assert(otherOwner.ok, 'another employee was incorrectly blocked by the same dates');
+
+  const cancelled = api({ apiAction: 'cancel', accessToken: 'token-owner', pageId: replacement.pageId,
+    requestId: requestId(34) });
+  const afterCancellation = submit('token-owner', 35);
+  assert(cancelled.ok && afterCancellation.ok, 'cancelled leave continued to block the date range');
 });
 
 let editablePageId;
@@ -300,13 +325,49 @@ test('pending leave can be edited by owner and is recalculated', () => {
   const created = submit('token-owner', 2, { start: '2026-09-07', end: '2026-09-07' });
   editablePageId = created.pageId;
   const wrong = api({ apiAction: 'update', accessToken: 'token-other', pageId: editablePageId,
-    leaveType: 'ลาป่วย', reason: 'แก้โดยคนอื่น', start: '2026-09-08', end: '2026-09-08', period: 'เต็มวัน' });
+    requestId: requestId(41), leaveType: 'ลาป่วย', reason: 'แก้โดยคนอื่น',
+    start: '2026-09-08', end: '2026-09-08', period: 'เต็มวัน' });
   assert(!wrong.ok && /ไม่ใช่เจ้าของ/.test(wrong.error), 'non-owner edit passed');
-  const own = api({ apiAction: 'update', accessToken: 'token-owner', pageId: editablePageId,
-    leaveType: 'ลาป่วย', reason: 'แก้ไขแล้ว', start: '2026-09-08', end: '2026-09-08', period: 'ครึ่งวันเช้า' });
+  const ownBody = { apiAction: 'update', accessToken: 'token-owner', pageId: editablePageId,
+    requestId: requestId(42),
+    leaveType: 'ลาป่วย', reason: 'แก้ไขแล้ว', start: '2026-09-08', end: '2026-09-08', period: 'ครึ่งวันเช้า' };
+  const own = api(ownBody);
   const leave = parsed(editablePageId);
   assert(own.ok && own.workDays === 0.5 && leave.leaveType === 'ลาป่วย' && leave.period === 'ครึ่งวันเช้า',
     'owner edit was not recalculated');
+  const auditCount = state.audits.filter(item => item.action === 'leave.update').length;
+  const retry = api(ownBody);
+  assert(retry.ok && retry.duplicate && retry.workDays === 0.5, 'update retry was not idempotent');
+  assert(state.audits.filter(item => item.action === 'leave.update').length === auditCount,
+    'update retry appended another audit event');
+
+  const blocker = submit('token-owner', 36, { start: '2026-09-09', end: '2026-09-09' });
+  const conflictingEdit = api({ apiAction: 'update', accessToken: 'token-owner', pageId: editablePageId,
+    requestId: requestId(43), leaveType: 'ลาป่วย', reason: 'ย้ายไปวันซ้ำ',
+    start: '2026-09-09', end: '2026-09-09', period: 'เต็มวัน' });
+  const unchanged = parsed(editablePageId);
+  assert(blocker.ok && !conflictingEdit.ok && /ทับซ้อน/.test(conflictingEdit.error),
+    'edit into another active leave was accepted');
+  assert(unchanged.start === '2026-09-08' && unchanged.period === 'ครึ่งวันเช้า',
+    'rejected edit mutated the original leave');
+});
+
+test('morning and afternoon can coexist but the same half-day or full day is blocked', () => {
+  const morning = submit('token-owner', 44, {
+    leaveType: 'ลาป่วย', start: '2026-09-10', end: '2026-09-10', period: 'ครึ่งวันเช้า',
+  });
+  const afternoon = submit('token-owner', 45, {
+    leaveType: 'ลาป่วย', start: '2026-09-10', end: '2026-09-10', period: 'ครึ่งวันบ่าย',
+  });
+  const sameHalf = submit('token-owner', 46, {
+    leaveType: 'ลาป่วย', start: '2026-09-10', end: '2026-09-10', period: 'ครึ่งวันเช้า',
+  });
+  const fullDay = submit('token-owner', 47, {
+    leaveType: 'ลาป่วย', start: '2026-09-10', end: '2026-09-10', period: 'เต็มวัน',
+  });
+  assert(morning.ok && afternoon.ok, 'complementary half-days were blocked');
+  assert(!sameHalf.ok && /ทับซ้อน/.test(sameHalf.error), 'duplicate morning leave was accepted');
+  assert(!fullDay.ok && /ทับซ้อน/.test(fullDay.error), 'full-day leave was accepted over a half-day');
 });
 
 test('fiscal-year crossing and no-workday ranges are rejected', () => {
@@ -321,8 +382,11 @@ test('rejection is final and blocks editing', () => {
   postback('U-first', created.pageId, 'reject', 'evt-reject');
   assert(parsed(created.pageId).status === 'ไม่อนุมัติ', 'rejection did not persist');
   const edit = api({ apiAction: 'update', accessToken: 'token-owner', pageId: created.pageId,
-    leaveType: 'ลากิจ', reason: 'ลองแก้', start: '2026-09-15', end: '2026-09-15', period: 'เต็มวัน' });
+    requestId: requestId(48), leaveType: 'ลากิจ', reason: 'ลองแก้',
+    start: '2026-09-15', end: '2026-09-15', period: 'เต็มวัน' });
   assert(!edit.ok && /แก้ไขได้เฉพาะ/.test(edit.error), 'rejected leave could be edited');
+  const replacement = submit('token-owner', 37, { start: '2026-09-14', end: '2026-09-14' });
+  assert(replacement.ok, 'rejected leave still blocked a replacement request');
 });
 
 test('system closure blocks submit and edit but still allows cancellation', () => {
@@ -330,7 +394,8 @@ test('system closure blocks submit and edit but still allows cancellation', () =
   state.settings.leave_system_enabled = 'FALSE';
   const blocked = submit('token-owner', 7, { start: '2026-09-17', end: '2026-09-17' });
   const blockedEdit = api({ apiAction: 'update', accessToken: 'token-owner', pageId: created.pageId,
-    leaveType: 'ลาป่วย', reason: 'แก้', start: '2026-09-18', end: '2026-09-18', period: 'เต็มวัน' });
+    requestId: requestId(49), leaveType: 'ลาป่วย', reason: 'แก้',
+    start: '2026-09-18', end: '2026-09-18', period: 'เต็มวัน' });
   const cancelled = api({ apiAction: 'cancel', accessToken: 'token-owner', pageId: created.pageId, requestId: requestId(22) });
   assert(!blocked.ok && /ปิดรับคำขอ/.test(blocked.error), 'closed system accepted submit');
   assert(!blockedEdit.ok && /ปิดรับคำขอ/.test(blockedEdit.error), 'closed system accepted edit');
@@ -388,8 +453,12 @@ test('leave at or before today cannot be cancelled by self-service', () => {
 test('myLeaves returns only the authenticated owner records and current fiscal usage', () => {
   const mine = api({ apiAction: 'myLeaves', accessToken: 'token-owner' });
   const other = api({ apiAction: 'myLeaves', accessToken: 'token-other' });
-  assert(mine.ok && mine.leaves.length === state.pages.size, 'owner leave history mismatch');
-  assert(other.ok && other.leaves.length === 0, 'other user saw owner records');
+  const ownerCount = Array.from(state.pages.values()).map(page => parsed(page.id))
+    .filter(leave => leave.submitterUserId === 'U-owner').length;
+  const otherCount = Array.from(state.pages.values()).map(page => parsed(page.id))
+    .filter(leave => leave.submitterUserId === 'U-other').length;
+  assert(mine.ok && mine.leaves.length === ownerCount, 'owner leave history mismatch');
+  assert(other.ok && other.leaves.length === otherCount, 'other user leave history mismatch');
   assert(mine.usage && mine.usage['ลาป่วย'], 'usage summary was not built');
 });
 

@@ -56,7 +56,7 @@ AdminViews.holidays = {
       const del = UI.el('button', 'text-xs text-red-500 hover:underline', 'ลบ');
       del.addEventListener('click', async () => {
         if (!confirm('ลบวันหยุด ' + h.date + ' — ' + h.name + '?')) return;
-        del.disabled = true;
+        UI.setBusy(del, true, 'กำลังลบ…');
         try {
           await AdminAPI.call('delete_holiday', { row: h.row, version: h.version });
           UI.showToast('ลบแล้ว');
@@ -64,7 +64,7 @@ AdminViews.holidays = {
         } catch (e) {
           UI.showToast(e.message, true);
         } finally {
-          del.disabled = false;
+          UI.setBusy(del, false);
         }
       });
       td.appendChild(del);

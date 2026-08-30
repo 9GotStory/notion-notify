@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { execFileSync } = require('child_process');
 
 function dateParts(date, timeZone) {
   const parts = new Intl.DateTimeFormat('en-GB', {
@@ -34,7 +35,10 @@ const context = vm.createContext({
   Intl,
   Set,
   Map,
-  Utilities: { formatDate },
+  Utilities: {
+    formatDate,
+    getUuid: () => '123e4567-e89b-42d3-a456-426614174000',
+  },
   PropertiesService: {
     getScriptProperties() {
       return { getProperty: name => scriptProperties.get(name) || null };
@@ -108,4 +112,10 @@ if (!directRequest || directRequest.apiAction !== 'session') {
   } else {
     console.log('PASS testDirectModeBoundary');
   }
+}
+
+try {
+  execFileSync(process.execPath, [path.resolve(__dirname, 'test-liff-ui.js')], { stdio: 'inherit' });
+} catch (err) {
+  process.exitCode = 1;
 }

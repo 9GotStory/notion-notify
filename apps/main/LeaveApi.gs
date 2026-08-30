@@ -259,6 +259,13 @@ function requireSubmissionRequestId_(body) {
   return requestId;
 }
 
+/** รองรับหน้า LIFF รุ่นเก่าระหว่างทยอย deploy: ถ้าส่งมาแล้วต้องเป็น UUID ที่ถูกต้อง
+ *  รุ่นใหม่ส่ง requestId เสมอจึง retry แบบ idempotent ได้ ส่วนรุ่นเก่าให้เซิร์ฟเวอร์สร้างแทน */
+function mutationRequestId_(body) {
+  const requestId = String((body && body.requestId) || '').trim();
+  return requestId ? requireSubmissionRequestId_(body) : Utilities.getUuid();
+}
+
 function duplicateSubmissionResponse_(leavePage) {
   const pendingNames = leavePage.currentApprover && leavePage.currentApprover.names
     ? leavePage.currentApprover.names.join(', ')
@@ -315,6 +322,12 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
   const range = { start: input.start, end: input.end };
   const period = input.period;
 
+  // อ่านใบลาในปีเดียวกันภายใน lock ของ apiSubmit_ แล้วใช้ทั้งตรวจวันทับซ้อนและคำนวณยอดสิทธิ์
+  // เพื่อกันคำขอสองรายการของคนเดียวกันที่เข้ามาพร้อมกัน โดยไม่เพิ่มจำนวน query ไปยัง Notion
+  const year = fiscalYearCEForDateStr_(range.start);
+  const yearLeaves = getMyLeavesForYears_(leaveDbId, staff.lineUserId, year, year + 1);
+  requireNoOverlappingLeave_(yearLeaves, staff.lineUserId, range.start, range.end, period, '');
+
   // จำนวนวันทำการใช้กับตารางกำลังคน ส่วนจำนวนวันใช้สิทธิ์ของคลอด/บวชนับวันปฏิทินต่อเนื่อง
   // ยอดใช้/สิทธิ์รวม "รายการปรับ" จากสมุด LeaveBalances ด้วย (ยกมาเข้าโควตา / ใช้เพิ่มเข้ายอดใช้)
   const holidaySet = readHolidaySet_();
@@ -323,9 +336,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
   if (quotaDays <= 0 || (workDays <= 0 && !usesCalendarDayQuota_(leaveType))) {
     throw new Error('ช่วงวันที่เลือกไม่มีวันทำการ กรุณาเลือกวันทำการอย่างน้อย 1 วัน');
   }
-  const year = fiscalYearCEForDateStr_(range.start);
-  const leaveYearDate = new Date(range.start + 'T00:00:00+07:00');
-  const rawUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, leaveYearDate);
+  const rawUsage = usageFromLeaves_(yearLeaves);
   const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
     baseQuotaMap_(readQuotaProfiles_(), staff.employmentType, year), staffKey_(staff));
   const effectiveQuota = summary && summary[leaveType] ? summary[leaveType].quota : null;
@@ -503,6 +514,45 @@ function getMyLeavesForYears_(leaveDbId, userId, year, endYearExclusive) {
   return queryNotionPages_(resolveLeaveDataSourceId_(leaveDbId), payload).map(parseLeavePage_);
 }
 
+/** บังคับไม่ให้คนเดียวกันมีใบลาที่ช่วงวันทับซ้อนกัน — เรียกภายใน ScriptLock เท่านั้น */
+function requireNoOverlappingLeave_(leaves, submitterUserId, startStr, endStr, period, excludePageId) {
+  const conflict = findOverlappingActiveLeave_(
+    leaves, submitterUserId, startStr, endStr, period, excludePageId);
+  if (!conflict) return;
+  throw new Error(
+    'พบใบลาเดิมของคุณช่วงวันที่ ' + leaveDateLabel_(conflict.start, conflict.end) +
+    ' (สถานะ: ' + (conflict.status || 'ไม่ทราบ') + ') ทับซ้อนกับช่วงที่เลือก ' +
+    'กรุณาตรวจสอบใบลาเดิมก่อนยื่นหรือแก้ไข'
+  );
+}
+
+function leaveMutationAuditMarker_(action, requestId) {
+  return '[action:' + action + ' request:' + requestId + ']';
+}
+
+function leaveAuditHasMutation_(audit, action, requestId) {
+  return String(audit || '').indexOf(leaveMutationAuditMarker_(action, requestId)) !== -1;
+}
+
+function duplicateUpdateResponse_(leavePage) {
+  const approverNames = leavePage.currentApprover ? (leavePage.currentApprover.names || []) : [];
+  return {
+    ok: true,
+    duplicate: true,
+    workDays: leavePage.workDays,
+    workDaysLabel: workDaysLabel_(leavePage.workDays),
+    quotaDays: leaveQuotaDays_(leavePage),
+    quotaDaysLabel: quotaDaysLabel_(leavePage.leaveType, leaveQuotaDays_(leavePage)),
+    period: leavePage.period,
+    approverName: approverNames.join(', ') ||
+      (leavePage.status === LEAVE_STATUS.approved ? 'บันทึกเป็นอนุมัติแล้ว' : 'บันทึกการแก้ไขแล้ว'),
+    needsSecond: !!(leavePage.currentApprover && leavePage.currentApprover.stage === 'first'),
+    autoApproved: leavePage.status === LEAVE_STATUS.approved,
+    notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
+    warnings: [],
+  };
+}
+
 /** แถวใบลาหนึ่งใบสำหรับหน้า "ของฉัน" (pure) — กติกาปุ่มแก้ไข/ยกเลิกอยู่ฝั่งเซิร์ฟเวอร์ ฝั่งหน้าเว็บแค่ตาม
  *  แก้ได้: เฉพาะใบที่ยังรออนุมัติ / ยกเลิกได้: รออนุมัติหรืออนุมัติแล้ว และยังไม่ผ่านไป (end >= วันนี้) */
 function buildMyLeaveRow_(leave, todayStr) {
@@ -584,6 +634,7 @@ function approvedCancelNotifyTargets_(config, settings, roster, submitter) {
  *  ใบที่วันที่ผ่านมาแล้วยกเลิกผ่านระบบไม่ได้ (กันแก้ประวัติย้อนหลังด้วยตัวเอง — ติดต่อผู้ดูแลแทน)
  *  ระบบลาปิดอยู่ก็ยกเลิกได้ ตามนโยบายเดียวกับปุ่มอนุมัติ (ปิดแล้วใบค้างยังจบได้) */
 function apiCancelLeave_(body) {
+  const requestId = mutationRequestId_(body);
   const profile = verifyLineToken_(requireAccessToken_(body));
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
@@ -600,6 +651,10 @@ function apiCancelLeave_(body) {
 
     if (leavePage.submitterUserId !== profile.userId) {
       throw new Error('คุณไม่ใช่เจ้าของใบลานี้');
+    }
+    if (leavePage.status === LEAVE_STATUS.cancelled &&
+        leaveAuditHasMutation_(leavePage.audit, 'cancel', requestId)) {
+      return { ok: true, duplicate: true, status: LEAVE_STATUS.cancelled };
     }
     const cancellable = leavePage.status === LEAVE_STATUS.approved ||
       leavePage.status === LEAVE_STATUS.pendingApprover ||
@@ -620,10 +675,10 @@ function apiCancelLeave_(body) {
       [PROPS_LEAVE.status]: { select: { name: LEAVE_STATUS.cancelled } },
       // เคลียร์ผู้อนุมัติปัจจุบัน = ปุ่มบนการ์ดเก่าที่ยังค้างในแชทใคร กดต่อจะโดน canApproveLeave_ ปฏิเสธ
       [PROPS_LEAVE.currentApprover]: richTextValue_(''),
-      [PROPS_LEAVE.audit]: richTextValue_(
-        (leavePage.audit ? leavePage.audit + '\n' : '') + formatAuditLine_(staff, 'ยกเลิกโดยผู้ยื่น')),
+      [PROPS_LEAVE.audit]: richTextValue_(appendLeaveAuditLine_(leavePage.audit, formatAuditLine_(staff,
+        'ยกเลิกโดยผู้ยื่น ' + leaveMutationAuditMarker_('cancel', requestId)))),
     });
-    appendAuditEvent_(String(body.requestId || ''), staff.lineUserId, 'leave.cancel', pageId,
+    appendAuditEvent_(requestId, staff.lineUserId, 'leave.cancel', pageId,
       leavePage.status, LEAVE_STATUS.cancelled);
 
     // แจ้งผู้เกี่ยวข้องหลังบันทึกสำเร็จ — 1:1 เท่านั้น ไม่ fallback เข้ากลุ่ม (ใบลาเป็นเรื่องส่วนตัว)
@@ -666,6 +721,7 @@ function apiCancelLeave_(body) {
 /** ผู้ยื่นแก้ไขใบลาของตัวเองที่ยังรออนุมัติ — แก้ในหน้า Notion เดิม: คำนวณใหม่ทั้งใบ
  *  ตั้งสถานะกลับรออนุมัติ (รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด) ส่งการ์ดใหม่ และจด audit การแก้ไข */
 function apiUpdateLeave_(body) {
+  const requestId = mutationRequestId_(body);
   const profile = verifyLineToken_(requireAccessToken_(body));
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
@@ -690,12 +746,20 @@ function apiUpdateLeave_(body) {
     if (leavePage.submitterUserId !== profile.userId) {
       throw new Error('คุณไม่ใช่เจ้าของใบลานี้');
     }
+    if (leaveAuditHasMutation_(leavePage.audit, 'update', requestId)) {
+      return duplicateUpdateResponse_(leavePage);
+    }
     const isPending = leavePage.status === LEAVE_STATUS.pendingApprover ||
       leavePage.status === LEAVE_STATUS.pendingChiefOffice;
     if (!isPending) {
       throw new Error('แก้ไขได้เฉพาะใบลาที่ยังรอการอนุมัติ (สถานะปัจจุบัน: ' +
         (leavePage.status || 'ไม่ทราบ') + ') — ใบที่อนุมัติแล้วให้ยกเลิกแล้วยื่นใหม่');
     }
+
+    // อ่านใบลาในปีเป้าหมายภายใน lock แล้วตรวจช่วงทับซ้อน โดยยกเว้นใบที่กำลังแก้ไขเอง
+    const year = fiscalYearCEForDateStr_(input.start);
+    const yearLeaves = getMyLeavesForYears_(leaveDbId, staff.lineUserId, year, year + 1);
+    requireNoOverlappingLeave_(yearLeaves, staff.lineUserId, input.start, input.end, input.period, pageId);
 
     // คำนวณใหม่ทั้งใบ: หักใบเดิมออกจากยอดใช้ก่อน (usage นับใบรออนุมัติรวมอยู่แล้ว)
     // แล้วรวม "รายการปรับ" จากสมุด LeaveBalances เข้ายอดใช้/สิทธิ์เหมือนตอนยื่นใหม่
@@ -705,9 +769,7 @@ function apiUpdateLeave_(body) {
     if (quotaDays <= 0 || (workDays <= 0 && !usesCalendarDayQuota_(input.leaveType))) {
       throw new Error('ช่วงวันที่เลือกไม่มีวันทำการ กรุณาเลือกวันทำการอย่างน้อย 1 วัน');
     }
-    const year = fiscalYearCEForDateStr_(input.start);
-    const leaveYearDate = new Date(input.start + 'T00:00:00+07:00');
-    const targetYearUsage = getLeaveUsageForYear_(leaveDbId, staff.lineUserId, leaveYearDate);
+    const targetYearUsage = usageFromLeaves_(yearLeaves);
     // หักใบเดิมเฉพาะเมื่อยังอยู่ปีงบประมาณเดียวกับวันที่ใหม่
     const rawUsage = subtractLeaveFromTargetYearUsage_(targetYearUsage, leavePage, year);
     const summary = buildUsageSummaryWithBalances_(rawUsage, readLeaveBalances_(), year,
@@ -755,8 +817,8 @@ function apiUpdateLeave_(body) {
       [PROPS_LEAVE.currentApprover]: richTextValue_(currentApproverJson),
       [PROPS_LEAVE.workDays]: { number: workDays },
       [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
-      [PROPS_LEAVE.audit]: richTextValue_(
-        (leavePage.audit ? leavePage.audit + '\n' : '') + formatAuditLine_(staff, 'ผู้ยื่นแก้ไขใบลา — ส่งขออนุมัติใหม่')),
+      [PROPS_LEAVE.audit]: richTextValue_(appendLeaveAuditLine_(leavePage.audit, formatAuditLine_(staff,
+        'ผู้ยื่นแก้ไขใบลา — ส่งขออนุมัติใหม่ ' + leaveMutationAuditMarker_('update', requestId)))),
     };
     // เขียน "ช่วงวัน"/"หมายเหตุระบบ" แบบ optional เหมือนตอนสร้างใบ (database รุ่นเก่าอาจยังไม่มีสอง property นี้)
     // เคลียร์ค่าเดิมเฉพาะเมื่อ property มีอยู่จริงในหน้า — ไม่งั้น PATCH จะพังเพราะส่ง property ที่ DB ไม่มี
@@ -773,7 +835,7 @@ function apiUpdateLeave_(body) {
     }
 
     const updatedPage = parseLeavePage_(updateLeavePage_(pageId, properties));
-    appendAuditEvent_(String(body.requestId || ''), staff.lineUserId, 'leave.update', pageId,
+    appendAuditEvent_(requestId, staff.lineUserId, 'leave.update', pageId,
       leavePage.status, updatedPage.status);
 
     // แจ้งผู้อนุมัติชุดเก่า "ที่ไม่อยู่ในชุดใหม่" ว่าใบถูกแก้ — การ์ดเก่าในแชทเป็นข้อมูลเก่าแล้ว
