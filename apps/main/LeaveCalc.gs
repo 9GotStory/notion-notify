@@ -107,7 +107,8 @@ function leaveRangeOverlap_(startStr, endStr, todayStr) {
 
 // ตรวจความถูกต้องของช่วงวัน + จับคู่กับประเภทที่ลาครึ่งวันได้ (ครึ่งวันใช้ได้เฉพาะลา 1 วัน)
 function normalizeLeavePeriod_(period, leaveType, startStr, endStr) {
-  const value = String(period || '').trim() || 'เต็มวัน';
+  const value = String(period || '').trim();
+  if (!value) throw new Error('กรุณาเลือกช่วงวัน');
   if (!LEAVE_PERIODS.includes(value)) {
     throw new Error('ช่วงเวลาการลาไม่ถูกต้อง');
   }

@@ -552,7 +552,9 @@ function testComputeWorkDays_() {
   assertThrows_(function () {
     normalizeLeavePeriod_('ค่าแปลก', 'ลาป่วย', '2026-08-20', '2026-08-20');
   }, 'ช่วงเวลาการลาไม่ถูกต้อง');
-  assertEqual_(normalizeLeavePeriod_('', 'ลากิจ', '2026-08-20', null), 'เต็มวัน');
+  assertThrows_(function () {
+    normalizeLeavePeriod_('', 'ลากิจ', '2026-08-20', null);
+  }, 'กรุณาเลือกช่วงวัน');
 
   // ป้ายวันทำการแบบครึ่งวัน
   assertEqual_(workDaysLabel_(0), '0 วัน');
@@ -1070,6 +1072,13 @@ function testParseLeaveSubmissionInput_() {
     leaveType: 'ลาป่วย', reason: '', start: today, end: today, period: 'ครึ่งวันบ่าย',
   }, settings);
   assertEqual_(halfDay.period, 'ครึ่งวันบ่าย');
+
+  // ต้องระบุช่วงวันจาก client อย่างชัดเจน ห้ามตีความค่าว่างเป็นเต็มวัน
+  assertThrows_(function () {
+    parseLeaveSubmissionInput_({
+      leaveType: 'ลากิจ', reason: '', start: today, end: today, period: '',
+    }, settings);
+  }, 'กรุณาเลือกช่วงวัน');
 
   // ห้ามตัดเหตุผลเงียบๆ เพราะผู้ยื่นจะเข้าใจว่าข้อความถูกเก็บครบ
   assertThrows_(function () {

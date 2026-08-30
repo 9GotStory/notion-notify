@@ -241,6 +241,12 @@ test('session distinguishes registered and unregistered users', () => {
   assert(unregistered.ok && !unregistered.registered, 'unregistered session mismatch');
 });
 
+test('leave submission rejects a missing day period', () => {
+  const result = submit('token-owner', 0, { period: '' });
+  assert(!result.ok && /กรุณาเลือกช่วงวัน/.test(result.error), 'missing period was accepted');
+  assert(state.pages.size === 0, 'missing period created a leave record');
+});
+
 let approvalPageId;
 test('two-stage leave submission persists pending state and notifies first approver', () => {
   const result = submit('token-owner', 1);

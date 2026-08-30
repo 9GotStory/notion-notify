@@ -91,6 +91,9 @@ function checkLiffFormUxContracts() {
     "spanLast ? 'col-span-2 ' : ''",
     'escapeHtml(leaveTypeLabel_(name))',
     'ลาช่วยเหลือภรรยาคลอดบุตร',
+    'periodExplicit: false',
+    'if (periodRequired && (!state.periodExplicit || !state.period))',
+    "err.textContent = 'กรุณาเลือกช่วงวัน'",
   ];
   const forbidden = [
     "escapeHtml((TYPE_DESCRIPTIONS[name] || '') + quotaText)",

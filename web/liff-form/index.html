@@ -187,7 +187,7 @@
         <button type="button" id="quickTomorrow" class="px-3.5 py-2 rounded-lg border border-slate-200 text-xs font-medium">ลาพรุ่งนี้</button>
       </div>
       <div id="periodWrap" class="hidden mt-3">
-        <p class="text-xs text-slate-500 mb-1.5">ช่วงวัน (เลือกได้เมื่อลา 1 วัน — ครึ่งวันนับเป็น ½ วันทำการ)</p>
+        <p class="text-xs text-slate-500 mb-1.5">ช่วงวัน <span class="text-red-600">*</span> (กรุณาเลือก 1 ช่วง — ครึ่งวันนับเป็น ½ วันทำการ)</p>
         <div class="flex gap-2">
           <button type="button" data-period="เต็มวัน" class="period-btn flex-1 py-2 rounded-lg border border-slate-200 text-xs font-medium">เต็มวัน</button>
           <button type="button" data-period="ครึ่งวันเช้า" class="period-btn flex-1 py-2 rounded-lg border border-slate-200 text-xs font-medium">ครึ่งวันเช้า</button>
@@ -275,7 +275,7 @@
   const state = {
     options: { prefixes: [], groups: [], positions: [], employmentTypes: [], leaveTypes: [], halfDayTypes: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
-    holidays: new Set(), calendarAvailable: true, today: '', leaveType: '', period: 'เต็มวัน',
+    holidays: new Set(), calendarAvailable: true, today: '', leaveType: '', period: '', periodExplicit: false,
     user: null, sending: false, usage: null, leaveYear: '',
     submitRequestId: '', submitRequestKey: '',
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
@@ -799,13 +799,15 @@
       $('dateStart').value = state.editing.start;
       $('dateEnd').value = state.editing.end;
       state.period = state.editing.period && state.editing.period !== 'เต็มวัน' ? state.editing.period : 'เต็มวัน';
+      state.periodExplicit = true;
       $('reason').value = state.editing.reason || '';
       $('editBanner').classList.remove('hidden');
       $('btnSubmit').textContent = 'บันทึกการแก้ไข';
     } else {
       $('dateStart').value = state.today;
       $('dateEnd').value = state.today;
-      state.period = 'เต็มวัน';
+      state.period = '';
+      state.periodExplicit = false;
       $('reason').value = '';
       $('editBanner').classList.add('hidden');
       $('btnSubmit').textContent = 'ส่งใบลา';
@@ -917,20 +919,24 @@
     const singleDay = end === start;
     const halfOk = singleDay && state.options.halfDayTypes.includes(state.leaveType);
     $('periodWrap').classList.toggle('hidden', !halfOk);
-    if (!halfOk) {
+    if (halfOk && !state.periodExplicit) {
+      state.period = '';
+    } else if (!halfOk) {
       state.period = 'เต็มวัน';
+      state.periodExplicit = false;
       document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('bg-primary-light', 'border-primary'));
     }
 
     const workDays = countBusinessDays(start, end);
-    const effective = workDays === 1 && state.period !== 'เต็มวัน' ? 0.5 : workDays;
+    const selectedPeriod = state.period || 'เต็มวัน';
+    const effective = workDays === 1 && selectedPeriod !== 'เต็มวัน' ? 0.5 : workDays;
     const total = daysBetween(start, end) + 1;
     const calendarQuota = CALENDAR_QUOTA_TYPES.includes(state.leaveType);
     const quotaDays = calendarQuota ? total : effective;
     const quotaUnit = calendarQuota ? 'วันปฏิทิน' : 'วันทำการ';
     box.classList.remove('hidden');
     box.textContent = thaiShort(start) + (end !== start ? ' – ' + thaiShort(end) : '') +
-      (state.period !== 'เต็มวัน' ? ' (' + state.period + ')' : '') +
+      (state.period && state.period !== 'เต็มวัน' ? ' (' + state.period + ')' : '') +
       ' · ' + usedLabel_(effective) + ' วันทำการ' +
       (calendarQuota ? ' · ใช้สิทธิ์ ' + total + ' วันปฏิทิน' :
         (total > 1 ? ' (รวม ' + total + ' วันปฏิทิน)' : ''));
@@ -978,6 +984,7 @@
   document.querySelectorAll('.period-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       state.period = btn.dataset.period;
+      state.periodExplicit = true;
       document.querySelectorAll('.period-btn').forEach(b => {
         const active = b === btn;
         b.classList.toggle('bg-primary-light', active);
@@ -1005,6 +1012,12 @@
     const start = $('dateStart').value;
     const end = $('dateEnd').value || start;
     if (!start) { err.textContent = 'กรุณาเลือกวันที่ลา'; err.classList.remove('hidden'); return; }
+    const periodRequired = end === start && state.options.halfDayTypes.includes(state.leaveType);
+    if (periodRequired && (!state.periodExplicit || !state.period)) {
+      err.textContent = 'กรุณาเลือกช่วงวัน';
+      err.classList.remove('hidden');
+      return;
+    }
     if (fiscalYearBEForDateStr(start) !== fiscalYearBEForDateStr(end)) {
       err.textContent = 'ยื่นใบลาคร่อมปีงบประมาณไม่ได้ กรุณาแยกใบที่วันที่ 30 กันยายน/1 ตุลาคม';
       err.classList.remove('hidden');
