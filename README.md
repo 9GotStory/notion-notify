@@ -28,12 +28,12 @@ notion-notify/
 
 | ที่เก็บ | ค่า |
 |---|---|
-| Script Properties โปรเจกต์หลัก | `LINE_CHANNEL_ACCESS_TOKEN`, `NOTION_TOKEN`, `LOGIN_CHANNEL_ID`, `ALLOW_LEGACY_DIRECT=TRUE` |
+| Script Properties โปรเจกต์หลัก | `LINE_CHANNEL_ACCESS_TOKEN`, `NOTION_TOKEN`, `LOGIN_CHANNEL_ID`, `ADMIN_TOKEN`, `ALLOW_LEGACY_DIRECT=TRUE` |
 | Script Properties โปรเจกต์ webapp | `ADMIN_TOKEN`, `SPREADSHEET_ID`, `NOTION_TOKEN_READONLY`, `ALLOW_LEGACY_DIRECT=TRUE` |
 | GitHub Environment `liff` | `LIFF_ID`, `SCHEDULE_LIFF_ID`, `API_URL`, `ADMIN_API_URL` |
 | gateway (ยังไม่ใช้) | ตัวแปรตาม `SECURITY-DEPLOYMENT.md` เมื่อเลือกย้ายในอนาคต |
 
-`ADMIN_TOKEN` ต้องเป็นค่าสุ่มอย่างน้อย 32 ตัวอักษร ห้าม commit token, secret หรือ URL ที่มี credential ลง repository
+`ADMIN_TOKEN` ต้องเป็นค่าสุ่มอย่างน้อย 32 ตัวอักษร และต้องตั้งค่าเดียวกันในทั้งโปรเจกต์หลักและ webapp เพื่อให้หน้า Admin จัดการใบลาผ่าน backend หลักได้ ห้าม commit token, secret หรือ URL ที่มี credential ลง repository
 
 ## คำสั่งตรวจสอบในเครื่อง
 

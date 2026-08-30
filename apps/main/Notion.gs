@@ -94,6 +94,35 @@ function queryNotionPages_(dataSourceId, payload, maxPages) {
   throw new Error('ข้อมูล Notion มีมากกว่าเพดาน ' + limit * 100 + ' รายการ จึงหยุดเพื่อไม่คืนผลลัพธ์ที่ไม่ครบ');
 }
 
+/** เตรียม property เสริมของใบลาเมื่อมีการใช้ครั้งแรก — ไม่แก้ property อื่นของฐานข้อมูล */
+function ensureLeaveSubstituteProperty_(dataSourceId) {
+  const id = String(dataSourceId || '').trim();
+  if (!id) throw new Error('ไม่พบ data source ของใบลา');
+  const getResponse = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + encodeURIComponent(id), {
+    method: 'get', headers: notionHeaders_(), muteHttpExceptions: true,
+  });
+  if (getResponse.getResponseCode() >= 300) {
+    throw new Error('ตรวจโครงสร้างฐานใบลาไม่สำเร็จ (' + getResponse.getResponseCode() + ')');
+  }
+  const data = JSON.parse(getResponse.getContentText());
+  const existing = (data.properties || {})[PROPS_LEAVE.substitute];
+  if (existing) {
+    if (existing.type !== 'rich_text') throw new Error('property "' + PROPS_LEAVE.substitute + '" ใน Notion ต้องเป็น rich_text');
+    return false;
+  }
+  const properties = {};
+  properties[PROPS_LEAVE.substitute] = { rich_text: {} };
+  const patchResponse = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + encodeURIComponent(id), {
+    method: 'patch', contentType: 'application/json', headers: notionHeaders_(),
+    payload: JSON.stringify({ properties: properties }), muteHttpExceptions: true,
+  });
+  if (patchResponse.getResponseCode() >= 300) {
+    throw new Error('เพิ่ม property "' + PROPS_LEAVE.substitute + '" ใน Notion ไม่สำเร็จ (' +
+      patchResponse.getResponseCode() + ')');
+  }
+  return true;
+}
+
 function plainText_(richTextArray) {
   return (richTextArray || []).map(t => t.plain_text).join('').trim();
 }

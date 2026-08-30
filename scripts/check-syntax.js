@@ -57,7 +57,8 @@ function checkDirectModeContracts() {
     },
     {
       file: 'web/admin/js/api.js',
-      required: ["new URLSearchParams", "ADMIN_CONFIG.API_URL + '?'", "method: 'GET'", 'sessionStorage'],
+      required: ["new URLSearchParams", 'this._fetchAt(ADMIN_CONFIG.API_URL',
+        'ADMIN_CONFIG.MAIN_API_URL', "method: 'GET'", 'sessionStorage'],
       forbidden: ["'/api/admin'"],
     },
     {

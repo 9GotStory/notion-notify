@@ -3,7 +3,7 @@
 // __ADMIN_API_URL__ ถูกแทนที่ตอน build ด้วย URL /exec ของ Apps Script webapp
 'use strict';
 
-const ADMIN_CONFIG = { API_URL: '__ADMIN_API_URL__' };
+const ADMIN_CONFIG = { API_URL: '__ADMIN_API_URL__', MAIN_API_URL: '__API_URL__' };
 
 const AdminAPI = {
 
@@ -28,6 +28,18 @@ const AdminAPI = {
     return data;
   },
 
+  /** คำสั่งจัดการใบลาต้องวิ่ง Apps Script หลัก เพราะมีสิทธิ์เขียน Notion และส่ง LINE */
+  async callMain(action, params) {
+    const data = await this._fetchAt(ADMIN_CONFIG.MAIN_API_URL, action,
+      Object.assign({}, params || {}, { token: this.getToken() }));
+    if (data && data.ok === false && (data.code === 'UNAUTHORIZED' || data.code === 'UNCONFIGURED')) {
+      this.clearToken();
+      window.dispatchEvent(new CustomEvent('admin-auth-failed', { detail: data }));
+    }
+    if (!data || data.ok === false) throw new Error((data && data.error) || 'เกิดข้อผิดพลาด ลองอีกครั้ง');
+    return data;
+  },
+
   /** ตรวจ token ตอนกดปุ่มเข้าสู่ระบบ — ใช้ token จาก argument (ยังไม่เก็บ) และไม่เตะกลับหน้า login */
   async verify(token) {
     const data = await this._fetch('get_overview', { token: token });
@@ -38,12 +50,16 @@ const AdminAPI = {
   },
 
   async _fetch(action, params) {
+    return this._fetchAt(ADMIN_CONFIG.API_URL, action, params);
+  },
+
+  async _fetchAt(url, action, params) {
     const qs = new URLSearchParams(Object.assign({ apiAction: action }, params || {}));
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      res = await fetch(ADMIN_CONFIG.API_URL + '?' + qs.toString(), {
+      res = await fetch(url + '?' + qs.toString(), {
         method: 'GET', signal: controller.signal,
       });
     } catch (err) {

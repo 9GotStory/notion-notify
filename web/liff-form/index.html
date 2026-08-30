@@ -51,6 +51,7 @@
   <nav id="mainTabs" style="display:none" class="gap-1 bg-white border border-slate-200 rounded-xl p-1 mb-4">
     <button type="button" data-view="form" class="main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">ยื่นลา</button>
     <button type="button" data-view="mine" class="main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">ของฉัน</button>
+    <button id="approvalTab" type="button" data-view="approvals" class="hidden main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">อนุมัติ</button>
   </nav>
 
   <!-- ===== กำลังโหลด ===== -->
@@ -203,6 +204,11 @@
       <label for="reason" class="block text-sm font-semibold text-slate-600 mb-2.5">เหตุผล <span class="font-normal text-slate-400">(กรอกเพื่อผู้อนุมัติพิจารณา)</span></label>
       <textarea id="reason" rows="3" maxlength="500" placeholder="เช่น ไปทำธุระที่ธนาคาร / ไม่สบาย มีไข้"
                 class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"></textarea>
+      <label for="substitute" class="block text-sm font-semibold text-slate-600 mt-4 mb-1.5">ผู้ปฏิบัติงานแทน <span class="font-normal text-slate-400">(ถ้ามี)</span></label>
+      <select id="substitute" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+        <option value="">— ไม่ระบุ —</option>
+      </select>
+      <p class="text-xs text-slate-400 mt-1.5">เลือกได้จากบุคลากรที่ลงทะเบียน LINE แล้วทั้งหมด</p>
     </div>
 
     <p id="formError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
@@ -237,6 +243,16 @@
     <p id="mineEmpty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-2xl p-6 text-center">
       ยังไม่มีใบลาในช่วงปีที่แสดง — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
     <div id="mineList"></div>
+  </section>
+
+  <section id="view-approvals" class="hidden">
+    <header class="mb-4">
+      <h1 class="text-lg font-bold">ใบลารออนุมัติ</h1>
+      <p class="text-sm text-slate-500 mt-1">หัวหน้า สสอ. สามารถเปลี่ยนผู้อนุมัติสำรองเฉพาะใบได้ การ์ดของผู้อนุมัติเดิมจะใช้ไม่ได้ทันที</p>
+    </header>
+    <div id="approvalLoading" class="hidden py-10 text-center text-sm text-slate-500">กำลังโหลด…</div>
+    <p id="approvalError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-3"></p>
+    <div id="approvalList"></div>
   </section>
 
   <!-- ===== ส่งสำเร็จ ===== -->
@@ -277,7 +293,7 @@
   const CALENDAR_QUOTA_TYPES = ['ลาคลอด', 'ลาอุปสมบท/ลาบวช'];
 
   const state = {
-    options: { prefixes: [], groups: [], positions: [], employmentTypes: [], leaveTypes: [], halfDayTypes: [] },
+    options: { prefixes: [], groups: [], positions: [], employmentTypes: [], leaveTypes: [], halfDayTypes: [], staffOptions: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
     holidays: new Set(), calendarAvailable: true, today: '', leaveType: '', period: '', periodExplicit: false,
     user: null, sending: false, usage: null, leaveYear: '',
@@ -286,6 +302,7 @@
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
     mine: { loading: false, error: '', success: '', leaves: [], usage: null, leaveYear: '',
       pendingPageId: '', cancelRequestIds: {} },
+    approvals: { loading: false, error: '', leaves: [], staffOptions: [], pendingPageId: '' },
     editing: null, // ใบลาที่กำลังแก้ไข (null = โหมดยื่นใหม่) — ฟอร์มเดิมสลับได้สองโหมด
   };
 
@@ -341,14 +358,14 @@
   }
 
   function show(view) {
-    ['loading', 'register', 'confirm', 'form', 'mine', 'success', 'error'].forEach(v => {
+    ['loading', 'register', 'confirm', 'form', 'mine', 'approvals', 'success', 'error'].forEach(v => {
       $('view-' + v).classList.toggle('hidden', v !== view);
     });
-    // แถบแท็บหลักแสดงเฉพาะสองหน้าหลักหลังลงทะเบียน (กำหนด display ด้วย inline style
+    // แถบแท็บหลักแสดงเฉพาะหน้าหลักหลังลงทะเบียน (แท็บอนุมัติเห็นเฉพาะหัวหน้า สสอ.; กำหนด display ด้วย inline style
     // เพราะคลาส hidden กับ flex ของ Tailwind ตีกันที่ลำดับการ generate ในไฟล์ ไม่พึ่งได้)
     const tabs = $('mainTabs');
     if (tabs) {
-      tabs.style.display = (view === 'form' || view === 'mine') ? 'flex' : 'none';
+      tabs.style.display = (view === 'form' || view === 'mine' || view === 'approvals') ? 'flex' : 'none';
       document.querySelectorAll('.main-tab').forEach(btn => {
         const active = btn.dataset.view === view;
         btn.classList.toggle('bg-primary-light', active);
@@ -513,6 +530,7 @@
       state.approvalEnabled = session.approvalEnabled !== false;
       state.options.leaveTypes = session.leaveTypes || (session.options && session.options.leaveTypes) || [];
       state.options.halfDayTypes = session.halfDayTypes || (session.options && session.options.halfDayTypes) || [];
+      state.options.staffOptions = session.staffOptions || (session.options && session.options.staffOptions) || [];
       state.usage = session.usage || null; // ยอดใช้/สิทธิ์รายปีงบประมาณ
       state.leaveYear = session.leaveYear || '';
       if (session.registered) {
@@ -738,6 +756,7 @@
       '<p class="text-xs text-slate-600 mt-1.5">' +
         escapeHtml(dateRangeLabel(leave.start, leave.end) + periodNote + ' · ' + workLabel + quotaLabel + pendingNote) + '</p>' +
       (leave.reason ? '<p class="text-xs text-slate-400 mt-1 truncate">' + escapeHtml(leave.reason) + '</p>' : '') +
+      (leave.substituteName ? '<p class="text-xs text-slate-500 mt-1">ผู้ปฏิบัติงานแทน: ' + escapeHtml(leave.substituteName) + '</p>' : '') +
       (buttons.length ? '<div class="flex gap-2 mt-3">' + buttons.join('') + '</div>' : '') +
       '</div>';
   }
@@ -815,6 +834,80 @@
     }
   }
 
+  async function loadApprovalQueue_() {
+    if (state.approvals.loading || !(state.user && state.user.canManageApprovals)) return;
+    state.approvals.loading = true;
+    state.approvals.error = '';
+    renderApprovalQueue_();
+    try {
+      const data = await api('approvalQueue');
+      state.approvals.leaves = data.leaves || [];
+      state.approvals.staffOptions = data.staffOptions || [];
+    } catch (err) {
+      state.approvals.error = err.message;
+    } finally {
+      state.approvals.loading = false;
+      renderApprovalQueue_();
+    }
+  }
+
+  function renderApprovalQueue_() {
+    $('approvalLoading').classList.toggle('hidden', !state.approvals.loading);
+    $('approvalError').textContent = state.approvals.error;
+    $('approvalError').classList.toggle('hidden', !state.approvals.error);
+    if (state.approvals.loading || state.approvals.error) { $('approvalList').innerHTML = ''; return; }
+    const leaves = state.approvals.leaves || [];
+    if (!leaves.length) {
+      $('approvalList').innerHTML = '<div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">ไม่มีใบลารออนุมัติ</div>';
+      return;
+    }
+    const options = '<option value="">— เลือกผู้อนุมัติสำรอง —</option>' +
+      (state.approvals.staffOptions || []).map(staff => '<option value="' + escapeHtml(staff.key) + '">' +
+        escapeHtml(staff.name + (staff.groupName ? ' · ' + staff.groupName : '')) + '</option>').join('');
+    $('approvalList').innerHTML = leaves.map(leave => {
+      const busy = state.approvals.pendingPageId === leave.pageId;
+      const allBusy = !!state.approvals.pendingPageId;
+      return '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-3" data-approval-card="' + escapeHtml(leave.pageId) + '">' +
+        '<div class="flex justify-between gap-3"><div><p class="font-semibold">' + escapeHtml(leave.fullName) + '</p>' +
+        '<p class="text-xs text-slate-500">' + escapeHtml(leave.groupName + ' · ' + leave.leaveType + ' · ' + dateRangeLabel(leave.start, leave.end)) + '</p></div>' +
+        '<span class="text-xs text-amber-700 flex-none">' + escapeHtml(leave.status) + '</span></div>' +
+        '<p class="text-xs text-slate-600 mt-2">ผู้อนุมัติปัจจุบัน: ' + escapeHtml((leave.currentApproverNames || []).join(', ') || 'ไม่ระบุ') + '</p>' +
+        '<select data-role="target" class="w-full mt-3 px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"' + (allBusy ? ' disabled' : '') + '>' + options + '</select>' +
+        '<textarea data-role="reason" rows="2" maxlength="500" placeholder="เหตุผลที่เปลี่ยนผู้อนุมัติ (5–500 ตัวอักษร)" class="w-full mt-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm"' + (allBusy ? ' disabled' : '') + '></textarea>' +
+        '<button type="button" data-act="reassign" data-page-id="' + escapeHtml(leave.pageId) + '"' +
+        (allBusy ? ' disabled aria-disabled="true"' : '') + (busy ? ' aria-busy="true"' : '') +
+        ' class="w-full mt-2 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-50">' +
+        (busy ? 'กำลังเปลี่ยน…' : 'เปลี่ยนผู้อนุมัติเฉพาะใบ') + '</button></div>';
+    }).join('');
+  }
+
+  $('approvalList').addEventListener('click', async event => {
+    const button = event.target.closest('[data-act="reassign"]');
+    if (!button || state.approvals.pendingPageId) return;
+    const card = button.closest('[data-approval-card]');
+    const leave = (state.approvals.leaves || []).find(item => item.pageId === button.dataset.pageId);
+    const target = card.querySelector('[data-role="target"]').value;
+    const reason = card.querySelector('[data-role="reason"]').value.trim();
+    if (!target || reason.length < 5) { alert('เลือกผู้อนุมัติสำรองและระบุเหตุผลให้ครบ'); return; }
+    if (!window.confirm('เปลี่ยนผู้อนุมัติใบลาของ ' + leave.fullName + '?')) return;
+    state.approvals.pendingPageId = leave.pageId;
+    setMainTabsLocked_(true);
+    renderApprovalQueue_();
+    try {
+      await api('reassignApprover', { pageId: leave.pageId, targetStaffKey: target,
+        reason: reason, requestId: newRequestId_() });
+      state.approvals.leaves = [];
+      state.approvals.pendingPageId = '';
+      await loadApprovalQueue_();
+    } catch (err) {
+      state.approvals.error = err.message;
+    } finally {
+      state.approvals.pendingPageId = '';
+      setMainTabsLocked_(false);
+      renderApprovalQueue_();
+    }
+  });
+
   function startEdit_(leave) {
     state.mine.success = '';
     state.editing = leave;
@@ -829,6 +922,10 @@
         state.editing = null; // ออกจากโหมดแก้ไขเมื่อไปดูรายการของฉัน
         show('mine');
         loadMyLeaves_();
+      } else if (btn.dataset.view === 'approvals') {
+        state.editing = null;
+        show('approvals');
+        loadApprovalQueue_();
       } else {
         state.mine.success = '';
         showForm();
@@ -847,6 +944,7 @@
   // ---------- ฟอร์มลา ----------
 
   function showForm() {
+    $('approvalTab').classList.toggle('hidden', !(state.user && state.user.canManageApprovals));
     $('greetingName').textContent = 'สวัสดี ' + state.user.name;
     $('greetingGroup').textContent = [state.user.groupName, state.user.position].filter(Boolean).join(' · ');
     // อักษรแรกของชื่อ (ตัดคำนำหน้าออกก่อน) ไว้ทำอวตารกลมๆ
@@ -858,6 +956,7 @@
     $('dateStart').max = addDays(state.today, 365);
     $('dateEnd').min = $('dateStart').min;
     $('dateEnd').max = $('dateStart').max;
+    renderSubstituteOptions_();
     if (state.editing) {
       // โหมดแก้ไข: prefill จากใบเดิมทั้งหมด (วันที่/ครึ่งวัน/เหตุผล) แล้วผู้ใช้แก้ต่อ
       $('dateStart').value = state.editing.start;
@@ -865,6 +964,7 @@
       state.period = state.editing.period && state.editing.period !== 'เต็มวัน' ? state.editing.period : 'เต็มวัน';
       state.periodExplicit = true;
       $('reason').value = state.editing.reason || '';
+      $('substitute').value = state.editing.substituteKey || '';
       $('editBanner').classList.remove('hidden');
       $('btnSubmit').textContent = 'บันทึกการแก้ไข';
     } else {
@@ -873,6 +973,7 @@
       state.period = '';
       state.periodExplicit = false;
       $('reason').value = '';
+      $('substitute').value = '';
       $('editBanner').classList.add('hidden');
       $('btnSubmit').textContent = 'ส่งใบลา';
     }
@@ -881,6 +982,18 @@
     refreshUsageLine_(); // โหมดแก้ไข prefill ประเภทอยู่แล้ว ต้องแสดงแถวยอดใช้/สิทธิ์ทันที
     refreshLeaveSwitch_();
     show('form');
+  }
+
+  function renderSubstituteOptions_() {
+    const select = $('substitute');
+    if (!select) return;
+    select.innerHTML = '<option value="">— ไม่ระบุ —</option>';
+    (state.options.staffOptions || []).forEach(staff => {
+      const option = document.createElement('option');
+      option.value = staff.key;
+      option.textContent = staff.name + (staff.groupName ? ' · ' + staff.groupName : '');
+      select.appendChild(option);
+    });
   }
 
   function highlightPeriodBtns_() {
@@ -1094,7 +1207,7 @@
     try {
       const params = {
         leaveType: state.leaveType, start: start, end: end,
-        period: state.period, reason: $('reason').value.trim(),
+        period: state.period, reason: $('reason').value.trim(), substituteKey: $('substitute').value,
       };
       if (editing) {
         params.pageId = state.editing.pageId;
@@ -1123,6 +1236,8 @@
       $('successCard').innerHTML =
         '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(leaveTypeLabel_(state.leaveType)) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end) + periodNote) + '</span></div>' +
+        ($('substitute').value ? '<div class="flex justify-between gap-3"><span class="text-slate-500">ผู้ปฏิบัติงานแทน</span><span class="font-semibold text-right">' +
+          escapeHtml(($('substitute').selectedOptions[0] || {}).textContent || '') + '</span></div>' : '') +
         '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + escapeHtml(result.workDaysLabel || (result.workDays + ' วัน')) + '</span></div>' +
         (CALENDAR_QUOTA_TYPES.includes(state.leaveType)
           ? '<div class="flex justify-between"><span class="text-slate-500">วันใช้สิทธิ์</span><span class="font-semibold">' + escapeHtml(result.quotaDaysLabel || '') + '</span></div>' : '') +

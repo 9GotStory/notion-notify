@@ -478,7 +478,8 @@ function leaveSummaryText_(leavePage) {
     ? ' (ใช้สิทธิ์ ' + quotaDaysLabel_(leavePage.leaveType, leaveQuotaDays_(leavePage)) + ')' : '';
   return 'ประเภท: ' + leavePage.leaveType +
     '\nวันที่: ' + leaveDateLabel_(leavePage.start, leavePage.end) + periodSuffix +
-    (leavePage.workDays ? ' (' + workDaysLabel_(leavePage.workDays) + 'ทำการ)' : '') + quotaSuffix;
+    (leavePage.workDays ? ' (' + workDaysLabel_(leavePage.workDays) + 'ทำการ)' : '') + quotaSuffix +
+    (leavePage.substitute ? '\nผู้ปฏิบัติงานแทน: ' + leavePage.substitute.name : '');
 }
 
 // หา "วันทำการถัดไป" ถัดจากวันที่กำหนด (ข้ามเสาร์-อาทิตย์และวันหยุด) — pure

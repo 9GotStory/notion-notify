@@ -33,6 +33,9 @@ function buildLeavePagePayload_(leave) {
   if (leave.period && leave.period !== 'เต็มวัน') {
     properties[PROPS_LEAVE.period] = richTextValue_(leave.period);
   }
+  if (leave.substitute) {
+    properties[PROPS_LEAVE.substitute] = richTextValue_(leave.substitute);
+  }
   if (leave.systemNote) {
     properties[PROPS_LEAVE.systemNote] = richTextValue_(leave.systemNote);
   }
@@ -41,12 +44,35 @@ function buildLeavePagePayload_(leave) {
 
 // "ผู้อนุมัติปัจจุบัน" เก็บในหน้าใบลาเป็น JSON {stage, userIds, names} —
 // stage 'first' = ผู้อนุมัติของกลุ่มงาน, 'second' = หัวหน้า สสอ.
-function serializeApproverInfo_(stage, targets) {
+function serializeApproverInfo_(stage, targets, assignedAt, assignmentId) {
+  const timestamp = assignedAt || new Date().toISOString();
   return JSON.stringify({
     stage: stage,
     userIds: (targets || []).map(s => s.lineUserId),
     names: (targets || []).map(s => staffDisplayName_(s)),
+    assignedAt: timestamp,
+    assignmentId: assignmentId || Utilities.getUuid(),
   });
+}
+
+function serializeSubstituteInfo_(staff) {
+  if (!staff) return '';
+  return JSON.stringify({
+    key: staffKey_(staff),
+    userId: staff.lineUserId,
+    name: staffDisplayName_(staff),
+    groupName: staff.groupName || '',
+  });
+}
+
+function parseSubstituteInfo_(value) {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && parsed.userId && parsed.name ? parsed : null;
+  } catch (err) {
+    return null;
+  }
 }
 
 function createNotionLeavePage_(payload) {
@@ -123,6 +149,7 @@ function parseLeavePage_(page) {
     start: dateProp.start || '',
     end: dateProp.end || '',
     period: plainText_(props[PROPS_LEAVE.period] && props[PROPS_LEAVE.period].rich_text) || 'เต็มวัน',
+    substitute: parseSubstituteInfo_(plainText_(props[PROPS_LEAVE.substitute] && props[PROPS_LEAVE.substitute].rich_text)),
     reason: plainText_(props[PROPS_LEAVE.reason] && props[PROPS_LEAVE.reason].rich_text),
     status: ((props[PROPS_LEAVE.status] && props[PROPS_LEAVE.status].select) || {}).name || '',
     currentApprover: approverInfo,
@@ -131,6 +158,8 @@ function parseLeavePage_(page) {
     workDays: (props[PROPS_LEAVE.workDays] && props[PROPS_LEAVE.workDays].number) || 0,
     requestId: plainText_(props[PROPS_LEAVE.requestId] && props[PROPS_LEAVE.requestId].rich_text),
     notificationState: ((props[PROPS_LEAVE.notificationState] && props[PROPS_LEAVE.notificationState].select) || {}).name || '',
+    createdAt: (page && page.created_time) || '',
+    lastEditedAt: (page && page.last_edited_time) || '',
   };
 }
 
@@ -159,6 +188,7 @@ function buildLeaveApprovalBubble_(leavePage) {
     { label: 'วันใช้สิทธิ์', value: usesCalendarDayQuota_(leavePage.leaveType)
       ? quotaDaysLabel_(leavePage.leaveType, quotaDays) : '' },
     { label: 'เหตุผล', value: leavePage.reason || '—' },
+    { label: 'ผู้ปฏิบัติงานแทน', value: leavePage.substitute ? leavePage.substitute.name : '' },
     { label: 'ตรวจสอบสิทธิ์', value: leavePage.systemNote || '' },
   ].filter(f => f.value);
 
@@ -291,6 +321,15 @@ function pushPrivateMessage_(userId, messageObj) {
     logResult_(new Date(), 'leave-push-fail', 'push หา ' + userId + ' ไม่สำเร็จ (อาจยังไม่แอดบอท/บล็อก): ' + err);
     return false;
   }
+}
+
+function notifyLeaveSubstitute_(leavePage, message) {
+  const substitute = leavePage && leavePage.substitute;
+  if (!substitute || !substitute.userId) return false;
+  return pushPrivateMessage_(substitute.userId, {
+    type: 'text',
+    text: message + '\nผู้ลา: ' + leavePage.fullName + '\n' + leaveSummaryText_(leavePage),
+  });
 }
 
 // ---------- Retry การแจ้งใบลาที่บันทึกใน Notion แล้ว แต่ส่ง LINE ไม่สำเร็จ ----------
@@ -560,6 +599,9 @@ function handleLeavePostback_(event, webhookEventId) {
         '\nโดย: ' + staffDisplayName_(tapper) +
         (tapper && tapper.position ? ' (' + tapper.position + ')' : ''),
     });
+    notifyLeaveSubstitute_(leavePage, isApprove
+      ? '✅ ใบลาที่ระบุให้คุณปฏิบัติงานแทนได้รับการอนุมัติแล้ว'
+      : 'ℹ️ ใบลาที่ระบุให้คุณปฏิบัติงานแทนไม่ได้รับการอนุมัติ');
     pushPrivateMessage_(tapperUserId, {
       type: 'text',
       text: 'บันทึกแล้ว: ' + actionLabel + 'ใบลาของ ' + leavePage.fullName,

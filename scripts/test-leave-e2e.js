@@ -40,6 +40,7 @@ const state = {
   audits: [],
   logs: [],
   expectedErrors: [],
+  scriptProperties: { ADMIN_TOKEN: 'admin-secret' },
   settings: {
     leave_database_id: 'leave-db',
     line_group_id: 'group-main',
@@ -53,6 +54,7 @@ const state = {
     'token-other': { userId: 'U-other', displayName: 'Other LINE' },
     'token-first': { userId: 'U-first', displayName: 'First Approver' },
     'token-chief': { userId: 'U-chief', displayName: 'Chief Approver' },
+    'token-backup': { userId: 'U-backup', displayName: 'Backup Approver' },
     'token-unknown': { userId: 'U-unknown', displayName: 'Unknown LINE' },
   },
   roster: [
@@ -60,6 +62,7 @@ const state = {
     { prefix: 'นางสาว', firstName: 'สมหญิง', lastName: 'ผู้อื่น', groupName: 'งานบริการ', position: 'เจ้าหน้าที่', lineUserId: 'U-other', employmentType: 'ข้าราชการ' },
     { prefix: 'นาย', firstName: 'อนุมัติ', lastName: 'ขั้นแรก', groupName: 'งานบริหาร', position: 'หัวหน้างาน', lineUserId: 'U-first', employmentType: 'ข้าราชการ' },
     { prefix: 'นาย', firstName: 'ชาญ', lastName: 'ชำนาญ', groupName: 'งานบริหาร', position: 'หัวหน้า สสอ.', lineUserId: 'U-chief', employmentType: 'ข้าราชการ' },
+    { prefix: 'นางสาว', firstName: 'สำรอง', lastName: 'พร้อมงาน', groupName: 'งานบริหาร', position: 'เจ้าหน้าที่', lineUserId: 'U-backup', employmentType: 'ข้าราชการ' },
   ],
   approvers: [
     { groupName: 'งานบริการ', approverNames: ['อนุมัติ ขั้นแรก'], forward: true },
@@ -83,10 +86,17 @@ const context = vm.createContext({
   JSON,
   Math,
   __e2e: state,
-  Utilities: { formatDate },
+  Utilities: {
+    formatDate,
+    getUuid: () => 'assignment-' + String(state.nextPage) + '-' + String(state.audits.length),
+  },
   PropertiesService: {
     getScriptProperties() {
-      return { getProperty: () => null, setProperty() {}, deleteProperty() {} };
+      return {
+        getProperty: key => state.scriptProperties[key] || null,
+        setProperty: (key, value) => { state.scriptProperties[key] = String(value); },
+        deleteProperty: key => { delete state.scriptProperties[key]; },
+      };
     },
   },
   LockService: {
@@ -118,6 +128,7 @@ vm.runInContext(`
   readQuotaProfiles_ = function() { return __e2e.quotaProfiles.map(function(row) { return Object.assign({}, row); }); };
   appendAssigneeConflictWarning_ = function() {};
   resolveLeaveDataSourceId_ = function(value) { return value; };
+  ensureLeaveSubstituteProperty_ = function() { return false; };
   recordLeaveNotificationFailure_ = function() { return 1; };
   clearLeaveNotificationFailure_ = function() {};
   claimSecurityEventOnce_ = function(source, id) { __e2e.audits.push({ type: 'claim', source: source, id: id }); return true; };
@@ -145,7 +156,8 @@ vm.runInContext(`
   createNotionLeavePage_ = function(payload) {
     var id = String(__e2e.nextPage++).padStart(32, '0');
     var page = hydrateNotionText_({
-      id: id, url: 'memory://' + id, properties: JSON.parse(JSON.stringify(payload.properties))
+      id: id, url: 'memory://' + id, created_time: new Date().toISOString(), last_edited_time: new Date().toISOString(),
+      properties: JSON.parse(JSON.stringify(payload.properties))
     });
     __e2e.pages.set(id, page);
     return JSON.parse(JSON.stringify(page));
@@ -162,6 +174,7 @@ vm.runInContext(`
       page.properties[key] = JSON.parse(JSON.stringify(properties[key]));
     });
     hydrateNotionText_(page);
+    page.last_edited_time = new Date().toISOString();
     return JSON.parse(JSON.stringify(page));
   };
   findLeaveByRequestId_ = function(leaveDatabaseId, requestId) {
@@ -184,6 +197,12 @@ vm.runInContext(`
   getMyLeavesForYears_ = function(leaveDatabaseId, userId) {
     return Array.from(__e2e.pages.values()).map(parseLeavePage_)
       .filter(function(leave) { return leave.submitterUserId === userId; });
+  };
+  queryPendingLeaves_ = function() {
+    return Array.from(__e2e.pages.values()).map(parseLeavePage_).filter(isPendingLeave_);
+  };
+  queryAdministrativeLeaves_ = function() {
+    return Array.from(__e2e.pages.values()).map(parseLeavePage_);
   };
 `, context);
 
@@ -242,6 +261,8 @@ test('session distinguishes registered and unregistered users', () => {
   const unregistered = api({ apiAction: 'session', accessToken: 'token-unknown' });
   assert(registered.ok && registered.registered && registered.name.includes('สมชาย'), 'registered session mismatch');
   assert(unregistered.ok && !unregistered.registered, 'unregistered session mismatch');
+  assert(!unregistered.staffOptions && !unregistered.options.staffOptions,
+    'unregistered session exposed the registered staff directory');
 });
 
 test('leave submission rejects a missing day period', () => {
@@ -460,6 +481,93 @@ test('myLeaves returns only the authenticated owner records and current fiscal u
   assert(mine.ok && mine.leaves.length === ownerCount, 'owner leave history mismatch');
   assert(other.ok && other.leaves.length === otherCount, 'other user leave history mismatch');
   assert(mine.usage && mine.usage['ลาป่วย'], 'usage summary was not built');
+});
+
+test('registered session exposes all other registered staff without LINE ids', () => {
+  const owner = api({ apiAction: 'session', accessToken: 'token-owner' });
+  const chief = api({ apiAction: 'session', accessToken: 'token-chief' });
+  assert(owner.ok && owner.staffOptions.some(item => item.key === 'สำรอง พร้อมงาน'),
+    'registered substitute was missing');
+  assert(!owner.staffOptions.some(item => item.key === 'สมชาย ทดสอบ'), 'session included the submitter');
+  assert(owner.staffOptions.every(item => !Object.prototype.hasOwnProperty.call(item, 'userId')),
+    'LINE user id leaked to the browser');
+  assert(chief.canManageApprovals === true && owner.canManageApprovals === false,
+    'chief management role mismatch');
+});
+
+test('substitute is validated, persisted, and shown in owner records', () => {
+  const invalidSelf = submit('token-owner', 60, { start: '2026-09-23', end: '2026-09-23',
+    substituteKey: 'สมชาย ทดสอบ' });
+  assert(!invalidSelf.ok && /บุคคลอื่น/.test(invalidSelf.error), 'submitter could select self as substitute');
+  const result = submit('token-owner', 61, { start: '2026-09-23', end: '2026-09-23',
+    substituteKey: 'สำรอง พร้อมงาน' });
+  const leave = parsed(result.pageId);
+  const mine = api({ apiAction: 'myLeaves', accessToken: 'token-owner' });
+  const row = mine.leaves.find(item => item.pageId === result.pageId);
+  assert(result.ok && leave.substitute && leave.substitute.userId === 'U-backup', 'substitute was not persisted');
+  assert(row && /สำรอง พร้อมงาน/.test(row.substituteName), 'owner row omitted substitute');
+  context.__substituteLeave = leave;
+  assert(/ผู้ปฏิบัติงานแทน/.test(call('JSON.stringify(buildLeaveApprovalBubble_(__substituteLeave))')),
+    'approval card omitted substitute');
+});
+
+test('chief can reassign one pending leave to any registered staff and old card becomes invalid', () => {
+  const result = submit('token-owner', 62, { start: '2026-09-24', end: '2026-09-24' });
+  const denied = api({ apiAction: 'reassignApprover', accessToken: 'token-first', pageId: result.pageId,
+    targetStaffKey: 'สำรอง พร้อมงาน', reason: 'ผู้อนุมัติเดิมไม่สะดวก', requestId: requestId(63) });
+  assert(!denied.ok && /หัวหน้า สสอ/.test(denied.error), 'ordinary approver could reassign');
+  const changed = api({ apiAction: 'reassignApprover', accessToken: 'token-chief', pageId: result.pageId,
+    targetStaffKey: 'สำรอง พร้อมงาน', reason: 'ผู้อนุมัติเดิมไม่สะดวก', requestId: requestId(64) });
+  const leave = parsed(result.pageId);
+  assert(changed.ok && leave.currentApprover.userIds.join(',') === 'U-backup', 'reassignment was not persisted');
+  const before = leave.status;
+  postback('U-first', result.pageId, 'approve', 'old-card-event');
+  assert(parsed(result.pageId).status === before, 'old approval card still mutated the leave');
+  assert(state.messages.some(item => item.target === 'U-backup' && item.message.type === 'flex'),
+    'backup approver did not receive a new card');
+});
+
+test('admin leave actions require the shared token and can adjust actual usage with audit', () => {
+  const listDenied = api({ apiAction: 'adminLeaveList', token: 'wrong' });
+  const list = api({ apiAction: 'adminLeaveList', token: 'admin-secret' });
+  assert(!listDenied.ok && listDenied.code === 'UNAUTHORIZED', 'admin list accepted a bad token');
+  assert(list.ok && list.staffOptions.length === state.roster.length, 'admin list did not include registered staff');
+
+  const result = submit('token-other', 65, { start: '2026-09-25', end: '2026-09-25' });
+  postback('U-first', result.pageId, 'approve', 'adjust-first');
+  postback('U-chief', result.pageId, 'approve', 'adjust-final');
+  const adjusted = api({ apiAction: 'adminAdjustLeave', token: 'admin-secret', pageId: result.pageId,
+    requestId: requestId(66), resultStatus: 'อนุมัติ', leaveType: 'ลาป่วย',
+    start: '2026-09-25', end: '2026-09-25', period: 'ครึ่งวันเช้า', reason: 'ป่วยจริง',
+    substituteKey: 'สำรอง พร้อมงาน', adjustmentReason: 'ปรับตามเวลาที่ลาใช้จริง' });
+  const leave = parsed(result.pageId);
+  assert(adjusted.ok && leave.leaveType === 'ลาป่วย' && leave.workDays === 0.5,
+    'actual leave adjustment was not recalculated');
+  assert(/admin-adjust/.test(leave.audit) && state.audits.some(item => item.action === 'leave.admin-adjust'),
+    'actual leave adjustment was not audited');
+});
+
+test('pending reminder notifies current approver at 24h and chief at 48h only once', () => {
+  const result = submit('token-owner', 67, { start: '2026-09-28', end: '2026-09-28' });
+  const page = state.pages.get(result.pageId);
+  const info = JSON.parse(page.properties['ผู้อนุมัติปัจจุบัน'].rich_text[0].plain_text);
+  info.assignedAt = new NativeDate(FIXED_NOW).getTime() - 49 * 3600000;
+  info.assignedAt = new NativeDate(info.assignedAt).toISOString();
+  info.assignmentId = 'aged-assignment';
+  page.properties['ผู้อนุมัติปัจจุบัน'].rich_text[0].plain_text = JSON.stringify(info);
+  page.properties['ผู้อนุมัติปัจจุบัน'].rich_text[0].text.content = JSON.stringify(info);
+  const before = state.messages.length;
+  call('pendingLeaveReminderJob()');
+  const firstRun = state.messages.length;
+  call('pendingLeaveReminderJob()');
+  const leave = parsed(result.pageId);
+  assert(firstRun > before && state.messages.some(item => item.target === 'U-first' && /24 ชั่วโมง/.test(item.message.text || '')),
+    '24-hour approver reminder was missing');
+  assert(state.messages.some(item => item.target === 'U-chief' && /48 ชั่วโมง/.test(item.message.text || '')),
+    '48-hour chief notification was missing');
+  assert(state.messages.length === firstRun, 'reminders were sent twice for the same assignment');
+  assert(/approval-reminder:aged-assignment:24h/.test(leave.audit) &&
+    /approval-reminder:aged-assignment:48h/.test(leave.audit), 'reminder audit markers were missing');
 });
 
 console.log('Synthetic leave E2E: ' + passed + ' passed, ' + failed + ' failed');

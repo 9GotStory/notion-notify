@@ -110,6 +110,8 @@ function setupSheet() {
     ['leave_closed_message', '', 'ข้อความที่แสดงตอนระบบลาถูกปิด (เว้นว่าง = ใช้ข้อความมาตรฐาน เช่น ระบุช่วงเวลาปิดและผู้ติดต่อได้)'],
     ['monthly_leave_summary_enabled', 'TRUE', 'สรุปวันลารายเดือน (FALSE = ปิด): วันทำการแรกของแต่ละเดือน แนบสรุปใบลาที่อนุมัติของเดือนก่อนท้ายข้อความเช้า — รวมข้อความเดียวกัน ไม่เพิ่มโควตา LINE'],
     ['second_approvers', '', 'หัวหน้า สสอ. — รายชื่อ "ชื่อ สกุล" ของผู้อนุมัติขั้นสอง คั่นด้วยจุลภาค (ต้องลงทะเบียนในระบบแล้ว)'],
+    ['leave_pending_reminder_hours', '24', 'เตือนผู้อนุมัติปัจจุบันเมื่อใบลารอครบ N ชั่วโมง (1-720)'],
+    ['leave_pending_escalation_hours', '48', 'แจ้ง หัวหน้า สสอ. เพื่อทราบเมื่อใบลารอครบ N ชั่วโมง (1-720; ไม่เปลี่ยนผู้อนุมัติอัตโนมัติ)'],
     ['employment_type_options', 'ข้าราชการ,พนักงานราชการ,พนักงานกระทรวงสาธารณสุข,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ', 'ตัวเลือกประเภทบุคลากรในฟอร์มลงทะเบียน (คั่นจุลภาค) — ใช้จับคู่โควตาจากชีต QuotaProfiles'],
     ['leave_policy_reviewed_at', '', 'วันที่ HR ตรวจทานโควตา/เงื่อนไขกับระเบียบ สัญญาจ้าง และประกาศล่าสุดแล้ว (YYYY-MM-DD) — ทบทวนอย่างน้อยปีละครั้ง'],
     ['prefix_options', 'นาย,นาง,นางสาว,อื่นๆ', 'ตัวเลือกคำนำหน้าชื่อในฟอร์มลงทะเบียน (คั่นด้วยจุลภาค — มี "อื่นๆ" = เปิดช่องพิมพ์เอง)'],
@@ -152,6 +154,12 @@ function setupSheet() {
     else list.push('พนักงานกระทรวงสาธารณสุข');
     setSettingValue_('employment_type_options', list.join(','));
     status.push('เติมตัวเลือก "พนักงานกระทรวงสาธารณสุข" ใน Settings (employment_type_options)');
+  }
+
+  try {
+    if (ensurePendingLeaveReminderTrigger_()) status.push('ติดตั้ง trigger ตรวจใบลาค้างทุกชั่วโมง');
+  } catch (triggerErr) {
+    status.push('⚠ ติดตั้ง trigger เตือนใบลาค้างไม่สำเร็จ: ' + triggerErr);
   }
 
   // ตรวจความพร้อมระบบทั้งสายหลังสร้าง/เติมชีต — ให้ผู้ดูแลเห็นว่าขาดอะไรในคลิกเดียว
@@ -422,6 +430,11 @@ function collectSystemHealth_() {
   }
   if (isLeaveSystemEnabled_(settings) && !isLeaveApprovalEnabled_(settings)) {
     findings.push(['info', 'โหมดแจ้งลาอัตโนมัติ: การอนุมัติถูกปิดอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันที แจ้งเข้ากลุ่มหลัก (ไม่ใช้ผู้อนุมัติในชีต Approvers)']);
+  }
+  const hasPendingLeaveReminder = ScriptApp.getProjectTriggers().some(
+    t => t.getHandlerFunction() === LEAVE_PENDING_REMINDER_HANDLER);
+  if (isLeaveSystemEnabled_(settings) && isLeaveApprovalEnabled_(settings) && !hasPendingLeaveReminder) {
+    findings.push(['warn', 'ยังไม่มี trigger เตือนใบลาค้าง — กดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ"']);
   }
 
   return findings;

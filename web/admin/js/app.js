@@ -8,7 +8,7 @@ const App = {
 
   _renderSeq: 0, // เลขกำกับการ render แต่ละครั้ง — ใช้ตรวจว่า render เก่ายัง "เป็นปัจจุบัน" อยู่ไหม
 
-  routes: ['overview', 'staff', 'leave', 'holidays', 'reports', 'system'],
+  routes: ['overview', 'staff', 'leave', 'leave-manage', 'holidays', 'reports', 'system'],
 
   boot() {
     // token หมดอายุ/ผิดกลางการใช้งาน → api.js ล้าง token แล้วส่ง event มาที่นี่

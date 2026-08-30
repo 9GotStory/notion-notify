@@ -57,9 +57,10 @@ async function run() {
   assert(source.includes('__leaveUiTest'), 'could not install LIFF UI test hook');
 
   const elements = new Map();
-  const mainTabs = [new FakeElement('tab-form'), new FakeElement('tab-mine')];
+  const mainTabs = [new FakeElement('tab-form'), new FakeElement('tab-mine'), new FakeElement('tab-approvals')];
   mainTabs[0].dataset.view = 'form';
   mainTabs[1].dataset.view = 'mine';
+  mainTabs[2].dataset.view = 'approvals';
   const document = {
     getElementById(id) {
       if (!elements.has(id)) elements.set(id, new FakeElement(id));
@@ -156,8 +157,23 @@ async function run() {
   assert(!button.disabled && button.getAttribute('aria-busy') === null && button.textContent === 'บันทึก',
     'shared button helper did not restore idle state');
 
+  const approvalUrls = [];
+  context.fetch = async url => {
+    approvalUrls.push(String(url));
+    return { ok: true, json: async () => ({ ok: true, leaves: [], staffOptions: [] }) };
+  };
+  ui.state.user = { canManageApprovals: true };
+  mainTabs[2].listeners.click();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert(!elements.get('view-approvals').classList.contains('hidden'),
+    'approval tab did not open the approval view');
+  assert(approvalUrls.length === 1 && /apiAction=approvalQueue/.test(approvalUrls[0]),
+    'approval tab did not load the approval queue');
+
   console.log('PASS testLiffCancelInteraction');
   console.log('PASS testLiffSharedButtonBusyState');
+  console.log('PASS testLiffApprovalTabNavigation');
 }
 
 run().catch(err => {

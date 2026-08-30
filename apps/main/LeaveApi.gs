@@ -14,6 +14,11 @@ function handleApiRequest_(body) {
       case 'update': return apiUpdateLeave_(body);
       case 'calendar': return apiCalendar_(body);
       case 'schedule': return apiSchedule_(body);
+      case 'approvalQueue': return apiApprovalQueue_(body);
+      case 'reassignApprover': return apiReassignApprover_(body);
+      case 'adminLeaveList': return apiAdminLeaveList_(body);
+      case 'adminReassignApprover': return apiAdminReassignApprover_(body);
+      case 'adminAdjustLeave': return apiAdminAdjustLeave_(body);
       default:
         return { ok: false, error: 'ไม่รู้จักคำสั่งนี้' };
     }
@@ -27,6 +32,9 @@ function handleApiRequest_(body) {
 
 function publicLeaveApiError_(err) {
   const message = String(err && err.message ? err.message : '');
+  if (err && (err.publicCode === 'UNAUTHORIZED' || err.publicCode === 'UNCONFIGURED')) {
+    return { code: err.publicCode, message: message };
+  }
   if (/^ระบบยังไม่พร้อมใช้งาน \(ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id\)$/.test(message)) {
     return { code: 'CONFIGURATION_REQUIRED', message: message };
   }
@@ -95,6 +103,8 @@ function apiSession_(body) {
     return Object.assign({
       ok: true, registered: true,
       name: staffDisplayName_(staff), groupName: staff.groupName, position: staff.position,
+      staffOptions: registeredStaffOptions_(roster, profile.userId),
+      canManageApprovals: secondApproverNames_(settings).includes(staffKey_(staff)),
       // ยอดวันลาที่ใช้ไปแล้วของปีงบประมาณนี้จากใบจริงใน Notion
       usage: buildUsageSummaryWithBalances_(
         getLeaveUsageForYear_(settings.leave_database_id, staff.lineUserId, new Date()),
@@ -229,7 +239,25 @@ function parseLeaveSubmissionInput_(body, settings) {
   // ประเภทการลามาจาก Settings (leave_type_options) + ช่วงวัน (ครึ่งวันใช้ได้เฉพาะบางประเภท/ลา 1 วัน)
   if (!leaveTypeList_(settings).includes(leaveType)) throw new Error('ประเภทการลาไม่ถูกต้อง');
   const period = normalizeLeavePeriod_(body.period, leaveType, range.start, range.end);
-  return { leaveType: leaveType, reason: reason, start: range.start, end: range.end, period: period };
+  const substituteKey = String(body.substituteKey || '').trim().replace(/\s+/g, ' ');
+  if (substituteKey.length > 120) throw new Error('รหัสผู้ปฏิบัติงานแทนยาวเกินกำหนด');
+  return { leaveType: leaveType, reason: reason, start: range.start, end: range.end,
+    period: period, substituteKey: substituteKey };
+}
+
+function registeredStaffOptions_(roster, excludeUserId) {
+  return (roster || []).filter(staff => staff.lineUserId && staff.lineUserId !== excludeUserId)
+    .map(staff => ({ key: staffKey_(staff), name: staffDisplayName_(staff),
+      groupName: staff.groupName || '', position: staff.position || '' }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+}
+
+function resolveRegisteredStaffChoice_(roster, key, excludeUserId, fieldLabel) {
+  if (!key) return null;
+  const matches = (roster || []).filter(staff => staff.lineUserId && staffKey_(staff) === key);
+  if (matches.length !== 1) throw new Error('ไม่พบ' + fieldLabel + 'ในทะเบียน กรุณาเลือกใหม่');
+  if (matches[0].lineUserId === excludeUserId) throw new Error(fieldLabel + 'ต้องเป็นบุคคลอื่น');
+  return matches[0];
 }
 
 /** เติมคำเตือน "ในช่วงลามีงานที่คุณรับผิดชอบ" ลง warnings (mutate โดยตั้งใจ — flow เดิมส่งต่อไปทั้งฟอร์มและการ์ดอนุมัติ)
@@ -321,6 +349,9 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
   const reason = input.reason;
   const range = { start: input.start, end: input.end };
   const period = input.period;
+  const substitute = resolveRegisteredStaffChoice_(roster, input.substituteKey, staff.lineUserId,
+    'ผู้ปฏิบัติงานแทน');
+  if (substitute) ensureLeaveSubstituteProperty_(resolveLeaveDataSourceId_(leaveDbId));
 
   // อ่านใบลาในปีเดียวกันภายใน lock ของ apiSubmit_ แล้วใช้ทั้งตรวจวันทับซ้อนและคำนวณยอดสิทธิ์
   // เพื่อกันคำขอสองรายการของคนเดียวกันที่เข้ามาพร้อมกัน โดยไม่เพิ่มจำนวน query ไปยัง Notion
@@ -361,6 +392,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       end: range.end,
       period: period,
       reason: reason,
+      substitute: serializeSubstituteInfo_(substitute),
       workDays: workDays,
       initialStatus: LEAVE_STATUS.approved,
       currentApprover: '',
@@ -390,6 +422,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       type: 'text',
       text: '✅ บันทึกการลาแล้ว (ไม่ต้องรออนุมัติ — ระบบปิดการอนุมัติอยู่)\n' + leaveSummaryText_(autoPage),
     });
+    notifyLeaveSubstitute_(autoPage, 'ℹ️ มีการระบุให้คุณปฏิบัติงานแทนในช่วงลานี้');
     logResult_(new Date(), 'leave',
       autoPage.fullName + ' ยื่น' + leaveType + ' ' + leaveDateLabel_(range.start, range.end) +
       ' (' + workDays + ' วันทำการ) — อัตโนมัติ ไม่ต้องอนุมัติ');
@@ -423,6 +456,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
     end: range.end,
     period: period,
     reason: reason,
+    substitute: serializeSubstituteInfo_(substitute),
     workDays: workDays,
     initialStatus: chain.stage === 'second'
       ? LEAVE_STATUS.pendingChiefOffice
@@ -471,6 +505,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
   if (chain.needsSecond && chain.stage === 'first') {
     approverLabel += ' → ส่งต่อ หัวหน้า สสอ.';
   }
+  notifyLeaveSubstitute_(leavePage, 'ℹ️ มีการระบุให้คุณปฏิบัติงานแทนในใบลาที่กำลังรออนุมัติ');
 
   logResult_(new Date(), 'leave',
     leavePage.fullName + ' ยื่น' + leaveType + ' ' + leaveDateLabel_(range.start, range.end) +
@@ -571,6 +606,8 @@ function buildMyLeaveRow_(leave, todayStr) {
     quotaDays: leaveQuotaDays_(leave),
     quotaDaysLabel: quotaDaysLabel_(leave.leaveType, leaveQuotaDays_(leave)),
     reason: leave.reason,
+    substituteKey: leave.substitute ? leave.substitute.key : '',
+    substituteName: leave.substitute ? leave.substitute.name : '',
     canEdit: isPending,
     canCancel: (isPending || leave.status === LEAVE_STATUS.approved) && leave.start > todayStr,
     pendingApproverNames: isPending && leave.currentApprover ? (leave.currentApprover.names || []) : [],
@@ -708,6 +745,7 @@ function apiCancelLeave_(body) {
       type: 'text',
       text: '✅ ยกเลิกใบลาแล้ว\n' + leaveSummaryText_(leavePage),
     });
+    notifyLeaveSubstitute_(leavePage, 'ℹ️ ผู้ยื่นยกเลิกใบลาที่ระบุให้คุณปฏิบัติงานแทนแล้ว');
     logResult_(new Date(), 'leave-cancel',
       leavePage.fullName + ' ยกเลิก' + leavePage.leaveType + ' ' +
       leaveDateLabel_(leavePage.start, leavePage.end) + ' โดยผู้ยื่น');
@@ -734,6 +772,9 @@ function apiUpdateLeave_(body) {
     throw new Error('ระบบยังไม่พร้อมใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id)');
   }
   const input = parseLeaveSubmissionInput_(body, settings);
+  const substitute = resolveRegisteredStaffChoice_(roster, input.substituteKey, staff.lineUserId,
+    'ผู้ปฏิบัติงานแทน');
+  if (substitute) ensureLeaveSubstituteProperty_(resolveLeaveDataSourceId_(leaveDbId));
 
   const pageId = String(body.pageId || '').trim();
   if (!pageId) throw new Error('ไม่พบใบลาที่ต้องการแก้ไข');
@@ -823,6 +864,11 @@ function apiUpdateLeave_(body) {
     // เขียน "ช่วงวัน"/"หมายเหตุระบบ" แบบ optional เหมือนตอนสร้างใบ (database รุ่นเก่าอาจยังไม่มีสอง property นี้)
     // เคลียร์ค่าเดิมเฉพาะเมื่อ property มีอยู่จริงในหน้า — ไม่งั้น PATCH จะพังเพราะส่ง property ที่ DB ไม่มี
     const rawProps = rawPage.properties || {};
+    if (substitute) {
+      properties[PROPS_LEAVE.substitute] = richTextValue_(serializeSubstituteInfo_(substitute));
+    } else if (rawProps[PROPS_LEAVE.substitute]) {
+      properties[PROPS_LEAVE.substitute] = richTextValue_('');
+    }
     if (input.period !== 'เต็มวัน') {
       properties[PROPS_LEAVE.period] = richTextValue_(input.period);
     } else if (rawProps[PROPS_LEAVE.period]) {
@@ -849,6 +895,13 @@ function apiUpdateLeave_(body) {
           leaveSummaryText_(updatedPage),
       });
     });
+    if (leavePage.substitute && (!updatedPage.substitute ||
+        leavePage.substitute.userId !== updatedPage.substitute.userId)) {
+      notifyLeaveSubstitute_(leavePage, 'ℹ️ ผู้ยื่นเปลี่ยนผู้ปฏิบัติงานแทนในใบลานี้แล้ว');
+    }
+    if (updatedPage.substitute) {
+      notifyLeaveSubstitute_(updatedPage, 'ℹ️ มีการระบุหรือแก้ไขให้คุณปฏิบัติงานแทนในใบลานี้');
+    }
 
     let notificationPending = false;
     if (newStatus === LEAVE_STATUS.approved) {

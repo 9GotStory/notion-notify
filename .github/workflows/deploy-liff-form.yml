@@ -125,9 +125,9 @@ jobs:
           cp web/admin/index.html site/web/admin/index.html
           cp web/admin/js/*.js site/web/admin/js/
           cp web/admin/js/views/*.js site/web/admin/js/views/
-          sed -i "s|__ADMIN_API_URL__|$ADMIN_API_URL|g" site/web/admin/js/api.js
-          if grep -rq '__ADMIN_API_URL__' site/web/admin/; then
-            echo "::error::ยังมี placeholder __ADMIN_API_URL__ ค้างในไฟล์"
+          sed -i "s|__ADMIN_API_URL__|$ADMIN_API_URL|g; s|__API_URL__|$API_URL|g" site/web/admin/js/api.js
+          if grep -rq '__ADMIN_API_URL__\|__API_URL__' site/web/admin/; then
+            echo "::error::ยังมี placeholder API URL ค้างในไฟล์"
             exit 1
           fi
           echo "deploy หน้าฟอร์ม + ตารางงาน + หน้าผู้ดูแลพร้อมแล้ว (ค่า secret ถูก mask โดย GitHub)"

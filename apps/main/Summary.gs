@@ -631,15 +631,16 @@ function scheduleRetryNotification_(now) {
 function installTrigger() {
   try {
     ensureLogCleanupTrigger_();
+    ensurePendingLeaveReminderTrigger_();
     const nextRun = syncNotificationTrigger_(new Date());
     if (!nextRun) {
-      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger ส่งข้อความเดิมแล้ว\n\nติดตั้ง trigger ลบ Logs รายวันแล้ว');
+      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger ส่งข้อความเดิมแล้ว\n\nติดตั้ง trigger ลบ Logs รายวันและตรวจใบลาค้างทุกชั่วโมงแล้ว');
       return;
     }
     const nextLabel = thaiDateLabel_(nextRun) + ' เวลา ' +
       Utilities.formatDate(nextRun, 'Asia/Bangkok', 'HH:mm');
     SpreadsheetApp.getUi().alert('ตั้งเวลาส่งอัตโนมัติแล้ว\n\nครั้งถัดไป: ' + nextLabel +
-      '\nติดตั้ง trigger ลบ Logs รายวันแล้ว');
+      '\nติดตั้ง trigger ลบ Logs รายวันและตรวจใบลาค้างทุกชั่วโมงแล้ว');
   } catch (err) {
     SpreadsheetApp.getUi().alert('ติดตั้ง trigger ไม่สำเร็จ: ' + err);
   }
