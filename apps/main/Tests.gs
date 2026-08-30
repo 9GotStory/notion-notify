@@ -883,6 +883,16 @@ function testBuildLeaveApprovalBubble_() {
   assertContains_(bodyTexts, '20–21 ส.ค. 2569');
   assertContains_(bodyTexts, '2 วัน');
   assertContains_(bodyTexts, 'ไปต่อด่านที่ว่าการอำเภอ');
+
+  const note = 'ยอดปีงบประมาณ พ.ศ. 2569 (รวมใบนี้): 2 วันทำการ / 45 วันทำการ\n' +
+    '⚠ แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — โปรดตรวจสอบเหตุผลความจำเป็น';
+  const privateCardText = JSON.stringify(buildLeaveApprovalBubble_(
+    Object.assign({}, createTestLeave_(), { systemNote: note })));
+  const groupCardText = JSON.stringify(buildLeaveGroupApprovalBubble_(
+    Object.assign({}, createTestLeave_(), { systemNote: note })));
+  assertContains_(privateCardText, 'แจ้งล่วงหน้าไม่ถึง 3 วันทำการ');
+  assertFalse_(groupCardText.indexOf('แจ้งล่วงหน้าไม่ถึง 3 วันทำการ') !== -1);
+  assertContains_(groupCardText, 'ยอดปีงบประมาณ'); // ตัดเฉพาะคำเตือนที่รกกลุ่ม ไม่ตัดยอดสิทธิ์
 }
 
 function testTextMessageWithLeaves_() {
@@ -1482,6 +1492,7 @@ function testBaseQuotaMap_() {
 function testUsageSummaryWithQuotaMap_() {
   const quotaMap = baseQuotaMap_([
     { yearBE: null, employmentType: 'ลูกจ้างชั่วคราวรายเดือน', leaveType: 'ลาพักร้อน', quota: 0 },
+    { yearBE: null, employmentType: 'ลูกจ้างชั่วคราวรายเดือน', leaveType: 'ลาป่วย', quota: 30 },
   ], 'ลูกจ้างชั่วคราวรายเดือน', 2026);
   const balances = [
     { yearBE: 2569, name: 'ธนกร ใจดี', leaveType: 'ลาพักร้อน', carryIn: 2, usedExtra: 0 },
@@ -1490,6 +1501,8 @@ function testUsageSummaryWithQuotaMap_() {
   const summary = buildUsageSummaryWithBalances_({ 'ลาพักร้อน': 1 }, balances, 2026, quotaMap, 'ธนกร ใจดี');
   assertEqual_(summary['ลาพักร้อน'].quota, 2); // ฐาน 0 + ยกมา 2
   assertEqual_(summary['ลาพักร้อน'].used, 1);
+  assertEqual_(summary['ลาป่วย'].quota, 30); // ยังไม่เคยลาป่วยก็ต้องมีโควตาเพื่อแสดงในการ์ดใบแรก
+  assertEqual_(summary['ลาป่วย'].used, 0);
   assertEqual_(summary['ลากิจ'].quota, 45); // ประเภทที่แถวไม่มี = ค่าเริ่มต้น
 
   // คำเตือนสิทธิ์ต้องเห็นโควตารวมของคนนั้น (2) ไม่ใช่ค่าเริ่มต้น (45) — ใช้ 1 + ยื่นอีก 1 = ครบ

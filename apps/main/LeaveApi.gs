@@ -432,7 +432,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
     // ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน — การ์ดเข้ากลุ่มหลัก ให้ผู้อนุมัติที่ลงทะเบียนแล้วรายอื่นกดแทน
     approverLabel += ' (เข้ากลุ่มหลัก — ผู้อนุมัติของกลุ่มยังไม่ลงทะเบียน)';
     try {
-      sendLineMessage_(settings.line_group_id, card);
+      sendLineMessage_(settings.line_group_id, buildLeaveGroupApprovalBubble_(leavePage));
     } catch (err) {
       notificationPending = true;
       recordLeaveNotificationFailure_(leavePage.pageId);
@@ -804,7 +804,7 @@ function apiUpdateLeave_(body) {
       }
     } else if (viaPool) {
       try {
-        sendLineMessage_(settings.line_group_id, buildLeaveApprovalBubble_(updatedPage));
+        sendLineMessage_(settings.line_group_id, buildLeaveGroupApprovalBubble_(updatedPage));
       } catch (err) {
         notificationPending = true;
         logResult_(new Date(), 'error', 'ส่งการ์ดขออนุมัติ (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + err);

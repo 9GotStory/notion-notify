@@ -213,9 +213,22 @@ function buildLeaveApprovalBubble_(leavePage) {
   };
 }
 
+/** ตัดคำเตือนที่มีประโยชน์กับผู้ยื่นแต่ไม่จำเป็นสำหรับ LINE กลุ่ม เพื่อให้การ์ดกลุ่มกระชับ */
+function groupLeaveSystemNote_(systemNote) {
+  return String(systemNote || '').split('\n')
+    .filter(line => line !== LEAVE_ADVANCE_NOTICE_WARNING)
+    .join('\n').trim();
+}
+
+function buildLeaveGroupApprovalBubble_(leavePage) {
+  return buildLeaveApprovalBubble_(Object.assign({}, leavePage, {
+    systemNote: groupLeaveSystemNote_(leavePage && leavePage.systemNote),
+  }));
+}
+
 /** การ์ด "แจ้งลา" สำหรับโหมดปิดการอนุมัติ — เหมือนการ์ดขออนุมัติแต่ไม่มีปุ่ม (เป็นการแจ้งเพื่อทราบ) */
 function buildLeaveNoticeBubble_(leavePage) {
-  const bubble = buildLeaveApprovalBubble_(leavePage);
+  const bubble = buildLeaveGroupApprovalBubble_(leavePage);
   bubble.header.contents[0].text = 'แจ้งการลา';
   bubble.footer = {
     type: 'box',
@@ -257,7 +270,7 @@ function pushApproverCardWithFallback_(userIds, messageObj, leavePage) {
   } catch (err) {
     logResult_(new Date(), 'leave-push-fallback',
       'push หาผู้อนุมัติไม่สำเร็จ (อาจยังไม่แอดบอท) ส่งเข้ากลุ่มหลักแทน: ' + err);
-    sendLineMessage_(getSettings_().line_group_id, messageObj);
+    sendLineMessage_(getSettings_().line_group_id, buildLeaveGroupApprovalBubble_(leavePage));
     return false;
   }
 }
@@ -349,7 +362,7 @@ function sendStoredLeaveNotification_(leavePage, settings) {
       ? leavePage.currentApprover.userIds.filter(Boolean) : [];
     const card = buildLeaveApprovalBubble_(leavePage);
     if (userIds.length) pushApproverCardWithFallback_(userIds, card, leavePage);
-    else sendLineMessage_(settings.line_group_id, card);
+    else sendLineMessage_(settings.line_group_id, buildLeaveGroupApprovalBubble_(leavePage));
   }
 }
 
@@ -500,7 +513,7 @@ function handleLeavePostback_(event, webhookEventId) {
             pushApproverCardWithFallback_(second.map(s => s.lineUserId), secondCard, leavePage);
           } else {
             // ไม่มี หัวหน้า สสอ. ที่ลงทะเบียน — การ์ดเข้ากลุ่มหลักให้ผู้อนุมัติรายอื่นที่กำหนดไว้กดแทน
-            sendLineMessage_(settings.line_group_id, secondCard);
+            sendLineMessage_(settings.line_group_id, buildLeaveGroupApprovalBubble_(leavePage));
           }
         } catch (err) {
           notificationFailed = true;

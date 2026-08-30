@@ -65,6 +65,9 @@ const state = {
     { groupName: 'งานบริการ', approverNames: ['อนุมัติ ขั้นแรก'], forward: true },
     { groupName: 'งานบริหาร', approverNames: ['ชาญ ชำนาญ'], forward: false },
   ],
+  quotaProfiles: [
+    { yearBE: null, employmentType: 'ข้าราชการ', leaveType: 'ลาป่วย', quota: 120 },
+  ],
 };
 
 const context = vm.createContext({
@@ -112,7 +115,7 @@ vm.runInContext(`
   }); };
   readHolidaySet_ = function() { return new Set(); };
   readLeaveBalances_ = function() { return []; };
-  readQuotaProfiles_ = function() { return []; };
+  readQuotaProfiles_ = function() { return __e2e.quotaProfiles.map(function(row) { return Object.assign({}, row); }); };
   appendAssigneeConflictWarning_ = function() {};
   resolveLeaveDataSourceId_ = function(value) { return value; };
   recordLeaveNotificationFailure_ = function() { return 1; };
@@ -345,6 +348,31 @@ test('approval-disabled mode auto-approves and sends a notice without approval b
   assert(result.ok && result.autoApproved && leave.status === 'อนุมัติ', 'auto approval failed');
   assert(groupNotice && groupNotice.message.contents.footer.contents.length === 1,
     'auto-approved notice still contains approval controls');
+  state.settings.leave_approval_enabled = 'TRUE';
+});
+
+test('short-notice personal leave warning stays out of the LINE group card', () => {
+  state.settings.leave_approval_enabled = 'FALSE';
+  const result = submit('token-owner', 10, { start: '2026-08-31', end: '2026-08-31' });
+  const groupNotice = state.messages.filter(item => item.target === 'group-main' &&
+    item.message && item.message.type === 'flex').pop();
+  assert(result.ok && result.warnings.some(warning => /แจ้งล่วงหน้าไม่ถึง 3 วันทำการ/.test(warning)),
+    'submitter did not receive the short-notice warning');
+  assert(groupNotice && !/แจ้งล่วงหน้าไม่ถึง 3 วันทำการ/.test(JSON.stringify(groupNotice.message)),
+    'short-notice warning cluttered the LINE group card');
+  state.settings.leave_approval_enabled = 'TRUE';
+});
+
+test('first sick leave shows the personnel quota in the LINE group card', () => {
+  state.settings.leave_approval_enabled = 'FALSE';
+  const result = submit('token-owner', 11, {
+    leaveType: 'ลาป่วย', start: '2026-09-22', end: '2026-09-22',
+  });
+  const groupNotice = state.messages.filter(item => item.target === 'group-main' &&
+    item.message && item.message.type === 'flex').pop();
+  const cardText = groupNotice ? JSON.stringify(groupNotice.message) : '';
+  assert(result.ok && /ตรวจสอบสิทธิ์/.test(cardText) && /120 วันทำการ/.test(cardText),
+    'first sick leave omitted its personnel quota from the LINE group card');
   state.settings.leave_approval_enabled = 'TRUE';
 });
 

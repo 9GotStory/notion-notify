@@ -233,9 +233,11 @@ function businessDaysBeforeLeave_(todayStr, startStr, holidaySet) {
   return countBusinessDays_(from, to, holidaySet || new Set());
 }
 
+const LEAVE_ADVANCE_NOTICE_WARNING = '⚠ แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — โปรดตรวจสอบเหตุผลความจำเป็น';
+
 function appendAdvanceNoticeWarning_(leaveType, todayStr, startStr, holidaySet, warnings) {
   if (leaveType === 'ลากิจ' && businessDaysBeforeLeave_(todayStr, startStr, holidaySet) < 3) {
-    warnings.push('⚠ แจ้งล่วงหน้าไม่ถึง 3 วันทำการ — โปรดตรวจสอบเหตุผลความจำเป็น');
+    warnings.push(LEAVE_ADVANCE_NOTICE_WARNING);
   }
 }
 
@@ -308,16 +310,15 @@ function buildUsageSummaryWithBalances_(usage, balances, year, quotaMap, staffNa
   const yearRows = normalizedStaffName
     ? (balances || []).filter(b => b.yearBE === year + 543 && b.name === normalizedStaffName)
     : [];
-  if (!usage) {
-    // ใบลาอ่านไม่ได้และไม่มีรายการปรับของปีงบประมาณนี้เลย = ไม่มีข้อมูลจะสรุป
-    if (!yearRows.length) return null;
-    // มีรายการปรับ — ยังสรุปได้จากฐานโควตาของคนนั้นเพียงลำพัง (กันหน้า "ของฉัน" ว่างเปล่าทั้งที่มีข้อมูลปรับ)
-    Object.keys(quotaMap || LEAVE_QUOTAS).forEach(type => {
-      if (!(type in summary)) summary[type] = {
-        used: 0, quota: quotaOf(type), unit: quotaUnitLabel_(type), basis: quotaBasis_(type),
-      };
-    });
-  }
+  // ใบลาอ่านไม่ได้และไม่มีรายการปรับของปีงบประมาณนี้เลย = ไม่มีข้อมูลจะสรุป
+  if (!usage && !yearRows.length) return null;
+  // เติมทุกประเภทจากโควตาของบุคลากร แม้ยังไม่เคยลาประเภทนั้น — ถ้าเติมเฉพาะประเภทที่มี usage
+  // ลาป่วยครั้งแรกจะหาโควตาไม่พบและการ์ด LINE จะไม่มีบรรทัดตรวจสอบสิทธิ์
+  Object.keys(quotaMap || LEAVE_QUOTAS).forEach(type => {
+    if (!(type in summary)) summary[type] = {
+      used: 0, quota: quotaOf(type), unit: quotaUnitLabel_(type), basis: quotaBasis_(type),
+    };
+  });
   yearRows.forEach(b => {
     if (!summary[b.leaveType]) {
       summary[b.leaveType] = {
