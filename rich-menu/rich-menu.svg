@@ -44,7 +44,7 @@
   <!-- Right top: leave form -->
   <rect x="1666" width="834" height="843" fill="#FFF9EE"/>
   <rect x="1666" width="24" height="843" fill="#E7A84B"/>
-  <g transform="translate(1943 50) scale(.8)">
+  <g transform="translate(1974.5 82) scale(.62)">
     <rect x="0" y="0" width="350" height="460" rx="44" fill="#FFFFFF" stroke="#E7A84B" stroke-width="16" filter="url(#shadow)"/>
     <path d="M85 130h180M85 210h180M85 290h100" stroke="#0F6E56" stroke-width="28" stroke-linecap="round"/>
     <circle cx="270" cy="355" r="92" fill="#0F6E56"/>
@@ -58,7 +58,7 @@
   <!-- Right bottom: office website -->
   <rect x="1666" y="843" width="834" height="843" fill="url(#websiteBg)"/>
   <rect x="1666" y="843" width="24" height="843" fill="#0F6E56"/>
-  <g transform="translate(1903 905)" fill="none" stroke="#0F6E56" stroke-width="24">
+  <g transform="translate(1957 930) scale(.7)" fill="none" stroke="#0F6E56" stroke-width="24">
     <circle cx="180" cy="180" r="166" fill="#FFFFFF" filter="url(#shadow)"/>
     <ellipse cx="180" cy="180" rx="76" ry="166"/>
     <path d="M20 126h320M20 234h320M180 14v332"/>

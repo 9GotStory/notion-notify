@@ -19,6 +19,7 @@ function runUnitTests() {
     testFlexMessage_,
     testMessagePreview_,
     testCleanupOldFailCounts_,
+    testLogRetention_,
     testNotionPlaceholder_,
     // ระบบลางาน (ไฟล์ Leave*.gs)
     testStaffDisplayName_,
@@ -291,6 +292,45 @@ function testCleanupOldFailCounts_() {
   assertTrue_(Object.prototype.hasOwnProperty.call(values, 'OTHER_KEY'));
 }
 
+function testLogRetention_() {
+  assertEqual_(logRetentionDays_('90'), 90);
+  assertEqual_(logRetentionDays_('30'), 30);
+  assertEqual_(logRetentionDays_('3650'), 3650);
+  assertEqual_(logRetentionDays_('29'), 90);
+  assertEqual_(logRetentionDays_('abc'), 90);
+
+  const cutoff = new Date('2026-05-31T00:00:00+07:00').getTime();
+  const runs = expiredLogRowRuns_([
+    [new Date('2026-05-01T08:00:00+07:00')],
+    [new Date('2026-05-30T23:59:59+07:00')],
+    [new Date('2026-05-31T00:00:00+07:00')], // เท่ากับ cutoff ยังเก็บ
+    [new Date('2026-04-01T08:00:00+07:00')],
+    ['วันที่ไม่ถูกต้อง'],
+  ], cutoff);
+  assertEqual_(JSON.stringify(runs), JSON.stringify([
+    { startRow: 6, count: 1 },
+    { startRow: 3, count: 2 },
+  ]));
+
+  const deletedRuns = [];
+  const fakeSheet = {
+    getLastRow: function () { return 5; },
+    getRange: function () {
+      return { getValues: function () {
+        return [
+          [new Date('2026-05-31T23:59:59+07:00')],
+          [new Date('2026-06-01T00:00:00+07:00')],
+          ['วันที่ไม่ถูกต้อง'],
+        ];
+      } };
+    },
+    deleteRows: function (startRow, count) { deletedRuns.push({ startRow: startRow, count: count }); },
+  };
+  const deleted = cleanupOldLogs_(fakeSheet, new Date('2026-08-30T12:00:00+07:00'), '90');
+  assertEqual_(deleted, 1);
+  assertEqual_(JSON.stringify(deletedRuns), JSON.stringify([{ startRow: 3, count: 1 }]));
+}
+
 function testNotionPlaceholder_() {
   assertThrows_(
     function () { resolveDataSourceId_('your_notion_database_id'); },
@@ -527,10 +567,13 @@ function testLeaveQuotaDays_() {
   assertEqual_(computeLeaveQuotaDays_('ลาคลอด', '2026-08-21', '2026-08-24', 2), 4);
   assertEqual_(computeLeaveQuotaDays_('ลาอุปสมบท/ลาบวช', '2026-08-21', '2026-08-24', 2), 4);
   assertEqual_(normalizeLeaveTypeName_('ลาอุปสมบถ/ลาบวช'), 'ลาอุปสมบท/ลาบวช');
+  assertEqual_(normalizeLeaveTypeName_('ลาช่วยเหลือภริยาคลอดบุตร'), 'ลาช่วยเหลือภรรยาคลอดบุตร');
   const migratedOptions = leaveTypeList_({
-    leave_type_options: 'ลากิจ,ลาอุปสมบถ/ลาบวช,ลาอุปสมบท/ลาบวช',
+    leave_type_options: 'ลากิจ,ลาอุปสมบถ/ลาบวช,ลาอุปสมบท/ลาบวช,' +
+      'ลาช่วยเหลือภริยาคลอดบุตร,ลาช่วยเหลือภรรยาคลอดบุตร',
   });
-  assertEqual_(migratedOptions.join(','), 'ลากิจ,ลาอุปสมบท/ลาบวช');
+  assertEqual_(migratedOptions.join(','),
+    'ลากิจ,ลาอุปสมบท/ลาบวช,ลาช่วยเหลือภรรยาคลอดบุตร');
   assertEqual_(computeLeaveQuotaDays_('ลากิจ', '2026-08-21', '2026-08-24', 2), 2);
   assertEqual_(quotaUnitLabel_('ลาคลอด'), 'วันปฏิทิน');
   assertEqual_(quotaUnitLabel_('ลาป่วย'), 'วันทำการ');

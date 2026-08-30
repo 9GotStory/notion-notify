@@ -101,6 +101,7 @@ function setupSheet() {
     ['notion_database_id', 'your_notion_database_id', 'Database ID ของ "ปฏิทินการปฏิบัติงาน" ใน Notion'],
     ['line_group_id', '', 'เติมอัตโนมัติเมื่อบอทเข้ากลุ่ม LINE และมีคนพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)'],
     ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
+    ['logs_retention_days', '90', 'จำนวนวันที่เก็บชีต Logs: 30-3650 วัน (ค่าเริ่มต้น 90) — ลบอัตโนมัติวันละครั้ง ไม่กระทบ AuditLog/SecurityEvents'],
     ['advance_notice_days', '1', 'แสดงส่วน "ล่วงหน้า" (งาน+ผู้ลาของ N วันถัดไป) ต่อท้ายข้อความเช้า: ใส่ 1-7 (เว้นว่าง = ปิด) — รวมในข้อความเดียวกับของวันนี้ จึงไม่เพิ่มโควตาข้อความ LINE'],
     ['leave_database_id', 'your_leave_database_id', 'Database ID ของ "ใบลา" ใน Notion (ระบบลางาน)'],
     ['leave_system_enabled', 'TRUE', 'สวิตช์ระบบลา: FALSE = ปิดรับลงทะเบียน/ยื่นลาใหม่ (ใช้เมนู "เปิด/ปิดระบบลา" สลับให้ได้) — ค่าอื่นใด/แถวหาย = เปิด'],
@@ -128,7 +129,7 @@ function setupSheet() {
   }
   const spellingMigration = migrateLeaveTypeSpelling_();
   if (spellingMigration.updated) {
-    status.push('แก้คำว่า "อุปสมบถ" เป็น "อุปสมบท" ในข้อมูลตั้งค่าเดิม ' + spellingMigration.updated + ' จุด');
+    status.push('แก้คำสะกดประเภทการลาในข้อมูลตั้งค่าเดิม ' + spellingMigration.updated + ' จุด');
   }
   if (spellingMigration.conflicts) {
     status.push('⚠ พบโควตาที่มีทั้งคำสะกดเก่าและใหม่ ' + spellingMigration.conflicts +
@@ -242,15 +243,14 @@ function seedLeaveQuotaDefaults_() {
   return { added: rows.length, kept: QUOTA_PROFILE_SEED.length - rows.length, migrated: migrated };
 }
 
-/** migration คำสะกด: แก้เฉพาะค่า exact เดิม และไม่ทับแถวโควตาที่มีคำสะกดใหม่อยู่แล้ว */
+/** migration คำสะกด: แก้เฉพาะค่า exact ใน LEGACY_LEAVE_TYPE_NAMES และไม่ทับแถวโควตาที่มีคำสะกดใหม่อยู่แล้ว */
 function migrateLeaveTypeSpelling_() {
-  const oldName = 'ลาอุปสมบถ/ลาบวช';
-  const newName = normalizeLeaveTypeName_(oldName);
   let updated = 0;
   let conflicts = 0;
   const settings = getSettings_();
   const rawOptions = String(settings.leave_type_options || '');
-  if (rawOptions.split(',').map(s => s.trim()).includes(oldName)) {
+  const rawOptionList = rawOptions.split(',').map(s => s.trim()).filter(Boolean);
+  if (rawOptionList.some(name => normalizeLeaveTypeName_(name) !== name)) {
     const normalized = Array.from(new Set(rawOptions.split(',').map(normalizeLeaveTypeName_).filter(Boolean)));
     setSettingValue_('leave_type_options', normalized.join(','));
     updated++;
@@ -259,10 +259,14 @@ function migrateLeaveTypeSpelling_() {
   const quotaSheet = SpreadsheetApp.getActive().getSheetByName('QuotaProfiles');
   if (quotaSheet && quotaSheet.getLastRow() >= 3) {
     const values = quotaSheet.getRange(3, 1, quotaSheet.getLastRow() - 2, 3).getDisplayValues();
-    const canonicalKeys = new Set(values.filter(row => String(row[2]).trim() === newName)
-      .map(row => [String(row[0]).trim(), String(row[1]).trim(), newName].join('|')));
+    const canonicalKeys = new Set(values.filter(row => {
+      const name = String(row[2]).trim();
+      return name && normalizeLeaveTypeName_(name) === name;
+    }).map(row => [String(row[0]).trim(), String(row[1]).trim(), String(row[2]).trim()].join('|')));
     values.forEach((row, index) => {
-      if (String(row[2]).trim() !== oldName) return;
+      const oldName = String(row[2]).trim();
+      const newName = normalizeLeaveTypeName_(oldName);
+      if (!oldName || oldName === newName) return;
       const key = [String(row[0]).trim(), String(row[1]).trim(), newName].join('|');
       if (canonicalKeys.has(key)) {
         conflicts++;
@@ -278,7 +282,9 @@ function migrateLeaveTypeSpelling_() {
   if (balanceSheet && balanceSheet.getLastRow() >= 3) {
     const values = balanceSheet.getRange(3, 3, balanceSheet.getLastRow() - 2, 1).getDisplayValues();
     values.forEach((row, index) => {
-      if (String(row[0]).trim() === oldName) {
+      const oldName = String(row[0]).trim();
+      const newName = normalizeLeaveTypeName_(oldName);
+      if (oldName && oldName !== newName) {
         balanceSheet.getRange(index + 3, 3).setValue(newName);
         updated++;
       }

@@ -267,6 +267,9 @@
     'ลาช่วยเหลือภรรยาคลอดบุตร': 'สิทธิ์ขึ้นกับประเภทบุคลากรและระเบียบที่ใช้บังคับ',
     'อื่นๆ': 'ระบุรายละเอียดในช่องเหตุผล',
   };
+  const LEGACY_TYPE_LABELS = {
+    'ลาช่วยเหลือภริยาคลอดบุตร': 'ลาช่วยเหลือภรรยาคลอดบุตร',
+  };
   const CALENDAR_QUOTA_TYPES = ['ลาคลอด', 'ลาอุปสมบท/ลาบวช'];
 
   const state = {
@@ -283,6 +286,10 @@
   // ---------- เครื่องมือเล็กๆ ----------
 
   function $(id) { return document.getElementById(id); }
+  function leaveTypeLabel_(value) {
+    const name = String(value || '').trim();
+    return LEGACY_TYPE_LABELS[name] || name;
+  }
 
   // ตัวจับเวลากัน "หน้าค้างหมุนตลอดกาล": liff.init() ค้างหลังวนกลับจากหน้า login ของ LINE
   // (เคสที่พบบ่อยใน browser ภายนอก) ทำให้ไม่มีวันไปถึงหน้าไหน — เกิน 30 วินาทีให้เปลี่ยนเป็น
@@ -646,7 +653,7 @@
       const remaining = manualEvent ? 'ตรวจรายกรณี' :
         (info.quota == null ? 'ไม่จำกัด' : daysText_(Math.max(0, info.quota - info.used)));
       return {
-        type: type,
+        type: leaveTypeLabel_(type),
         used: daysText_(info.used || 0),
         quota: info.quota,
         unit: info.unit || (CALENDAR_QUOTA_TYPES.includes(type) ? 'วันปฏิทิน' : 'วันทำการ'),
@@ -686,7 +693,7 @@
     }
     return '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-2.5">' +
       '<div class="flex items-center justify-between gap-2">' +
-        '<span class="font-semibold text-sm">' + escapeHtml(leave.leaveType) + '</span>' +
+        '<span class="font-semibold text-sm">' + escapeHtml(leaveTypeLabel_(leave.leaveType)) + '</span>' +
         '<span class="' + statusBadgeClasses_(leave.status) + ' flex-none">' + escapeHtml(leave.status) + '</span>' +
       '</div>' +
       '<p class="text-xs text-slate-600 mt-1.5">' +
@@ -733,7 +740,7 @@
   });
 
   async function confirmCancelLeave_(leave) {
-    const summary = leave.leaveType + ' · ' + dateRangeLabel(leave.start, leave.end);
+    const summary = leaveTypeLabel_(leave.leaveType) + ' · ' + dateRangeLabel(leave.start, leave.end);
     // ใบอนุมัติแล้วเตือนให้หนักกว่าใบรอ เพราะมีผลกับตารางที่เพื่อนร่วมงานเห็นแล้ว
     const message = leave.status === 'อนุมัติ'
       ? 'ยกเลิกใบลานี้ที่อนุมัติไปแล้ว?\n' + summary + '\n\nระบบจะแจ้งผู้อนุมัติของกลุ่มงานให้ทราบ'
@@ -821,16 +828,20 @@
   function renderTypeGrid() {
     const grid = $('typeGrid');
     grid.innerHTML = '';
-    (state.options.leaveTypes.length ? state.options.leaveTypes : Object.keys(TYPE_DESCRIPTIONS)).forEach(name => {
+    const types = state.options.leaveTypes.length ? state.options.leaveTypes : Object.keys(TYPE_DESCRIPTIONS);
+    types.forEach((name, index) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       // ไฮไลต์ประเภทที่เลือกอยู่ (รวมถึงตอน prefill จากใบที่กำลังแก้ไข) ตั้งแต่ตอนสร้างปุ่ม
       const selected = name === state.leaveType;
+      // จำนวนคี่ให้เฉพาะใบสุดท้ายกินเต็มแถว จึงไม่มีช่องว่างกลาง grid หรือช่องครึ่งแถวท้าย
+      const spanLast = types.length % 2 === 1 && index === types.length - 1;
       btn.className = 'type-btn min-h-12 px-3 py-2.5 rounded-xl border text-center transition-colors motion-reduce:transition-none ' +
-        (name.length > 22 ? 'col-span-2 ' : '') +
+        (spanLast ? 'col-span-2 ' : '') +
         (selected ? 'bg-primary-light border-primary' : 'border-slate-200 hover:border-primary');
       btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
-      btn.innerHTML = '<span class="block font-semibold text-[13px] sm:text-sm leading-snug">' + escapeHtml(name) + '</span>';
+      btn.innerHTML = '<span class="block font-semibold text-[13px] sm:text-sm leading-snug">' +
+        escapeHtml(leaveTypeLabel_(name)) + '</span>';
       btn.addEventListener('click', () => {
         state.leaveType = name;
         document.querySelectorAll('.type-btn').forEach(b => {
@@ -851,7 +862,7 @@
   // แสดงคำอธิบายเฉพาะประเภทที่เลือก เพื่อให้ปุ่มสั้นและสแกนได้เร็วบนมือถือ
   function refreshTypeHelp_() {
     const el = $('typeHelp');
-    const description = TYPE_DESCRIPTIONS[state.leaveType] || '';
+    const description = TYPE_DESCRIPTIONS[leaveTypeLabel_(state.leaveType)] || '';
     el.classList.toggle('hidden', !description);
     el.textContent = description;
   }
@@ -1027,7 +1038,7 @@
           : 'ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้');
       const periodNote = result.period && result.period !== 'เต็มวัน' ? ' (' + result.period + ')' : '';
       $('successCard').innerHTML =
-        '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(state.leaveType) + '</span></div>' +
+        '<div class="flex justify-between"><span class="text-slate-500">ประเภท</span><span class="font-semibold">' + escapeHtml(leaveTypeLabel_(state.leaveType)) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันที่</span><span class="font-semibold">' + escapeHtml(dateRangeLabel(start, end) + periodNote) + '</span></div>' +
         '<div class="flex justify-between"><span class="text-slate-500">วันทำการ</span><span class="font-semibold">' + escapeHtml(result.workDaysLabel || (result.workDays + ' วัน')) + '</span></div>' +
         (CALENDAR_QUOTA_TYPES.includes(state.leaveType)

@@ -25,6 +25,10 @@ AdminViews.system = {
       '<div><label for="f-time" class="block text-sm font-semibold text-slate-500 mb-1.5">เวลาแจ้งเตือนทุกเช้า</label>' +
       '<input type="time" id="f-time" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm">' +
       '<p class="text-xs text-slate-500 mt-1.5">หลังเปลี่ยนเวลา ให้กดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ" ใน Google Sheet</p></div>' +
+      '<div><label for="f-log-retention" class="block text-sm font-semibold text-slate-500 mb-1.5">เก็บประวัติ Logs</label>' +
+      '<div class="relative"><input type="number" id="f-log-retention" min="30" max="3650" step="1" inputmode="numeric" ' +
+      'class="w-full px-3 py-2.5 pr-14 border border-slate-200 rounded-lg text-sm"><span class="absolute right-3 top-2.5 text-sm text-slate-400">วัน</span></div>' +
+      '<p class="text-xs text-slate-500 mt-1.5">ค่าแนะนำ 90 วัน · ระบบลบรายการเก่าอัตโนมัติวันละครั้ง และไม่ลบ AuditLog หรือ SecurityEvents</p></div>' +
       '<div><label for="f-calendar" class="block text-sm font-semibold text-slate-500 mb-1.5">Notion Database ID</label>' +
       '<input type="text" id="f-calendar" placeholder="your_notion_database_id" class="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm font-mono text-xs">' +
       '<p class="text-xs text-slate-500 mt-1.5">เอาจาก URL ของหน้า database ใน Notion (ส่วนก่อนเครื่องหมาย ?) และต้องแชร์ database ให้ integration ก่อน</p></div>' +
@@ -68,6 +72,7 @@ AdminViews.system = {
     this.settingsVersion = s._version || '';
     UI.$('f-enabled').checked = String(s.enabled).toUpperCase() === 'TRUE';
     UI.$('f-time').value = this.normalizeTimeForInput_(s.notify_time);
+    UI.$('f-log-retention').value = /^\d+$/.test(String(s.logs_retention_days || '')) ? s.logs_retention_days : '90';
     UI.$('f-calendar').value = s.notion_database_id || '';
     UI.$('f-group').value = s.line_group_id || '';
     this.setFormat(String(s.message_format || 'text').toLowerCase());
@@ -96,6 +101,7 @@ AdminViews.system = {
     const payload = {
       enabled: UI.$('f-enabled').checked ? 'TRUE' : 'FALSE',
       notify_time: UI.$('f-time').value,
+      logs_retention_days: UI.$('f-log-retention').value.trim(),
       notion_database_id: UI.$('f-calendar').value.trim(),
       line_group_id: UI.$('f-group').value.trim(),
       message_format: this.format,
@@ -105,6 +111,11 @@ AdminViews.system = {
       if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(payload.notify_time)) { UI.showToast('เวลาแจ้งเตือนไม่ถูกต้อง', true); return; }
       if (!payload.notion_database_id) { UI.showToast('กรุณาใส่ Notion Database ID', true); return; }
       if (!payload.line_group_id) { UI.showToast('กรุณาใส่ LINE Group ID', true); return; }
+    }
+    if (!/^\d+$/.test(payload.logs_retention_days) || Number(payload.logs_retention_days) < 30 ||
+        Number(payload.logs_retention_days) > 3650) {
+      UI.showToast('จำนวนวันที่เก็บ Logs ต้องอยู่ระหว่าง 30-3650 วัน', true);
+      return;
     }
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     try {

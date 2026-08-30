@@ -85,12 +85,17 @@ function checkLiffFormUxContracts() {
   const required = [
     'id="typeHelp"',
     'function refreshTypeHelp_()',
+    'function leaveTypeLabel_(value)',
     "btn.setAttribute('aria-pressed', selected ? 'true' : 'false')",
+    'const spanLast = types.length % 2 === 1 && index === types.length - 1',
+    "spanLast ? 'col-span-2 ' : ''",
+    'escapeHtml(leaveTypeLabel_(name))',
     'ลาช่วยเหลือภรรยาคลอดบุตร',
   ];
   const forbidden = [
     "escapeHtml((TYPE_DESCRIPTIONS[name] || '') + quotaText)",
     'ระบบปิดการอนุมัติอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันที',
+    "name.length > 22 ? 'col-span-2 ' : ''",
   ];
   const missing = required.filter(value => !source.includes(value));
   const present = forbidden.filter(value => source.includes(value));
@@ -100,6 +105,33 @@ function checkLiffFormUxContracts() {
       (present.length ? '; forbidden: ' + present.join(', ') : ''));
     process.exitCode = 1;
   }
+}
+
+function checkLogRetentionContracts() {
+  const contracts = [
+    {
+      file: 'apps/main/Summary.gs',
+      required: ['LOG_RETENTION_DAYS_DEFAULT = 90', "LOG_CLEANUP_TRIGGER_HANDLER = 'cleanupLogsDaily'",
+        'function cleanupOldLogs_', 'function ensureLogCleanupTrigger_', '.everyDays(1)',
+        'sheet.deleteRows(run.startRow, run.count)'],
+    },
+    {
+      file: 'apps/main/Config.gs',
+      required: ["['logs_retention_days', '90'"],
+    },
+    {
+      file: 'web/admin/js/views/system.js',
+      required: ['id="f-log-retention"', 'logs_retention_days:', 'ไม่ลบ AuditLog หรือ SecurityEvents'],
+    },
+  ];
+  contracts.forEach(contract => {
+    const source = fs.readFileSync(path.join(root, contract.file), 'utf8');
+    const missing = contract.required.filter(value => !source.includes(value));
+    if (missing.length) {
+      console.error(contract.file + ' log-retention contract failed; missing: ' + missing.join(', '));
+      process.exitCode = 1;
+    }
+  });
 }
 
 walk(path.join(root, 'apps'))
@@ -125,5 +157,6 @@ walk(path.join(root, 'web'))
 checkAdminViewContracts();
 checkDirectModeContracts();
 checkLiffFormUxContracts();
+checkLogRetentionContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');

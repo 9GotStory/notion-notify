@@ -103,6 +103,7 @@ const LEAVE_STATUS = {
 // ประเภทการลา default ตามระเบียบสำนักนายกฯ ว่าด้วยการลาฯ (แก้รายการได้ที่ Settings คีย์ leave_type_options)
 const LEGACY_LEAVE_TYPE_NAMES = {
   'ลาอุปสมบถ/ลาบวช': 'ลาอุปสมบท/ลาบวช',
+  'ลาช่วยเหลือภริยาคลอดบุตร': 'ลาช่วยเหลือภรรยาคลอดบุตร',
 };
 
 function normalizeLeaveTypeName_(value) {

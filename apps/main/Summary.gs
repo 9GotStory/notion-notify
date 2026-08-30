@@ -494,6 +494,49 @@ function sendLineMessage_(groupId, messageObj) {
 
 // ---------- บันทึก log ----------
 
+const LOG_RETENTION_DAYS_DEFAULT = 90;
+const LOG_RETENTION_DAYS_MIN = 30;
+const LOG_RETENTION_DAYS_MAX = 3650;
+
+function logRetentionDays_(value) {
+  const days = Number(String(value == null ? '' : value).trim());
+  return Number.isInteger(days) && days >= LOG_RETENTION_DAYS_MIN && days <= LOG_RETENTION_DAYS_MAX
+    ? days
+    : LOG_RETENTION_DAYS_DEFAULT;
+}
+
+// คืนช่วงแถวที่หมดอายุจากล่างขึ้นบน เพื่อ deleteRows แล้วเลขแถวของช่วงที่เหลือไม่เลื่อน
+function expiredLogRowRuns_(timestampRows, cutoffMs) {
+  const expiredRows = [];
+  (timestampRows || []).forEach((row, index) => {
+    const value = Array.isArray(row) ? row[0] : row;
+    const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
+    if (Number.isFinite(timestamp) && timestamp < cutoffMs) expiredRows.push(index + 3);
+  });
+
+  const runs = [];
+  for (let i = expiredRows.length - 1; i >= 0; i--) {
+    const endRow = expiredRows[i];
+    let startRow = endRow;
+    while (i > 0 && expiredRows[i - 1] === startRow - 1) {
+      startRow = expiredRows[--i];
+    }
+    runs.push({ startRow: startRow, count: endRow - startRow + 1 });
+  }
+  return runs;
+}
+
+function cleanupOldLogs_(sheet, now, retentionValue) {
+  if (!sheet || sheet.getLastRow() < 3) return 0;
+  const days = logRetentionDays_(retentionValue);
+  const todayStr = Utilities.formatDate(now || new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const cutoffMs = new Date(todayStr + 'T00:00:00+07:00').getTime() - days * 86400000;
+  const timestampRows = sheet.getRange(3, 1, sheet.getLastRow() - 2, 1).getValues();
+  const runs = expiredLogRowRuns_(timestampRows, cutoffMs);
+  runs.forEach(run => sheet.deleteRows(run.startRow, run.count));
+  return runs.reduce((total, run) => total + run.count, 0);
+}
+
 function logResult_(date, status, detail) {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Logs');
   const safeDetail = String(detail == null ? '' : detail).substring(0, 500); // กัน cell ยาวเกินไปถ้า error message ยาวผิดปกติ
@@ -503,7 +546,31 @@ function logResult_(date, status, detail) {
 // ---------- นัดหมาย one-time trigger ----------
 
 const NOTIFICATION_TRIGGER_HANDLER = 'checkAndSendNotification';
+const LOG_CLEANUP_TRIGGER_HANDLER = 'cleanupLogsDaily';
 const RETRY_DELAY_MS = 5 * 60 * 1000;
+
+function cleanupLogsDaily() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return;
+  try {
+    const settings = getSettings_();
+    cleanupOldLogs_(SpreadsheetApp.getActive().getSheetByName('Logs'), new Date(), settings.logs_retention_days);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function ensureLogCleanupTrigger_() {
+  const exists = ScriptApp.getProjectTriggers()
+    .some(trigger => trigger.getHandlerFunction() === LOG_CLEANUP_TRIGGER_HANDLER);
+  if (!exists) {
+    ScriptApp.newTrigger(LOG_CLEANUP_TRIGGER_HANDLER)
+      .timeBased()
+      .everyDays(1)
+      .atHour(3)
+      .create();
+  }
+}
 
 function nextScheduledDate_(now, notifyTime) {
   const normalizedTime = normalizeScheduleTime_(notifyTime);
@@ -563,14 +630,16 @@ function scheduleRetryNotification_(now) {
 
 function installTrigger() {
   try {
+    ensureLogCleanupTrigger_();
     const nextRun = syncNotificationTrigger_(new Date());
     if (!nextRun) {
-      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger เดิมแล้ว');
+      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger ส่งข้อความเดิมแล้ว\n\nติดตั้ง trigger ลบ Logs รายวันแล้ว');
       return;
     }
     const nextLabel = thaiDateLabel_(nextRun) + ' เวลา ' +
       Utilities.formatDate(nextRun, 'Asia/Bangkok', 'HH:mm');
-    SpreadsheetApp.getUi().alert('ตั้งเวลาส่งอัตโนมัติแล้ว\n\nครั้งถัดไป: ' + nextLabel);
+    SpreadsheetApp.getUi().alert('ตั้งเวลาส่งอัตโนมัติแล้ว\n\nครั้งถัดไป: ' + nextLabel +
+      '\nติดตั้ง trigger ลบ Logs รายวันแล้ว');
   } catch (err) {
     SpreadsheetApp.getUi().alert('ติดตั้ง trigger ไม่สำเร็จ: ' + err);
   }

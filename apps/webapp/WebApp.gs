@@ -305,6 +305,10 @@ function validateSettings_(s) {
   if (String(s.notify_time || '').trim() && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(s.notify_time).trim())) {
     errors.push('เวลาแจ้งเตือนต้องเป็นรูปแบบ HH:mm เช่น 08:30');
   }
+  const retention = String(s.logs_retention_days == null ? '' : s.logs_retention_days).trim();
+  if (retention && (!/^\d+$/.test(retention) || Number(retention) < 30 || Number(retention) > 3650)) {
+    errors.push('จำนวนวันที่เก็บ Logs ต้องเป็นจำนวนเต็ม 30-3650 วัน');
+  }
   if (s.message_format !== undefined && !['text', 'flex'].includes(String(s.message_format).toLowerCase())) {
     errors.push('รูปแบบข้อความต้องเป็น text หรือ flex');
   }
@@ -549,7 +553,11 @@ function readReportStaff_() {
 
 function adminNormalizeLeaveType_(value) {
   const name = String(value || '').trim();
-  return name === 'ลาอุปสมบถ/ลาบวช' ? 'ลาอุปสมบท/ลาบวช' : name;
+  const legacyNames = {
+    'ลาอุปสมบถ/ลาบวช': 'ลาอุปสมบท/ลาบวช',
+    'ลาช่วยเหลือภริยาคลอดบุตร': 'ลาช่วยเหลือภรรยาคลอดบุตร',
+  };
+  return legacyNames[name] || name;
 }
 
 function adminLeaveTypes_(settings) {

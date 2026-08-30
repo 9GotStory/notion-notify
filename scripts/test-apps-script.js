@@ -57,6 +57,22 @@ if (!result || result.failed !== 0) process.exitCode = 1;
 const webappContext = vm.createContext({ console, Utilities: { formatDate } });
 const webappSource = fs.readFileSync(path.resolve(__dirname, '../apps/webapp/WebApp.gs'), 'utf8');
 vm.runInContext(webappSource, webappContext, { filename: 'WebApp.gs' });
+const normalizedAdminLeaveType = vm.runInContext(
+  "adminNormalizeLeaveType_('ลาช่วยเหลือภริยาคลอดบุตร')", webappContext);
+if (normalizedAdminLeaveType !== 'ลาช่วยเหลือภรรยาคลอดบุตร') {
+  console.error('FAIL testAdminLeaveTypeSpelling');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminLeaveTypeSpelling');
+}
+const validRetentionErrors = vm.runInContext("validateSettings_({ logs_retention_days: '90' })", webappContext);
+const invalidRetentionErrors = vm.runInContext("validateSettings_({ logs_retention_days: '29' })", webappContext);
+if (validRetentionErrors.length || !invalidRetentionErrors.some(error => /30-3650/.test(error))) {
+  console.error('FAIL testAdminLogRetentionValidation');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminLogRetentionValidation');
+}
 const fiscalReportHelpers = vm.runInContext(`({
   beforeBoundary: reportFiscalYearCEForDate_(new Date('2026-09-30T12:00:00+07:00')),
   atBoundary: reportFiscalYearCEForDate_(new Date('2026-10-01T00:00:00+07:00')),

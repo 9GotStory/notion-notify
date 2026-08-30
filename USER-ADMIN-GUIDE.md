@@ -213,6 +213,7 @@
 ### 6.3 ทุกสัปดาห์
 
 - ตรวจ Apps Script Executions, gateway logs และ Logs sheet หา error ซ้ำ
+- ตรวจหน้า **ระบบ > เก็บประวัติ Logs** ว่ายังคงเป็นค่าที่องค์กรอนุมัติ (ค่าเริ่มต้น 90 วัน) ระบบลบเฉพาะ `Logs` อัตโนมัติวันละครั้ง; `AuditLog` และ `SecurityEvents` ไม่อยู่ในนโยบายลบนี้
 - ตรวจ `SecurityEvents` และ `AuditLog` เฉพาะผู้มีหน้าที่ โดยไม่ส่งออกทั้งชีตโดยไม่จำเป็น
 - ตรวจ notification retry/dead-letter และแก้สาเหตุก่อน retry ด้วยมือ
 - ทดสอบ health endpoint และหน้าหลักหนึ่งครั้ง
