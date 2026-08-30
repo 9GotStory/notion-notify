@@ -14,6 +14,7 @@
 
 const ADMIN_PAGE_URL = 'https://9gotstory.github.io/notion-notify/web/admin/';
 const MAX_JSON_PARAM_LENGTH = 5000; // จำกัด JSON ซ้อนในคำขอ admin — payload จริง (settings/approvers) < 2KB
+const REPORT_DATA_SOURCE_CACHE_ = {};
 
 // ---------- Router ----------
 
@@ -191,7 +192,7 @@ const ADMIN_API = {
   get_logs: p => withOk_({ logs: api_getLogs(p.limit) }),
   get_leave_report: p => api_getLeaveReport(p.year, p.month),
   get_balances: () => withOk_(api_getBalances()),
-  add_balance: p => api_addBalance(p.yearBE, p.name, p.leaveType, p.carryIn, p.usedExtra, p.reason),
+  add_balance: p => api_addBalance(p.yearBE, p.name, p.leaveType, p.carryIn, p.usedExtra, p.reason, p.requestId),
   update_balance: p => api_updateBalance(p.row, p.version, p.yearBE, p.name, p.leaveType, p.carryIn, p.usedExtra, p.reason),
   delete_balance: p => api_deleteBalance(p.row, p.version),
   get_quota_profiles: () => withOk_(api_getQuotaProfiles()),
@@ -199,6 +200,8 @@ const ADMIN_API = {
   update_quota_profile: p => api_updateQuotaProfile(p.row, p.version, p.yearBE, p.employmentType, p.leaveType, p.quota, p.note),
   delete_quota_profile: p => api_deleteQuotaProfile(p.row, p.version),
   set_staff_employment_type: p => api_setStaffEmploymentType(p.staffKey, p.employmentType),
+  approve_staff_binding: p => api_reviewStaffBinding_(p.row, p.version, 'APPROVE', p.reason),
+  reject_staff_binding: p => api_reviewStaffBinding_(p.row, p.version, 'REJECT', p.reason),
   get_approvers: () => api_getApprovers_(),
   save_approvers: p => api_saveApprovers_(parseJsonParam_(p.data, 'array'), p.version),
 };
@@ -267,7 +270,9 @@ function requireCurrentRow_(sheet, rowNumber, width, expectedVersion) {
 function withAdminWriteLock_(callback) {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new Error('ระบบกำลังบันทึกข้อมูลอื่นอยู่ กรุณาลองอีกครั้ง');
-  try { return callback(); } finally { lock.releaseLock(); }
+  try { return callback(); } finally {
+    try { SpreadsheetApp.flush(); } finally { lock.releaseLock(); }
+  }
 }
 
 // ---------- Settings ----------
@@ -464,12 +469,34 @@ function notionHeadersReadOnly_() {
   return { Authorization: 'Bearer ' + token, 'Notion-Version': REPORT_NOTION_VERSION };
 }
 
+function reportNotionFetch_(url, options) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      const code = response.getResponseCode();
+      if (!(code === 429 || code === 529 || (code >= 500 && code <= 599)) || attempt === 3) return response;
+      const headers = typeof response.getHeaders === 'function' ? response.getHeaders() : {};
+      const retryAfter = Number(headers['Retry-After'] || headers['retry-after']);
+      const delay = Number.isFinite(retryAfter) && retryAfter >= 0
+        ? Math.min(10000, retryAfter * 1000)
+        : Math.min(4000, 500 * Math.pow(2, attempt));
+      Utilities.sleep(delay + Math.floor(Math.random() * 250));
+    } catch (err) {
+      if (attempt === 3) throw err;
+      Utilities.sleep(Math.min(4000, 500 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
+    }
+  }
+  throw new Error('เรียก Notion ไม่สำเร็จ');
+}
+
 // resolve data source เหมือน resolveDataSourceId_ ใน Notion.gs (โปรเจกต์หลัก) แต่ใช้ token อ่านอย่างเดียวของโปรเจกต์นี้
 function resolveReportDataSourceId_(databaseId) {
   if (!databaseId || String(databaseId).trim() === 'your_leave_database_id') {
     throw new Error('ยังไม่ได้ตั้งค่า leave_database_id ในชีต Settings');
   }
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/databases/' + databaseId, {
+  const cacheKey = String(databaseId).trim();
+  if (REPORT_DATA_SOURCE_CACHE_[cacheKey]) return REPORT_DATA_SOURCE_CACHE_[cacheKey];
+  const response = reportNotionFetch_('https://api.notion.com/v1/databases/' + encodeURIComponent(cacheKey), {
     method: 'get',
     headers: notionHeadersReadOnly_(),
     muteHttpExceptions: true,
@@ -482,7 +509,8 @@ function resolveReportDataSourceId_(databaseId) {
   if (!data.data_sources || !data.data_sources.length) {
     throw new Error('database ใบลาไม่มี data source ที่เข้าถึงได้ — โปรดตรวจสอบว่าแชร์ database ให้ integration แบบอ่านอย่างเดียวแล้วหรือยัง (Connections ในเมนู "...")');
   }
-  return data.data_sources[0].id;
+  REPORT_DATA_SOURCE_CACHE_[cacheKey] = data.data_sources[0].id;
+  return REPORT_DATA_SOURCE_CACHE_[cacheKey];
 }
 
 // query วนตาม next_cursor เหมือน queryNotionPages_ ใน Notion.gs (โปรเจกต์หลัก) (เผื่อเดือนที่มีใบลาเกิน 100 ใบ)
@@ -492,7 +520,7 @@ function queryReportNotionPages_(dataSourceId, payload, maxPages) {
   let cursor = null;
   for (let i = 0; i < limit; i++) {
     const queryPayload = cursor ? Object.assign({}, payload, { start_cursor: cursor }) : payload;
-    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
+    const response = reportNotionFetch_('https://api.notion.com/v1/data_sources/' + encodeURIComponent(dataSourceId) + '/query', {
       method: 'post',
       contentType: 'application/json',
       headers: notionHeadersReadOnly_(),
@@ -529,26 +557,37 @@ function parseReportLeavePage_(page) {
   };
 }
 
-// ทำเนียบ Staff แบบลีบ (เฉพาะชื่อเต็ม/กลุ่มงาน/userId + "ชื่อ สกุล" สำหรับจับคู่กับสมุดยอดวันลา)
+// ทำเนียบ Staff รวมสถานะบุคลากร/การผูก LINE สำหรับหน้า Admin
 // แถวไม่มีชื่อหรือสกุลไม่นับ ตาม readStaffRoster_ ของโปรเจกต์หลัก
 function readReportStaff_() {
   const sheet = getSheet_('Staff');
   const lastRow = sheet.getLastRow();
-  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 9).getDisplayValues() : [];
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 18).getDisplayValues() : [];
   return data
-    .filter(row => String(row[1]).trim() && String(row[2]).trim())
-    .map(row => ({
+    .map((row, index) => ({
+      row: 3 + index,
+      version: rowVersion_(row),
       name: [String(row[0]).trim(), String(row[1]).trim(), String(row[2]).trim()].filter(Boolean).join(' '),
       key: (String(row[1]).trim() + ' ' + String(row[2]).trim()).replace(/\s+/g, ' '),
       group: String(row[3]).trim(),
       lineUserId: String(row[5]).trim(),
       employmentType: String(row[8] || '').trim(),
-    }));
+      employeeId: String(row[9] || '').trim(),
+      employmentStatus: String(row[10] || '').trim().toUpperCase(),
+      bindingStatus: String(row[11] || '').trim().toUpperCase(),
+      pendingLineUserId: String(row[12] || '').trim(),
+      pendingLineDisplayName: String(row[13] || '').trim(),
+      bindingRequestedAt: String(row[14] || '').trim(),
+      bindingApprovedBy: String(row[15] || '').trim(),
+      bindingApprovedAt: String(row[16] || '').trim(),
+      bindingRequestId: String(row[17] || '').trim(),
+    }))
+    .filter(staff => staff.key);
 }
 
 // ---------- สมุดรายการปรับยอดวันลา (แท็บ "ยอดวันลา") ----------
 // โครงสร้างคอลัมน์ตรงกับ BALANCE_SHEET_COLUMNS ของโปรเจกต์หลัก: ปีงบประมาณ (พ.ศ.) | ชื่อ สกุล | ประเภทการลา
-// | ยกมา (วันใช้สิทธิ์) | ใช้เพิ่ม (วันใช้สิทธิ์) | เหตุผล | บันทึกเมื่อ
+// | ยกมา (วันใช้สิทธิ์) | ใช้เพิ่ม (วันใช้สิทธิ์) | เหตุผล | บันทึกเมื่อ | Request ID | ผู้ดำเนินการ
 // ความหมาย: "ยกมา" เพิ่มเข้าสิทธิ์ของปีนั้น (เช่น พักร้อนสะสม) / "ใช้เพิ่ม" เพิ่มเข้ายอดใช้ (เช่น ลาก่อนมีระบบ)
 
 function adminNormalizeLeaveType_(value) {
@@ -565,7 +604,7 @@ function adminLeaveTypes_(settings) {
     .split(',').map(adminNormalizeLeaveType_).filter(Boolean)));
 }
 
-function validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra) {
+function validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra, reason) {
   if (!/^(25|26)\d{2}$/.test(String(yearBE || '').trim())) return 'ปีงบประมาณ (พ.ศ.) ต้องเป็น 4 หลัก เช่น 2570';
   if (!String(name || '').trim()) return 'กรุณาเลือกชื่อ สกุล';
   if (!String(leaveType || '').trim()) return 'กรุณาเลือกประเภทการลา';
@@ -579,10 +618,13 @@ function validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra) {
   if (carry > 366 || extra > 366) return 'จำนวนวันต้องไม่เกิน 366 วัน';
   if (carry * 2 % 1 !== 0 || extra * 2 % 1 !== 0) return 'จำนวนวันต้องเป็นจำนวนเต็มหรือครึ่งวัน (.5)';
   if (carry === 0 && extra === 0) return 'กรอก "ยกมา" หรือ "ใช้เพิ่ม" อย่างน้อยหนึ่งค่า (> 0)';
+  const reasonText = String(reason || '').trim();
+  if (reasonText.length < 5) return 'กรุณาระบุเหตุผลอย่างน้อย 5 ตัวอักษร';
+  if (reasonText.length > 500) return 'เหตุผลยาวเกิน 500 ตัวอักษร';
   return null;
 }
 
-function balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason) {
+function balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason, requestId, actor) {
   return [
     String(yearBE).trim(),
     String(name).trim().replace(/\s+/g, ' '),
@@ -591,7 +633,18 @@ function balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason) 
     Number(String(usedExtra || '').trim()) || '',
     String(reason || '').trim(),
     Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm'),
+    String(requestId || '').trim(),
+    String(actor || 'ผู้ดูแลระบบ').trim(),
   ];
+}
+
+function balanceRequestMatches_(row, yearBE, name, leaveType, carryIn, usedExtra, reason) {
+  return String(row[0] || '').trim() === String(yearBE || '').trim() &&
+    String(row[1] || '').trim().replace(/\s+/g, ' ') === String(name || '').trim().replace(/\s+/g, ' ') &&
+    adminNormalizeLeaveType_(row[2]) === adminNormalizeLeaveType_(leaveType) &&
+    (Number(String(row[3] || '').trim()) || 0) === (Number(String(carryIn || '').trim()) || 0) &&
+    (Number(String(row[4] || '').trim()) || 0) === (Number(String(usedExtra || '').trim()) || 0) &&
+    String(row[5] || '').trim() === String(reason || '').trim();
 }
 
 function validateBalanceReferences_(name, leaveType) {
@@ -606,7 +659,7 @@ function validateBalanceReferences_(name, leaveType) {
 function api_getBalances() {
   const sheet = getSheet_('LeaveBalances');
   const lastRow = sheet.getLastRow();
-  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 7).getDisplayValues() : [];
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 9).getDisplayValues() : [];
   const rows = [];
   data.forEach((row, i) => {
     if (!String(row[0]).trim() && !String(row[1]).trim()) return; // แถวว่าง
@@ -620,6 +673,8 @@ function api_getBalances() {
       usedExtra: String(row[4]).trim(),
       reason: String(row[5]).trim(),
       recordedAt: String(row[6]).trim(),
+      requestId: String(row[7]).trim(),
+      actor: String(row[8]).trim(),
     });
   });
   rows.reverse(); // ใหม่สุดอยู่บน
@@ -631,28 +686,43 @@ function api_getBalances() {
   };
 }
 
-function api_addBalance(yearBE, name, leaveType, carryIn, usedExtra, reason) {
-  if (String(reason || '').trim().length > 500) return { ok: false, error: 'เหตุผลยาวเกิน 500 ตัวอักษร' };
-  const err = validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra);
+function api_addBalance(yearBE, name, leaveType, carryIn, usedExtra, reason, requestId) {
+  const id = String(requestId || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+    return { ok: false, error: 'รหัสคำขอไม่ถูกต้อง กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง' };
+  }
+  const err = validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra, reason);
   if (err) return { ok: false, error: err };
-  withAdminWriteLock_(function () {
+  return withAdminWriteLock_(function () {
     const referenceError = validateBalanceReferences_(name, leaveType);
     if (referenceError) throw new Error(referenceError);
-    getSheet_('LeaveBalances').appendRow(balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason));
+    const sheet = getSheet_('LeaveBalances');
+    const lastRow = sheet.getLastRow();
+    const requestIds = lastRow >= 3 ? sheet.getRange(3, 8, lastRow - 2, 1).getDisplayValues() : [];
+    const duplicateIndex = requestIds.findIndex(row => String(row[0]).trim() === id);
+    if (duplicateIndex >= 0) {
+      const existing = sheet.getRange(3 + duplicateIndex, 1, 1, 9).getDisplayValues()[0];
+      if (!balanceRequestMatches_(existing, yearBE, name, leaveType, carryIn, usedExtra, reason)) {
+        throw new Error('Request ID นี้ถูกใช้กับรายการอื่นแล้ว กรุณาโหลดหน้าใหม่');
+      }
+      return { ok: true, duplicate: true, requestId: id };
+    }
+    sheet.appendRow(balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason, id, 'ผู้ดูแลระบบ'));
+    return { ok: true, requestId: id };
   });
-  return { ok: true };
 }
 
 function api_updateBalance(rowNumber, version, yearBE, name, leaveType, carryIn, usedExtra, reason) {
-  if (String(reason || '').trim().length > 500) return { ok: false, error: 'เหตุผลยาวเกิน 500 ตัวอักษร' };
-  const err = validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra);
+  const err = validateBalanceInput_(yearBE, name, leaveType, carryIn, usedExtra, reason);
   if (err) return { ok: false, error: err };
   const sheet = getSheet_('LeaveBalances');
   withAdminWriteLock_(function () {
     const referenceError = validateBalanceReferences_(name, leaveType);
     if (referenceError) throw new Error(referenceError);
-    const row = requireCurrentRow_(sheet, rowNumber, 7, version);
-    sheet.getRange(row, 1, 1, 7).setValues([balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra, reason)]);
+    const row = requireCurrentRow_(sheet, rowNumber, 9, version);
+    const existing = sheet.getRange(row, 1, 1, 9).getDisplayValues()[0];
+    sheet.getRange(row, 1, 1, 9).setValues([balanceRowValues_(yearBE, name, leaveType, carryIn, usedExtra,
+      reason, existing[7], existing[8] || 'ผู้ดูแลระบบ')]);
   });
   return { ok: true };
 }
@@ -660,7 +730,7 @@ function api_updateBalance(rowNumber, version, yearBE, name, leaveType, carryIn,
 function api_deleteBalance(rowNumber, version) {
   const sheet = getSheet_('LeaveBalances');
   withAdminWriteLock_(function () {
-    sheet.deleteRow(requireCurrentRow_(sheet, rowNumber, 7, version));
+    sheet.deleteRow(requireCurrentRow_(sheet, rowNumber, 9, version));
   });
   return { ok: true };
 }
@@ -741,8 +811,17 @@ function api_getQuotaProfiles() {
       .split(',').map(s => s.trim()).filter(Boolean),
     leaveTypes: adminLeaveTypes_(settings),
     staff: roster.map(s => ({
-      name: s.name, key: s.key, group: s.group,
-      employmentType: s.employmentType, registered: !!s.lineUserId,
+      row: s.row, version: s.version, name: s.name, key: s.key, group: s.group,
+      employmentType: s.employmentType, employeeId: s.employeeId,
+      employmentStatus: s.employmentStatus, bindingStatus: s.bindingStatus,
+      lineUserId: s.lineUserId, pendingLineDisplayName: s.pendingLineDisplayName,
+      bindingRequestedAt: s.bindingRequestedAt,
+      registered: !!s.lineUserId && s.employmentStatus === 'ACTIVE' && s.bindingStatus === 'APPROVED',
+      bindingLabel: (s.employmentStatus && s.employmentStatus !== 'ACTIVE' ? 'หยุดใช้งาน · ' : '') +
+        (s.bindingStatus === 'PENDING'
+          ? 'รออนุมัติ' + (s.pendingLineDisplayName ? ' · ' + s.pendingLineDisplayName : '')
+          : (s.bindingStatus === 'APPROVED' ? 'อนุมัติแล้ว' :
+            (s.lineUserId ? 'บัญชีเดิมรอตรวจ' : (s.bindingStatus || 'ยังไม่ผูก')))),
     })).sort((a, b) => a.name.localeCompare(b.name, 'th')),
   };
 }
@@ -811,6 +890,48 @@ function api_setStaffEmploymentType(staffKey, employmentType) {
   });
 }
 
+/** อนุมัติ/ปฏิเสธการผูก LINE กับ record ในทำเนียบ — ใช้ row version กันผู้ดูแลสองคนเขียนทับกัน */
+function api_reviewStaffBinding_(rowNumber, version, decision, reason) {
+  const action = String(decision || '').toUpperCase();
+  const reviewReason = String(reason || '').trim();
+  if (!['APPROVE', 'REJECT'].includes(action)) return { ok: false, error: 'คำสั่งตรวจการผูกบัญชีไม่ถูกต้อง' };
+  if (reviewReason.length < 5 || reviewReason.length > 500) {
+    return { ok: false, error: 'กรุณาระบุเหตุผลการตรวจสอบ 5–500 ตัวอักษร' };
+  }
+  const sheet = getSheet_('Staff');
+  return withAdminWriteLock_(function () {
+    const row = requireCurrentRow_(sheet, rowNumber, 18, version);
+    const values = sheet.getRange(row, 1, 1, 18).getDisplayValues()[0];
+    const active = String(values[10] || '').trim().toUpperCase() === 'ACTIVE';
+    const candidateId = String(values[12] || values[5] || '').trim();
+    const candidateName = String(values[13] || values[6] || '').trim();
+    if (action === 'APPROVE') {
+      if (!active) throw new Error('อนุมัติไม่ได้จนกว่าสถานะบุคลากรจะเป็น ACTIVE');
+      if (!candidateId) throw new Error('ไม่พบ LINE User ID ที่รออนุมัติหรือบัญชีเดิมให้ตรวจสอบ');
+      const lastRow = sheet.getLastRow();
+      const all = lastRow >= 3 ? sheet.getRange(3, 6, lastRow - 2, 8).getDisplayValues() : [];
+      const duplicate = all.some((other, index) => 3 + index !== row &&
+        (String(other[0] || '').trim() === candidateId || String(other[7] || '').trim() === candidateId));
+      if (duplicate) throw new Error('LINE User ID นี้ถูกใช้ใน record อื่นแล้ว');
+      sheet.getRange(row, 6, 1, 3).setValues([[
+        candidateId, candidateName, values[7] || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'),
+      ]]);
+      sheet.getRange(row, 12, 1, 6).setValues([[
+        'APPROVED', '', '', '', 'ผู้ดูแลระบบ: ' + reviewReason,
+        Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm'),
+      ]]);
+    } else {
+      sheet.getRange(row, 6, 1, 3).setValues([['', '', '']]);
+      sheet.getRange(row, 12, 1, 6).setValues([[
+        'REJECTED', '', '', '', 'ผู้ดูแลระบบ: ' + reviewReason,
+        Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm'),
+      ]]);
+    }
+    SpreadsheetApp.flush();
+    return { ok: true, status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
+  });
+}
+
 // ---------- ภาพรวม + ผู้อนุมัติ (endpoint ใหม่ของหน้า admin) ----------
 
 // จำนวนแถวข้อมูลของชีต (ข้อมูลเริ่มแถว 3 เหมือนกันทุกชีต) — ใช้ทำตัวเลขสรุปหน้าภาพรวม
@@ -829,7 +950,8 @@ function api_getOverview_() {
     log: logs.length ? logs[0] : null,
     counts: {
       staff: staff.length,
-      registered: staff.filter(s => s.lineUserId && String(s.lineUserId).trim()).length,
+      registered: staff.filter(s => s.lineUserId && s.employmentStatus === 'ACTIVE' &&
+        s.bindingStatus === 'APPROVED').length,
       groups: countDataRows_('Approvers'),
       upcomingHolidays: upcomingHolidays,
       quotaProfiles: countDataRows_('QuotaProfiles'),
@@ -861,7 +983,8 @@ function api_getApprovers_() {
       forward: String(row[2] || '').trim().toUpperCase() === 'TRUE',
     });
   });
-  const staffKeys = readReportStaff_().map(s => s.key).sort((a, b) => a.localeCompare(b, 'th'));
+  const staffKeys = readReportStaff_().filter(s => s.lineUserId && s.employmentStatus === 'ACTIVE' &&
+    s.bindingStatus === 'APPROVED').map(s => s.key).sort((a, b) => a.localeCompare(b, 'th'));
   return withOk_({
     approvers: approvers,
     staffKeys: staffKeys,
@@ -876,7 +999,8 @@ function api_saveApprovers_(rows, expectedVersion) {
     return { ok: false, error: 'รายการต้องเป็น array ไม่เกิน 50 แถว' };
   }
   const seen = new Set();
-  const staffKeys = new Set(readReportStaff_().map(staff => staff.key));
+  const staffKeys = new Set(readReportStaff_().filter(staff => staff.lineUserId &&
+    staff.employmentStatus === 'ACTIVE' && staff.bindingStatus === 'APPROVED').map(staff => staff.key));
   const values = [];
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] || {};

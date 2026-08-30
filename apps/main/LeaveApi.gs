@@ -65,10 +65,14 @@ function verifyLineToken_(accessToken) {
   if (!verified.expires_in || verified.expires_in <= 0) {
     throw new Error('เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่');
   }
-  // กัน token ที่ออกจากแอปคนละตัว: ถ้าตั้ง LOGIN_CHANNEL_ID ไว้ต้องตรงกับ channel ของเรา
+  // กัน token ที่ออกจากแอปคนละตัว: LOGIN_CHANNEL_ID เป็นค่าบังคับและต้องตรงกับ channel ของเรา
   const expectedChannelId = PropertiesService.getScriptProperties().getProperty('LOGIN_CHANNEL_ID');
-  if (expectedChannelId && String(expectedChannelId).trim() &&
-      verified.client_id !== String(expectedChannelId).trim()) {
+  if (!expectedChannelId || !String(expectedChannelId).trim()) {
+    const err = new Error('ระบบยังไม่ได้ตั้งค่า LOGIN_CHANNEL_ID กรุณาติดต่อผู้ดูแลระบบ');
+    err.publicCode = 'UNCONFIGURED';
+    throw err;
+  }
+  if (String(verified.client_id || '') !== String(expectedChannelId).trim()) {
     throw new Error('ไม่สามารถยืนยันตัวตนได้ กรุณาติดต่อผู้ดูแลระบบ');
   }
 
@@ -115,21 +119,14 @@ function apiSession_(body) {
       leaveYear: String(fiscalYear + 543),
     }, common, leaveStatus);
   }
-  const config = readApproversConfig_();
-  // ตัวเลือกประเภทบุคลากร = รายการใน Settings รวมกับที่ปรากฏในชีต QuotaProfiles (ใครตั้งโควตาไว้ก็ขึ้น dropdown เลย)
-  const employmentTypes = optionList_(settings.employment_type_options,
-    'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ');
-  readQuotaProfiles_().forEach(p => {
-    if (p.employmentType && !employmentTypes.includes(p.employmentType)) employmentTypes.push(p.employmentType);
-  });
+  const pending = findPendingStaffByUserId_(roster, profile.userId);
   return Object.assign({
     ok: true, registered: false,
-    options: Object.assign({
-      prefixes: optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ'),
-      groups: config.map(c => c.groupName), // รายชื่อกลุ่มงาน = คอลัมน์แรกของชีต Approvers
-      positions: optionList_(settings.position_options, 'อื่นๆ'),
-      employmentTypes: employmentTypes,
-    }, common),
+    registrationPending: !!pending,
+    registrationMessage: pending
+      ? 'คำขอผูกบัญชี LINE กำลังรอผู้ดูแลตรวจสอบ กรุณาลองใหม่หลังได้รับการยืนยัน'
+      : '',
+    options: common,
   }, leaveStatus);
 }
 
@@ -137,92 +134,48 @@ function apiBind_(body) {
   const profile = verifyLineToken_(requireAccessToken_(body));
   const settings = getSettings_();
   requireLeaveSystemEnabled_(settings); // ปิดระบบ = หยุดรับลงทะเบียนใหม่ด้วย
-  const prefix = String(body.prefix || '').trim();
-  const firstName = String(body.firstName || '').trim();
-  const lastName = String(body.lastName || '').trim();
-  const groupName = String(body.groupName || '').trim();
-  const position = String(body.position || '').trim();
-  const employmentType = String(body.employmentType || '').trim();
-  if (!firstName || !lastName) throw new Error('กรุณากรอกชื่อและสกุล');
-  if (!prefix) throw new Error('กรุณาเลือกคำนำหน้าชื่อ');
-  if (!position) throw new Error('กรุณาเลือกตำแหน่ง');
-  if (!employmentType) throw new Error('กรุณาเลือกประเภทบุคลากร');
-  if (prefix.length > 30 || firstName.length > 50 || lastName.length > 50 ||
-      groupName.length > 100 || position.length > 100 || employmentType.length > 100) {
-    throw new Error('ข้อมูลลงทะเบียนบางช่องยาวเกินกำหนด กรุณาตรวจสอบแล้วลองใหม่');
-  }
-  // ชื่อ/สกุลเป็น key ที่นำไปเทียบกับ cell รายชื่อ (คั่นจุลภาค) ในชีต Approvers —
-  // มีจุลภาคปนมาจะทำให้การจับคู่ผู้อนุมัติพังทั้งสาย จึงบล็อกตั้งแต่ต้นทาง
-  if (/[,，\r\n]/.test(firstName) || /[,，\r\n]/.test(lastName)) {
-    throw new Error('ชื่อและสกุลห้ามมีเครื่องหมายจุลภาคหรือขึ้นบรรทัดใหม่ กรุณาตรวจอีกครั้ง');
-  }
-
-  const config = readApproversConfig_();
-  const prefixes = optionList_(settings.prefix_options, 'นาย,นาง,นางสาว,อื่นๆ');
-  const positions = optionList_(settings.position_options, 'อื่นๆ');
-  // 'อื่นๆ' ในลิสต์ = เปิดช่องพิมพ์เอง จึงยอมรับค่าใดๆ ที่ไม่ว่าง; ถ้าไม่มี 'อื่นๆ' ต้องตรงลิสต์เป๊ะ
-  if (!prefixes.includes(prefix) && !prefixes.includes('อื่นๆ')) throw new Error('คำนำหน้าชื่อไม่ถูกต้อง');
-  if (!positions.includes(position) && !positions.includes('อื่นๆ')) throw new Error('ตำแหน่งไม่ถูกต้อง');
-  if (!groupName || !config.some(c => c.groupName === groupName)) {
-    throw new Error('กลุ่มงานไม่ถูกต้อง หรือยังไม่ได้ตั้งค่าในระบบ — ตรวจอีกครั้งหรือติดต่อผู้ดูแล');
-  }
-  const employmentTypes = optionList_(settings.employment_type_options,
-    'ข้าราชการ,พนักงานราชการ,ลูกจ้างประจำ,ลูกจ้างชั่วคราวรายเดือน,ลูกจ้างรายวัน,อื่นๆ');
-  readQuotaProfiles_().forEach(profileRow => {
-    if (profileRow.employmentType && !employmentTypes.includes(profileRow.employmentType)) {
-      employmentTypes.push(profileRow.employmentType);
-    }
-  });
-  if (!employmentTypes.includes(employmentType)) {
-    throw new Error('ประเภทบุคลากรไม่ถูกต้อง');
+  const requestId = requireSubmissionRequestId_(body);
+  const employeeId = String(body.employeeId || '').trim();
+  if (!/^[A-Za-z0-9._-]{2,50}$/.test(employeeId)) {
+    throw new Error('รหัสบุคลากรไม่ถูกต้อง กรุณาตรวจสอบกับผู้ดูแล');
   }
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) throw new Error('ระบบกำลังรับคำขออื่นอยู่ กรุณาลองอีกครั้ง');
   try {
     const roster = readStaffRoster_();
-    const myKey = staffKey_({ firstName: firstName, lastName: lastName });
-    const sameName = roster.find(s => staffKey_(s) === myKey);
-    if (sameName && sameName.lineUserId && sameName.lineUserId !== profile.userId) {
-      throw new Error('มีผู้ใช้ชื่อนี้ลงทะเบียนแล้ว — หากคุณคือคนเดียวกัน ติดต่อผู้ดูแลให้ล้างการลงทะเบียนเดิม');
+    const matches = roster.filter(s => s.employeeId === employeeId);
+    if (matches.length !== 1) throw new Error('ไม่พบรหัสบุคลากรในทำเนียบ หรือข้อมูลซ้ำ กรุณาติดต่อผู้ดูแล');
+    const staff = matches[0];
+    if (!isActiveStaff_(staff)) throw new Error('บัญชีบุคลากรนี้ยังไม่เปิดใช้งาน กรุณาติดต่อผู้ดูแล');
+    const sameUser = findAnyStaffByUserId_(roster, profile.userId);
+    const pendingUser = findPendingStaffByUserId_(roster, profile.userId);
+    if ((sameUser && sameUser.row !== staff.row) || (pendingUser && pendingUser.row !== staff.row)) {
+      throw new Error('บัญชี LINE นี้มีคำขอผูกกับบุคลากรรายอื่นแล้ว กรุณาติดต่อผู้ดูแล');
     }
-    const sameUser = findStaffByUserId_(roster, profile.userId);
-    if (sameUser && staffKey_(sameUser) !== myKey) {
-      throw new Error('บัญชี LINE นี้ลงทะเบียนเป็นชื่ออื่นไปแล้ว — ติดต่อผู้ดูแลให้ล้างก่อนจึงจะลงทะเบียนใหม่ได้');
+    if (isApprovedStaffBinding_(staff)) {
+      if (staff.lineUserId === profile.userId) {
+        return { ok: true, registered: true, name: staffDisplayName_(staff),
+          groupName: staff.groupName, position: staff.position };
+      }
+      throw new Error('รหัสบุคลากรนี้ถูกผูกกับบัญชีอื่นแล้ว กรุณาติดต่อผู้ดูแล');
+    }
+    if (staff.bindingStatus === STAFF_BINDING_STATUS.pending) {
+      if (staff.pendingLineUserId === profile.userId && staff.bindingRequestId === requestId) {
+        return { ok: true, registered: false, pendingApproval: true, duplicate: true };
+      }
+      throw new Error('รหัสบุคลากรนี้มีคำขอผูกบัญชีที่กำลังรอตรวจสอบ กรุณาติดต่อผู้ดูแล');
     }
 
-    const todayStr = bangkokTodayStr_();
+    const requestedAt = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
     const sheet = SpreadsheetApp.getActive().getSheetByName('Staff');
-    if (sameName) {
-      // มีแถวชื่อนี้อยู่ก่อนแต่ยังไม่ผูกบัญชี → เติมข้อมูลให้ครบในแถวเดิม (ไม่สร้างซ้ำ)
-      sheet.getRange(sameName.row, 1, 1, 9).setValues([[
-        prefix, firstName, lastName, groupName, position,
-        profile.userId, profile.displayName, todayStr, employmentType,
-      ]]);
-    } else {
-      sheet.appendRow([
-        prefix, firstName, lastName, groupName, position,
-        profile.userId, profile.displayName, todayStr, employmentType,
-      ]);
-    }
-
-    const fullName = (prefix ? prefix + ' ' : '') + myKey;
-    // แจ้งเข้ากลุ่มหลักทุกครั้งที่มีการลงทะเบียน ให้ผู้ดูแลเทียบ "ชื่อใน LINE" กับ "ชื่อที่กรอก" เป็นชั้นตรวจ
-    try {
-      sendLineMessage_(settings.line_group_id, {
-        type: 'text',
-        text: '🔔 ระบบลางาน: ' + (profile.displayName || '(ไม่ทราบชื่อ LINE)') +
-          ' ลงทะเบียนเป็น ' + fullName +
-          ' (' + groupName + (position ? ' · ' + position : '') + ') แล้ว',
-      });
-    } catch (notifyErr) {
-      logResult_(new Date(), 'leave-bind', 'แจ้งกลุ่มไม่สำเร็จ: ' + notifyErr);
-    }
-    logResult_(new Date(), 'leave-bind', fullName + ' ← ' + profile.userId);
-    return {
-      ok: true, registered: true,
-      name: fullName, groupName: groupName, position: position,
-    };
+    sheet.getRange(staff.row, 12, 1, 7).setValues([[
+      STAFF_BINDING_STATUS.pending, profile.userId, profile.displayName, requestedAt, '', '', requestId,
+    ]]);
+    SpreadsheetApp.flush();
+    appendAuditEvent_(requestId, profile.userId, 'staff.binding.request', employeeId, '', STAFF_BINDING_STATUS.pending);
+    logResult_(new Date(), 'leave-bind', 'รับคำขอผูกบัญชีของ ' + staffDisplayName_(staff) + ' รอผู้ดูแลอนุมัติ');
+    return { ok: true, registered: false, pendingApproval: true };
   } finally {
     lock.releaseLock();
   }
@@ -246,7 +199,7 @@ function parseLeaveSubmissionInput_(body, settings) {
 }
 
 function registeredStaffOptions_(roster, excludeUserId) {
-  return (roster || []).filter(staff => staff.lineUserId && staff.lineUserId !== excludeUserId)
+  return (roster || []).filter(staff => isApprovedStaffBinding_(staff) && staff.lineUserId !== excludeUserId)
     .map(staff => ({ key: staffKey_(staff), name: staffDisplayName_(staff),
       groupName: staff.groupName || '', position: staff.position || '' }))
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
@@ -254,7 +207,7 @@ function registeredStaffOptions_(roster, excludeUserId) {
 
 function resolveRegisteredStaffChoice_(roster, key, excludeUserId, fieldLabel) {
   if (!key) return null;
-  const matches = (roster || []).filter(staff => staff.lineUserId && staffKey_(staff) === key);
+  const matches = (roster || []).filter(staff => isApprovedStaffBinding_(staff) && staffKey_(staff) === key);
   if (matches.length !== 1) throw new Error('ไม่พบ' + fieldLabel + 'ในทะเบียน กรุณาเลือกใหม่');
   if (matches[0].lineUserId === excludeUserId) throw new Error(fieldLabel + 'ต้องเป็นบุคคลอื่น');
   return matches[0];
@@ -309,7 +262,10 @@ function duplicateSubmissionResponse_(leavePage) {
     quotaDaysLabel: quotaDaysLabel_(leavePage.leaveType, leaveQuotaDays_(leavePage)),
     period: leavePage.period,
     approverName: pendingNames || (leavePage.status === LEAVE_STATUS.approved ? 'บันทึกเป็นอนุมัติแล้ว' : 'บันทึกใบลาแล้ว'),
-    needsSecond: !!(leavePage.currentApprover && leavePage.currentApprover.stage === 'first'),
+    needsSecond: !!(leavePage.currentApprover &&
+      (typeof leavePage.currentApprover.needsSecond === 'boolean'
+        ? leavePage.currentApprover.needsSecond
+        : leavePage.currentApprover.stage === 'first')),
     autoApproved: leavePage.status === LEAVE_STATUS.approved,
     notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
     warnings: [],
@@ -461,7 +417,8 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
     initialStatus: chain.stage === 'second'
       ? LEAVE_STATUS.pendingChiefOffice
       : LEAVE_STATUS.pendingApprover,
-    currentApprover: serializeApproverInfo_(chain.stage, chain.targets),
+    currentApprover: serializeApproverInfo_(chain.stage, chain.targets, null, null,
+      chain.stage === 'first' && chain.needsSecond),
     systemNote: systemNote,
     requestId: requestId,
   });
@@ -581,7 +538,10 @@ function duplicateUpdateResponse_(leavePage) {
     period: leavePage.period,
     approverName: approverNames.join(', ') ||
       (leavePage.status === LEAVE_STATUS.approved ? 'บันทึกเป็นอนุมัติแล้ว' : 'บันทึกการแก้ไขแล้ว'),
-    needsSecond: !!(leavePage.currentApprover && leavePage.currentApprover.stage === 'first'),
+    needsSecond: !!(leavePage.currentApprover &&
+      (typeof leavePage.currentApprover.needsSecond === 'boolean'
+        ? leavePage.currentApprover.needsSecond
+        : leavePage.currentApprover.stage === 'first')),
     autoApproved: leavePage.status === LEAVE_STATUS.approved,
     notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
     warnings: [],
@@ -842,7 +802,8 @@ function apiUpdateLeave_(body) {
       // รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด (throw ไทยได้ — ใบเดิมยังอยู่สถานะเดิม ผู้ใช้ยังยกเลิกได้)
       const chain = resolveApprovalChain_(readApproversConfig_(), settings, roster, staff);
       newStatus = chain.stage === 'second' ? LEAVE_STATUS.pendingChiefOffice : LEAVE_STATUS.pendingApprover;
-      currentApproverJson = serializeApproverInfo_(chain.stage, chain.targets);
+      currentApproverJson = serializeApproverInfo_(chain.stage, chain.targets, null, null,
+        chain.stage === 'first' && chain.needsSecond);
       chainTargets = chain.targets;
       viaPool = !!chain.viaPool;
       needsSecond = chain.needsSecond && chain.stage === 'first';

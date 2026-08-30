@@ -38,6 +38,8 @@ const PROPS_NOTION = {
 const NOTION_VERSION = '2025-09-03'; // API version ที่รองรับ data sources — ดู developers.notion.com/docs/upgrade-faqs-2025-09-03
 const NOTION_SEND_STATUSES = ['ยืนยันแล้ว'];
 const NOTION_STATUS_PROPERTY_TYPE = 'select'; // ใช้ 'status' หากเปลี่ยนชนิด property ใน Notion
+const NOTION_DATA_SOURCE_CACHE_ = {};
+const NOTION_MAX_ATTEMPTS_ = 4;
 
 // ---------- อ่านข้อมูลจาก Notion ----------
 
@@ -47,17 +49,52 @@ function notionHeaders_() {
   return { Authorization: 'Bearer ' + token, 'Notion-Version': NOTION_VERSION };
 }
 
+function shouldRetryNotion_(responseCode, idempotent) {
+  const code = Number(responseCode);
+  return code === 429 || (!!idempotent && (code === 529 || (code >= 500 && code <= 599)));
+}
+
+function notionRetryDelayMs_(response, attempt) {
+  const headers = response && typeof response.getHeaders === 'function' ? response.getHeaders() : {};
+  const retryAfter = Number(headers['Retry-After'] || headers['retry-after']);
+  const base = Number.isFinite(retryAfter) && retryAfter >= 0
+    ? retryAfter * 1000
+    : Math.min(4000, 500 * Math.pow(2, attempt));
+  return Math.min(10000, base) + Math.floor(Math.random() * 250);
+}
+
+/** Retry 429 เสมอ; retry 5xx/529 และ network error เฉพาะคำขอที่ทำซ้ำแล้วผลเดิม */
+function notionFetch_(url, options, idempotent) {
+  let lastError = null;
+  for (let attempt = 0; attempt < NOTION_MAX_ATTEMPTS_; attempt++) {
+    try {
+      const response = UrlFetchApp.fetch(url, options);
+      if (!shouldRetryNotion_(response.getResponseCode(), idempotent) || attempt === NOTION_MAX_ATTEMPTS_ - 1) {
+        return response;
+      }
+      Utilities.sleep(notionRetryDelayMs_(response, attempt));
+    } catch (err) {
+      lastError = err;
+      if (!idempotent || attempt === NOTION_MAX_ATTEMPTS_ - 1) throw err;
+      Utilities.sleep(Math.min(4000, 500 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
+    }
+  }
+  throw lastError || new Error('เรียก Notion ไม่สำเร็จ');
+}
+
 // database มี "data source" ซ่อนอยู่ข้างใน (Notion API ตั้งแต่เวอร์ชัน 2025-09-03) ต้อง resolve ก่อนค่อย query ได้
 // ฐานข้อมูลทั่วไปที่ไม่ได้ตั้งค่าซับซ้อนจะมี data source เดียว จึงหยิบตัวแรกมาใช้ตรงๆ
 function resolveDataSourceId_(databaseId) {
   if (!databaseId || String(databaseId).trim() === 'your_notion_database_id') {
     throw new Error('ยังไม่ได้ตั้งค่า notion_database_id ในชีต Settings (ยังเป็นค่าตัวอย่างอยู่)');
   }
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/databases/' + databaseId, {
+  const cacheKey = String(databaseId).trim();
+  if (NOTION_DATA_SOURCE_CACHE_[cacheKey]) return NOTION_DATA_SOURCE_CACHE_[cacheKey];
+  const response = notionFetch_('https://api.notion.com/v1/databases/' + encodeURIComponent(cacheKey), {
     method: 'get',
     headers: notionHeaders_(),
     muteHttpExceptions: true,
-  });
+  }, true);
   if (response.getResponseCode() >= 300) {
     throw new Error('เปิด Notion database ไม่ได้ (' + response.getResponseCode() + '): ' + response.getContentText());
   }
@@ -65,7 +102,8 @@ function resolveDataSourceId_(databaseId) {
   if (!data.data_sources || !data.data_sources.length) {
     throw new Error('database นี้ไม่มี data source ที่เข้าถึงได้ — โปรดตรวจสอบว่าแชร์ database ให้ integration แล้วหรือยัง (Connections ในเมนู "...")');
   }
-  return data.data_sources[0].id;
+  NOTION_DATA_SOURCE_CACHE_[cacheKey] = data.data_sources[0].id;
+  return NOTION_DATA_SOURCE_CACHE_[cacheKey];
 }
 
 // ยิง data-source query วนตาม next_cursor จนครบ (Notion ให้สูงสุด 100 รายการ/หน้า)
@@ -76,13 +114,13 @@ function queryNotionPages_(dataSourceId, payload, maxPages) {
   let cursor = null;
   for (let i = 0; i < limit; i++) {
     const queryPayload = cursor ? Object.assign({}, payload, { start_cursor: cursor }) : payload;
-    const response = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + dataSourceId + '/query', {
+    const response = notionFetch_('https://api.notion.com/v1/data_sources/' + encodeURIComponent(dataSourceId) + '/query', {
       method: 'post',
       contentType: 'application/json',
       headers: notionHeaders_(),
       payload: JSON.stringify(queryPayload),
       muteHttpExceptions: true,
-    });
+    }, true);
     if (response.getResponseCode() >= 300) {
       throw new Error('ดึงข้อมูลจาก Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' + response.getContentText());
     }
@@ -98,9 +136,9 @@ function queryNotionPages_(dataSourceId, payload, maxPages) {
 function ensureLeaveSubstituteProperty_(dataSourceId) {
   const id = String(dataSourceId || '').trim();
   if (!id) throw new Error('ไม่พบ data source ของใบลา');
-  const getResponse = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + encodeURIComponent(id), {
+  const getResponse = notionFetch_('https://api.notion.com/v1/data_sources/' + encodeURIComponent(id), {
     method: 'get', headers: notionHeaders_(), muteHttpExceptions: true,
-  });
+  }, true);
   if (getResponse.getResponseCode() >= 300) {
     throw new Error('ตรวจโครงสร้างฐานใบลาไม่สำเร็จ (' + getResponse.getResponseCode() + ')');
   }
@@ -112,10 +150,10 @@ function ensureLeaveSubstituteProperty_(dataSourceId) {
   }
   const properties = {};
   properties[PROPS_LEAVE.substitute] = { rich_text: {} };
-  const patchResponse = UrlFetchApp.fetch('https://api.notion.com/v1/data_sources/' + encodeURIComponent(id), {
+  const patchResponse = notionFetch_('https://api.notion.com/v1/data_sources/' + encodeURIComponent(id), {
     method: 'patch', contentType: 'application/json', headers: notionHeaders_(),
     payload: JSON.stringify({ properties: properties }), muteHttpExceptions: true,
-  });
+  }, true);
   if (patchResponse.getResponseCode() >= 300) {
     throw new Error('เพิ่ม property "' + PROPS_LEAVE.substitute + '" ใน Notion ไม่สำเร็จ (' +
       patchResponse.getResponseCode() + ')');

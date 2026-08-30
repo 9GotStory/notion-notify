@@ -73,6 +73,11 @@ const state = {
   ],
 };
 
+state.roster = state.roster.map((staff, index) => Object.assign({
+  employeeId: 'EMP' + (index + 1), employmentStatus: 'ACTIVE', bindingStatus: 'APPROVED',
+  pendingLineUserId: '',
+}, staff));
+
 const context = vm.createContext({
   console: {
     log: (...args) => console.log(...args),
@@ -297,11 +302,13 @@ test('unauthorized approver cannot mutate a pending leave', () => {
     'unauthorized approver did not receive a rejection');
 });
 
-test('first approval forwards to chief and final approval completes', () => {
+test('approval follows the submitted snapshot even after config changes', () => {
+  state.approvers[0].forward = false;
   postback('U-first', approvalPageId, 'approve', 'evt-first');
   let leave = parsed(approvalPageId);
   assert(leave.status === 'รอหัวหน้า สสอ.อนุมัติ', 'first approval did not advance stage');
   assert(leave.currentApprover.userIds.includes('U-chief'), 'chief was not assigned');
+  state.approvers[0].forward = true;
   postback('U-chief', approvalPageId, 'approve', 'evt-final');
   leave = parsed(approvalPageId);
   assert(leave.status === 'อนุมัติ' && leave.currentApprover === null, 'final approval did not complete');

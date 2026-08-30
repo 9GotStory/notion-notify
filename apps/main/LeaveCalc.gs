@@ -409,11 +409,14 @@ function getLeaveUsageForYear_(leaveDbId, submitterUserId, now) {
 /** คำนวณยอดใช้รายประเภทจาก "ใบลาทั้งหมดของปี" ที่ดึงมาแล้ว (pure) — ใช้แทนการ query ซ้ำใน myLeaves
  *  นับเฉพาะสถานะเดียวกับ getLeaveUsageForYear_ (อนุมัติ + รอทั้งสองขั้น) ผลลัพธ์เทียบเท่ากัน
  *  ทำเพื่อลดจำนวนคำขอต่อ action ลงจาก 4 เหลือ 2 — ไม่ให้ชน rate limit ของ Notion (~3 req/s) */
+function isCountedLeaveStatus_(status) {
+  return [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice].includes(status);
+}
+
 function usageFromLeaves_(leaves) {
-  const counted = [LEAVE_STATUS.approved, LEAVE_STATUS.pendingApprover, LEAVE_STATUS.pendingChiefOffice];
   const usage = {};
   (leaves || []).forEach(leave => {
-    if (counted.includes(leave.status) && leave.leaveType) {
+    if (isCountedLeaveStatus_(leave.status) && leave.leaveType) {
       usage[leave.leaveType] = (usage[leave.leaveType] || 0) + leaveQuotaDays_(leave);
     }
   });
@@ -458,7 +461,7 @@ function leaveDateLabel_(startStr, endStr) {
 function subtractLeaveFromUsage_(usage, leave) {
   if (!usage) return null;
   const next = Object.assign({}, usage);
-  if (leave && leave.leaveType) {
+  if (leave && leave.leaveType && isCountedLeaveStatus_(leave.status)) {
     next[leave.leaveType] = Math.max(0, (next[leave.leaveType] || 0) - leaveQuotaDays_(leave));
   }
   return next;
@@ -508,7 +511,7 @@ function enrichLeaveForDisplay_(leave, todayStr, holidays, roster) {
 /** ชื่อเฉพาะสำหรับสรุปเช้า (ไม่มีคำนำหน้า/นามสกุล) — ดึงจากชีต Staff ด้วย userId ให้แม่น
  *  ถ้าหาไม่ได้ (ไม่มี roster/ไม่ผูกบัญชี) ตัดจากชื่อเต็มแบบทนต่อคำนำหน้าทั่วไป */
 function leaveFirstName_(leave, roster) {
-  const staff = roster ? findStaffByUserId_(roster, leave.submitterUserId) : null;
+  const staff = roster ? findAnyStaffByUserId_(roster, leave.submitterUserId) : null;
   if (staff && staff.firstName) return staff.firstName;
   // Fallback ตัดจากชื่อเต็ม: ภาษาไทยนิยมเขียนคำนำหน้าติดกับชื่อ ("นายสมศักดิ์" คำเดียว)
   // จึงต้องตัดด้วย startsWith เรียงคำยาวก่อนกันสับสน (นางสาว ก่อน นาง) — ใช้เฉพาะกรณี

@@ -2,7 +2,7 @@
 
 เอกสารนี้เป็นจุดเริ่มต้นของเจ้าของระบบ, HR, ผู้ดูแล และทีมเทคนิคก่อนเปิดใช้งานจริง ใช้เป็น checklist และ decision record ได้ แต่ไม่แทนเอกสารอนุมัติภายในองค์กร
 
-สถานะปัจจุบัน: เจ้าของระบบเลือก direct mode และยอมรับความเสี่ยงจากการไม่ใช้ gateway เนื่องจากขอบเขตข้อมูล/ผู้ใช้ที่กำหนด โค้ดและ automated tests พร้อมสำหรับการทดสอบ/นำร่อง แต่ยังต้องตรวจตัวตนผู้ลงทะเบียน, shared admin token, นโยบายวันลา, backup และการติดตาม Apps Script ตามขอบเขตที่ยอมรับ
+สถานะปัจจุบัน: เจ้าของระบบเลือก direct mode สำหรับหน้าเว็บและยอมรับความเสี่ยงตามขอบเขตที่กำหนด โค้ดมี allowlist Staff + ผู้ดูแลอนุมัติการผูก LINE แล้ว และ LINE webhook ปฏิเสธ unsigned request โดยค่าเริ่มต้น แต่ยังต้อง preload/รับรองทำเนียบจริง, เลือก gateway หรืออนุมัติข้อยกเว้น unsigned ชั่วคราว, ตรวจ shared admin token, นโยบายวันลา, backup และการติดตาม Apps Script ก่อน production
 
 ## 1. วิธีใช้เอกสารนี้
 
@@ -66,7 +66,9 @@ cd gateway && npm test
 
 ## 4. Gate 1 — ตัวตนผู้ลงทะเบียน
 
-สถานะโค้ดปัจจุบัน: ผู้เปิด LIFF สามารถกรอกชื่อ กลุ่มงาน และประเภทบุคลากรเองได้ การแจ้งผู้ดูแลหลังลงทะเบียนช่วยตรวจพบแต่ไม่ใช่การป้องกันก่อนใช้งาน จึงยังไม่ใช่ production control ที่เพียงพอ
+สถานะโค้ดปัจจุบัน: ผู้เปิด LIFF กรอกได้เฉพาะรหัสบุคลากร ระบบจับคู่ได้เฉพาะแถว Staff ที่ `ACTIVE`, เก็บคำขอเป็น `PENDING`, กัน LINE/บุคลากรผูกซ้ำ และยื่นลาไม่ได้จนผู้ดูแลอนุมัติพร้อมเหตุผล ข้อมูลชื่อ กลุ่มงาน ตำแหน่ง และประเภทบุคลากรไม่รับจาก client แล้ว
+
+สถานะ gate: **โค้ดพร้อม แต่ยังไม่ผ่าน production** จน HR preload/รับรองรหัสบุคลากรทั้งหมด, ผู้ดูแลทดสอบ approve/reject/revoke ด้วยบัญชีจริงและปลอม, และแนบหลักฐาน lifecycle ของผู้พ้นสภาพ
 
 เจ้าของการตัดสินใจ: เจ้าของระบบร่วมกับ HR/ฝ่ายความปลอดภัย
 
@@ -206,13 +208,13 @@ HR ควรสร้างหนึ่งแถวต่อ:
 - export QuotaProfiles/LeaveBalances หลังอนุมัติ
 - ค่า `leave_policy_reviewed_at` และกำหนดวันทบทวนครั้งถัดไป
 
-## 7. Gate 4 — Direct-mode operations และความพร้อมรับเหตุการณ์
+## 7. Gate 4 — Transport operations และความพร้อมรับเหตุการณ์
 
 เจ้าของ: ทีม platform/ผู้ดูแลเทคนิค
 
 ### 7.1 Direct-mode controls
 
-1. บันทึกการยอมรับว่า direct mode ไม่มีการตรวจ raw `X-Line-Signature`, CORS allowlist หรือ WAF/rate limit
+1. บันทึกว่า browser direct mode ไม่มี CORS allowlist/WAF/rate limit เท่า gateway; LINE webhook ต้องใช้ gateway เพื่อตรวจ raw `X-Line-Signature` หรือมีเอกสารอนุมัติ `ALLOW_UNSIGNED_LINE_WEBHOOK=TRUE` แบบมีวันสิ้นสุด
 2. ตั้ง `ALLOW_LEGACY_DIRECT=TRUE` เฉพาะ Apps Script deployments ที่ใช้งานจริง
 3. ใช้ `ADMIN_TOKEN` แบบสุ่มอย่างน้อย 32 ตัวอักษร เก็บใน Script Properties และหมุนตามรอบ
 4. เก็บ Apps Script URLs ใน GitHub Environment ไม่ commit ลง repository หรือเอกสารสาธารณะ
@@ -291,16 +293,16 @@ HR ควรสร้างหนึ่งแถวต่อ:
 
 บันทึกแต่ละกรณีด้วย expected result, actual result, ผู้ทดสอบ, เวลา, environment, commit SHA และหลักฐานที่ปิดข้อมูลส่วนบุคคลแล้ว
 
-## 9. ลำดับ deploy direct mode
+## 9. ลำดับ deploy browser direct mode
 
 1. ประกาศ maintenance window และยืนยันผู้ rollback
 2. สำรองข้อมูลและบันทึก deployment versions ปัจจุบัน
 3. ตั้ง `ALLOW_LEGACY_DIRECT=TRUE` ใน Apps Script ทั้งสองโปรเจกต์
 4. deploy Apps Script หลักและ webapp เป็น version ใหม่บน deployment เดิม
 5. ยืนยัน GitHub Environment `liff` มี `LIFF_ID`, `API_URL` และ `ADMIN_API_URL`
-6. ชี้ LINE Webhook URL ไป `/exec` ของ Apps Script หลักและกด Verify
+6. ชี้ LINE Webhook URL ไป gateway และกด Verify; หากได้รับอนุมัติข้อยกเว้น unsigned ชั่วคราว ให้ตั้ง `ALLOW_UNSIGNED_LINE_WEBHOOK=TRUE` ก่อนชี้ไป `/exec` และบันทึกวันยกเลิก
 7. เปิดและรัน workflow `Deploy web pages`
-8. ทดสอบ LIFF, ตาราง, Admin, รายงาน และ LINE webhook โดยตรง
+8. ทดสอบ LIFF, ตาราง, Admin, รายงาน และ LINE webhook ผ่าน transport ที่อนุมัติ รวมทั้งยืนยันว่า unsigned webhook ถูกปฏิเสธเมื่อไม่ได้เปิดข้อยกเว้น
 9. หลังเปลี่ยน `notify_time` ให้กดเมนูติดตั้ง/อัปเดต trigger ใน Google Sheet
 10. บันทึกเวลา, commit, deployment versions, ผู้ดำเนินการ, ผลทดสอบ และความเสี่ยง direct mode ที่ยอมรับ
 

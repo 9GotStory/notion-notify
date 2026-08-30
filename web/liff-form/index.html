@@ -71,75 +71,38 @@
     <p id="bootStatus" class="text-sm text-slate-500 mt-3">กำลังเชื่อมต่อ LINE…</p>
   </section>
 
-  <!-- ===== ยังไม่ลงทะเบียน: กรอกข้อมูลตัวเอง ===== -->
+  <!-- ===== ยังไม่ผูกบัญชี: ขอผูกกับทำเนียบที่ผู้ดูแลเตรียมไว้ ===== -->
   <section id="view-register" class="hidden">
     <header class="mb-4">
-      <h1 class="text-lg font-bold">ลงทะเบียนครั้งแรก</h1>
-      <p class="text-sm text-slate-500 mt-1">กรอก 1 ครั้ง ระบบจะจำบัญชี LINE นี้กับข้อมูลดังกล่าวตลอดไป — กรอกให้ตรงตามข้อมูลจริงของท่าน</p>
+      <h1 class="text-lg font-bold">ผูกบัญชีครั้งแรก</h1>
+      <p class="text-sm text-slate-500 mt-1">กรอกรหัสบุคลากรจากหน่วยงาน ระบบจะส่งคำขอให้ผู้ดูแลตรวจสอบก่อนเริ่มใช้งาน</p>
     </header>
     <p id="leaveOffReg" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+    <div class="bg-white border border-slate-200 rounded-2xl p-5">
       <div>
-        <label for="regPrefix" class="block text-sm font-semibold text-slate-600 mb-1.5">คำนำหน้าชื่อ</label>
-        <select id="regPrefix" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
-          <option value="">— เลือก —</option>
-        </select>
-        <input id="regPrefixOther" type="text" placeholder="พิมพ์คำนำหน้า เช่น แพทย์หญิง" maxlength="30"
-               class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
+        <label for="regEmployeeId" class="block text-sm font-semibold text-slate-600 mb-1.5">รหัสบุคลากร</label>
+        <input id="regEmployeeId" type="text" maxlength="50" autocomplete="off" autocapitalize="off"
+               placeholder="กรอกรหัสที่ได้รับจากผู้ดูแล"
+               class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
+        <p class="text-xs text-slate-400 mt-1.5">ชื่อ กลุ่มงาน ตำแหน่ง และประเภทบุคลากรจะใช้จากทำเนียบที่ผู้ดูแลรับรอง ไม่รับจากหน้าเว็บนี้</p>
       </div>
-      <div class="grid grid-cols-2 gap-2">
-        <div>
-          <label for="regFirstName" class="block text-sm font-semibold text-slate-600 mb-1.5">ชื่อ</label>
-          <input id="regFirstName" type="text" maxlength="50" autocomplete="given-name"
-                 class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
-        </div>
-        <div>
-          <label for="regLastName" class="block text-sm font-semibold text-slate-600 mb-1.5">สกุล</label>
-          <input id="regLastName" type="text" maxlength="50" autocomplete="family-name"
-                 class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
-        </div>
-      </div>
-      <div>
-        <label for="regGroup" class="block text-sm font-semibold text-slate-600 mb-1.5">กลุ่มงาน</label>
-        <select id="regGroup" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
-          <option value="">— เลือกกลุ่มงาน —</option>
-        </select>
-      </div>
-      <div>
-        <label for="regPosition" class="block text-sm font-semibold text-slate-600 mb-1.5">ตำแหน่ง</label>
-        <select id="regPosition" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
-          <option value="">— เลือกตำแหน่ง —</option>
-        </select>
-        <input id="regPositionOther" type="text" placeholder="พิมพ์ตำแหน่งของท่าน" maxlength="50"
-               class="hidden w-full mt-2 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
-      </div>
-      <div>
-        <label for="regEmpType" class="block text-sm font-semibold text-slate-600 mb-1.5">ประเภทบุคลากร</label>
-        <select id="regEmpType" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
-          <option value="">— เลือกประเภท —</option>
-        </select>
-        <p class="text-xs text-slate-400 mt-1.5">ใช้กำหนดสิทธิ์วันลาตามสถานะของท่าน (เช่น ข้าราชการ / ลูกจ้างชั่วคราว) — หากไม่แน่ใจให้ถามผู้ดูแลก่อนยืนยัน</p>
-      </div>
-      <p id="regNoGroups" class="hidden text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3">
-        ผู้ดูแลยังไม่ได้ตั้งค่ารายชื่อกลุ่มงานในระบบ — ติดต่อผู้ดูแลก่อนลงทะเบียน
-      </p>
     </div>
 
     <p id="regError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mt-4"></p>
-    <button id="btnRegNext" type="button" class="w-full mt-4 py-3.5 rounded-xl font-semibold text-white bg-primary">ตรวจสอบข้อมูล</button>
+    <button id="btnRegNext" type="button" class="w-full mt-4 py-3.5 rounded-xl font-semibold text-white bg-primary">ส่งคำขอผูกบัญชี</button>
   </section>
 
   <!-- ===== ยืนยันข้อมูลก่อนบันทึก ===== -->
   <section id="view-confirm" class="hidden">
     <header class="mb-4">
-      <h1 class="text-lg font-bold">ยืนยันข้อมูลของคุณ</h1>
-      <p class="text-sm text-slate-500 mt-1">ข้อมูลนี้จะใช้ในใบลาและการแจ้งเตือนทั้งหมด ตรวจให้แน่ใจก่อนยืนยัน (แก้ไขภายหลังติดต่อผู้ดูแล)</p>
+      <h1 class="text-lg font-bold">ยืนยันรหัสบุคลากร</h1>
+      <p class="text-sm text-slate-500 mt-1">ผู้ดูแลจะตรวจบัญชี LINE และข้อมูลในทำเนียบก่อนอนุมัติ</p>
     </header>
     <div id="confirmSummary" class="bg-white border border-slate-200 rounded-2xl p-5 text-sm divide-y divide-slate-100"></div>
     <div class="flex gap-2 mt-4">
       <button id="btnRegBack" type="button" class="flex-1 py-3.5 rounded-xl font-semibold text-primary bg-primary-light">แก้ไข</button>
-      <button id="btnBind" type="button" class="flex-2 py-3.5 rounded-xl font-semibold text-white bg-primary">ยืนยันและเริ่มใช้งาน</button>
+      <button id="btnBind" type="button" class="flex-2 py-3.5 rounded-xl font-semibold text-white bg-primary">ยืนยันและส่งคำขอ</button>
     </div>
   </section>
 
@@ -297,7 +260,8 @@
     options: { prefixes: [], groups: [], positions: [], employmentTypes: [], leaveTypes: [], halfDayTypes: [], staffOptions: [] },
     reg: { prefix: '', firstName: '', lastName: '', groupName: '', position: '' },
     holidays: new Set(), calendarAvailable: true, today: '', leaveType: '', period: '', periodExplicit: false,
-    user: null, sending: false, usage: null, leaveYear: '',
+    user: null, sending: false, usage: null, leaveYear: '', registrationPending: false,
+    registrationMessage: '', bindingRequestId: '', bindingRequestKey: '',
     submitRequestId: '', submitRequestKey: '',
     updateRequestId: '', updateRequestKey: '',
     leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
@@ -530,13 +494,15 @@
       state.options.staffOptions = session.staffOptions || (session.options && session.options.staffOptions) || [];
       state.usage = session.usage || null; // ยอดใช้/สิทธิ์รายปีงบประมาณ
       state.leaveYear = session.leaveYear || '';
+      state.registrationPending = session.registrationPending === true;
+      state.registrationMessage = session.registrationMessage || '';
       if (session.registered) {
         state.user = session;
         setBootStatus_('กำลังเปิดข้อมูลการลา…');
         await loadCalendar();
         showForm();
       } else {
-        state.options = session.options || { prefixes: [], groups: [], positions: [], employmentTypes: [] };
+        state.options = session.options || { leaveTypes: [], halfDayTypes: [] };
         renderRegisterForm();
         show('register');
       }
@@ -563,30 +529,16 @@
     }
   }
 
-  // ---------- ขั้นลงทะเบียน: ฟอร์มกรอกเอง (dropdown ทั้งหมดมาจากคอนฟิกฝั่งผู้ดูแล) ----------
-
-  function fillSelect_(selectEl, options, placeholder) {
-    selectEl.innerHTML = '';
-    const placeholderOption = document.createElement('option');
-    placeholderOption.value = '';
-    placeholderOption.textContent = placeholder;
-    selectEl.appendChild(placeholderOption);
-    options.forEach(opt => {
-      const option = document.createElement('option');
-      option.value = opt;
-      option.textContent = opt;
-      selectEl.appendChild(option);
-    });
-  }
+  // ---------- ขั้นขอผูกบัญชี: ผู้ใช้ส่งเฉพาะรหัสบุคลากร ข้อมูลสิทธิ์มาจากทำเนียบที่ผู้ดูแลรับรอง ----------
 
   function renderRegisterForm() {
-    fillSelect_($('regPrefix'), state.options.prefixes, '— เลือก —');
-    fillSelect_($('regGroup'), state.options.groups, '— เลือกกลุ่มงาน —');
-    fillSelect_($('regPosition'), state.options.positions, '— เลือกตำแหน่ง —');
-    fillSelect_($('regEmpType'), state.options.employmentTypes || [], '— เลือกประเภท —');
-    const hasGroups = state.options.groups.length > 0;
-    $('regNoGroups').classList.toggle('hidden', hasGroups);
-    $('btnRegNext').disabled = !hasGroups || !state.leaveEnabled;
+    const pending = state.registrationPending;
+    const message = $('regError');
+    message.classList.toggle('hidden', !pending);
+    if (pending) message.textContent = state.registrationMessage ||
+      'คำขอผูกบัญชีกำลังรอผู้ดูแลตรวจสอบ กรุณาลองใหม่ภายหลัง';
+    $('regEmployeeId').disabled = pending;
+    $('btnRegNext').disabled = pending || !state.leaveEnabled;
   }
 
   // แบนเนอร์ + ล็อกปุ่มเมื่อผู้ดูแลปิดระบบลา / ปิดการอนุมัติ (ฝั่งเซิร์ฟเวอร์บล็อกซ้ำอีกชั้นเสมอ)
@@ -598,48 +550,26 @@
       if (off) el.textContent = state.leaveClosedMessage || 'ระบบลาปิดรับคำขอชั่วคราว — หากเร่งด่วนติดต่อผู้ดูแลระบบ';
     });
     $('approvalOffNote').classList.toggle('hidden', state.approvalEnabled !== false);
-    $('btnRegNext').disabled = off || state.options.groups.length === 0;
+    $('btnRegNext').disabled = off || state.registrationPending;
     if (!state.sending) $('btnSubmit').disabled = off;
   }
 
-  // ตัวเลือก "อื่นๆ" ใน dropdown เปิดช่องพิมพ์เองถัดจาก select (คำนำหน้าและตำแหน่ง)
-  $('regPrefix').addEventListener('change', e => {
-    $('regPrefixOther').classList.toggle('hidden', e.target.value !== 'อื่นๆ');
-  });
-  $('regPosition').addEventListener('change', e => {
-    $('regPositionOther').classList.toggle('hidden', e.target.value !== 'อื่นๆ');
-  });
-
   function collectRegistration_() {
-    const prefix = $('regPrefix').value === 'อื่นๆ' ? $('regPrefixOther').value.trim() : $('regPrefix').value;
-    const position = $('regPosition').value === 'อื่นๆ' ? $('regPositionOther').value.trim() : $('regPosition').value;
-    return {
-      prefix: prefix,
-      firstName: $('regFirstName').value.trim(),
-      lastName: $('regLastName').value.trim(),
-      groupName: $('regGroup').value,
-      position: position,
-      employmentType: $('regEmpType').value,
-    };
+    return { employeeId: $('regEmployeeId').value.trim() };
   }
 
   $('btnRegNext').addEventListener('click', () => {
     const err = $('regError');
     err.classList.add('hidden');
     const reg = collectRegistration_();
-    if (!reg.prefix) { err.textContent = 'กรุณาเลือกคำนำหน้าชื่อ'; err.classList.remove('hidden'); return; }
-    if (!reg.firstName || !reg.lastName) { err.textContent = 'กรุณากรอกชื่อและสกุล'; err.classList.remove('hidden'); return; }
-    if (!reg.groupName) { err.textContent = 'กรุณาเลือกกลุ่มงาน'; err.classList.remove('hidden'); return; }
-    if (!reg.position) { err.textContent = 'กรุณาเลือกตำแหน่ง'; err.classList.remove('hidden'); return; }
-    if (!reg.employmentType) { err.textContent = 'กรุณาเลือกประเภทบุคลากร'; err.classList.remove('hidden'); return; }
+    if (!/^[A-Za-z0-9._-]{2,50}$/.test(reg.employeeId)) {
+      err.textContent = 'กรุณากรอกรหัสบุคลากรที่ถูกต้อง'; err.classList.remove('hidden'); return;
+    }
     state.reg = reg;
 
-    const fullName = reg.prefix + ' ' + reg.firstName + ' ' + reg.lastName;
     $('confirmSummary').innerHTML = [
-      ['ชื่อ-สกุล', fullName],
-      ['กลุ่มงาน', reg.groupName],
-      ['ตำแหน่ง', reg.position],
-      ['ประเภทบุคลากร', reg.employmentType],
+      ['รหัสบุคลากร', reg.employeeId],
+      ['สถานะ', 'รอผู้ดูแลตรวจสอบก่อนเริ่มใช้งาน'],
     ].map(([label, value]) =>
       '<div class="flex justify-between gap-4 py-2.5"><span class="text-slate-500 flex-none">' + label +
       '</span><span class="font-semibold text-right">' + escapeHtml(value) + '</span></div>'
@@ -652,10 +582,22 @@
   $('btnBind').addEventListener('click', async () => {
     setButtonBusy_($('btnBind'), true, 'กำลังบันทึก…');
     try {
-      const result = await api('bind', state.reg);
-      state.user = result;
-      await loadCalendar();
-      showForm();
+      const requestKey = state.reg.employeeId;
+      if (!state.bindingRequestId || state.bindingRequestKey !== requestKey) {
+        state.bindingRequestId = newRequestId_();
+        state.bindingRequestKey = requestKey;
+      }
+      const result = await api('bind', Object.assign({}, state.reg, { requestId: state.bindingRequestId }));
+      if (result.pendingApproval) {
+        state.registrationPending = true;
+        state.registrationMessage = 'ส่งคำขอแล้ว — กรุณารอผู้ดูแลตรวจสอบและเปิดหน้านี้ใหม่ภายหลัง';
+        show('register');
+        renderRegisterForm();
+      } else {
+        state.user = result;
+        await loadCalendar();
+        showForm();
+      }
     } catch (err) {
       showError(err.message);
     } finally {

@@ -69,6 +69,23 @@ if (normalizedAdminLeaveType !== 'ลาช่วยเหลือภรรย�
 } else {
   console.log('PASS testAdminLeaveTypeSpelling');
 }
+const validBalanceError = vm.runInContext(
+  "validateBalanceInput_('2570', 'สมศักดิ์ ใจดี', 'ลากิจ', '1', '', 'ปรับตามเอกสาร HR')", webappContext);
+const shortBalanceReason = vm.runInContext(
+  "validateBalanceInput_('2570', 'สมศักดิ์ ใจดี', 'ลากิจ', '1', '', 'สั้น')", webappContext);
+const balanceRowWidth = vm.runInContext(
+  "balanceRowValues_('2570', 'สมศักดิ์ ใจดี', 'ลากิจ', '1', '', 'ปรับตามเอกสาร HR', 'request-1', 'ผู้ดูแล').length",
+  webappContext);
+const balanceRequestMatch = vm.runInContext(
+  "balanceRequestMatches_(['2570', 'สมศักดิ์  ใจดี', 'ลากิจ', '1.0', '', 'ปรับตามเอกสาร HR'], '2570', 'สมศักดิ์ ใจดี', 'ลากิจ', '1', '', 'ปรับตามเอกสาร HR')",
+  webappContext);
+if (validBalanceError !== null || !/5 ตัวอักษร/.test(String(shortBalanceReason)) ||
+    balanceRowWidth !== 9 || !balanceRequestMatch) {
+  console.error('FAIL testAdminBalanceValidation');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminBalanceValidation');
+}
 const validRetentionErrors = vm.runInContext("validateSettings_({ logs_retention_days: '90' })", webappContext);
 const invalidRetentionErrors = vm.runInContext("validateSettings_({ logs_retention_days: '29' })", webappContext);
 if (validRetentionErrors.length || !invalidRetentionErrors.some(error => /30-3650/.test(error))) {
@@ -111,6 +128,21 @@ if (!directRequest || directRequest.apiAction !== 'session') {
     process.exitCode = 1;
   } else {
     console.log('PASS testDirectModeBoundary');
+  }
+}
+
+if (vm.runInContext('allowUnsignedLineWebhook_()', context)) {
+  console.error('FAIL testUnsignedLineWebhookBoundary: unsigned webhook was enabled by default');
+  process.exitCode = 1;
+} else {
+  scriptProperties.set('ALLOW_UNSIGNED_LINE_WEBHOOK', 'TRUE');
+  const explicitlyEnabled = vm.runInContext('allowUnsignedLineWebhook_()', context);
+  scriptProperties.delete('ALLOW_UNSIGNED_LINE_WEBHOOK');
+  if (!explicitlyEnabled) {
+    console.error('FAIL testUnsignedLineWebhookBoundary: explicit switch did not enable compatibility mode');
+    process.exitCode = 1;
+  } else {
+    console.log('PASS testUnsignedLineWebhookBoundary');
   }
 }
 

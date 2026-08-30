@@ -5,8 +5,8 @@
  * 2. API จากหน้าเว็บโดยตรงเมื่อเปิด ALLOW_LEGACY_DIRECT=TRUE
  *    (หรือ signed envelope จาก security gateway หากย้ายสถาปัตยกรรมในอนาคต)
  *
- * ข้อจำกัดของ direct mode: Apps Script อ่าน X-Line-Signature ไม่ได้ เจ้าของระบบจึงยอมรับว่า
- * webhook ไม่มีการตรวจ raw signature และไม่มี rate limit/CORS allowlist จาก gateway:
+ * ข้อจำกัดของ direct mode: Apps Script อ่าน X-Line-Signature ไม่ได้ จึงปฏิเสธ LINE webhook ตรง
+ * โดยค่าเริ่มต้น ต้องผ่าน signed gateway หรือเปิด ALLOW_UNSIGNED_LINE_WEBHOOK=TRUE แยกอย่างชัดเจน:
  *   - ทุก apiAction ต้องแนบ LINE access token ที่ระบบตรวจกับ api.line.me จริง (verifyLineToken_ ใน LeaveApi.gs)
  *   - ปุ่มอนุมัติตรวจว่า userId ของผู้กดตรงกับ "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion ของใบลานั้น
  *     (ผู้ปลอมต้องรูทั้ง pageId และ userId ของผู้อนุมัติจริงจึงจะผ่านได้)
@@ -16,9 +16,9 @@
  * วิธีติดตั้ง (ครั้งแรก/จับ Group ID):
  * 1. Deploy > New deployment > เลือกประเภท "Web app"
  *    - Execute as: Me, Who has access: Anyone → กด Deploy แล้วคัดลอก Web app URL
- * 2. วาง URL /exec ของ deployment นี้ลง LINE Developers Console
+ * 2. แนะนำวาง URL gateway ที่ตรวจ X-Line-Signature ใน LINE Developers Console
  *    เปิด "Use webhook" และ "Allow bot to join group chats"
- * 3. เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความอะไรก็ได้ 1 ข้อความ — line_group_id จะถูกเติมในชีต Settings
+ * 3. สร้างรหัสจับคู่จากเมนูใน Sheet แล้วส่ง "เชื่อมกลุ่ม <รหัส>" ในกลุ่มเป้าหมายภายใน 10 นาที
  * 4. หลังจากนั้นปล่อย deployment นี้ค้างไว้ถาวร (LINE, LIFF และตารางงานใช้ URL เดียวกันนี้)
  *    ถ้าแก้โค้ดให้ Deploy > Manage deployments > Edit > New version เสมอ (URL ไม่เปลี่ยน)
  */
@@ -58,6 +58,9 @@ function doPost(e) {
     if (rawBody && Array.isArray(rawBody.events)) requestKind = 'line';
     const viaGateway = !!rawBody.gatewayEnvelope;
     const body = unwrapGatewayEnvelope_(rawBody);
+    if (body && Array.isArray(body.events) && !viaGateway && !allowUnsignedLineWebhook_()) {
+      throw new Error('LINE webhook ต้องผ่าน security gateway');
+    }
 
     if (body && body.internalAction === 'reschedule-notification') {
       if (!viaGateway) throw new Error('คำสั่งภายในต้องผ่าน security gateway');
@@ -83,8 +86,9 @@ function doPost(e) {
       // เหตุการณ์ mode "standby" คือช่วง channel กำลังถูก migrate — เอกสาร LINE ให้เมินได้เลย
       if (event.mode === 'standby') continue;
       const source = event.source || {};
-      if (source.type === 'group' && source.groupId) {
-        recordGroupId_(source.groupId);
+      if (source.type === 'group' && source.groupId && event.type === 'message' &&
+          event.message && event.message.type === 'text') {
+        recordGroupId_(source.groupId, event.message.text);
       }
       if (event.type === 'postback') {
         handleLeavePostback_(event, event.webhookEventId || '');
@@ -108,15 +112,34 @@ function jsonOutput_(obj) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function recordGroupId_(groupId) {
-  const sheet = SpreadsheetApp.getActive().getSheetByName('Settings');
-  const lastRow = sheet.getLastRow();
-  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 1).getValues() : [];
+function allowUnsignedLineWebhook_() {
+  return String(PropertiesService.getScriptProperties().getProperty('ALLOW_UNSIGNED_LINE_WEBHOOK') || '')
+    .trim().toUpperCase() === 'TRUE';
+}
 
-  for (let i = 0; i < data.length; i++) {
-    if (String(data[i][0]).trim() === 'line_group_id') {
-      sheet.getRange(3 + i, 2).setValue(groupId);
-      return;
-    }
+/** จับคู่กลุ่มด้วยรหัสใช้ครั้งเดียวอายุ 10 นาทีเท่านั้น — event กลุ่มทั่วไปห้ามแก้ปลายทาง */
+function recordGroupId_(groupId, messageText) {
+  const id = String(groupId || '').trim();
+  if (!/^C[0-9a-f]{32}$/i.test(id)) return false;
+  const props = PropertiesService.getScriptProperties();
+  const code = String(props.getProperty('LINE_GROUP_PAIRING_CODE') || '').trim();
+  const expiresAt = Number(props.getProperty('LINE_GROUP_PAIRING_EXPIRES_AT') || '0');
+  const message = String(messageText || '').trim();
+  if (!code || Date.now() > expiresAt || message !== 'เชื่อมกลุ่ม ' + code) return false;
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) throw new Error('ระบบกำลังจับคู่กลุ่มอื่นอยู่ กรุณาลองใหม่');
+  try {
+    // ตรวจซ้ำหลังได้ lock กันข้อความรหัสเดียวกันจากสองกลุ่มพร้อมกัน
+    if (props.getProperty('LINE_GROUP_PAIRING_CODE') !== code ||
+        Date.now() > Number(props.getProperty('LINE_GROUP_PAIRING_EXPIRES_AT') || '0')) return false;
+    setSettingValue_('line_group_id', id);
+    SpreadsheetApp.flush();
+    props.deleteProperty('LINE_GROUP_PAIRING_CODE');
+    props.deleteProperty('LINE_GROUP_PAIRING_EXPIRES_AT');
+    logResult_(new Date(), 'line-group-pairing', 'จับคู่กลุ่ม LINE สำเร็จด้วยรหัสใช้ครั้งเดียว');
+    return true;
+  } finally {
+    lock.releaseLock();
   }
 }

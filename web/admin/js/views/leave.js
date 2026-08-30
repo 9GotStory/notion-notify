@@ -6,10 +6,20 @@
 
 AdminViews.leave = {
 
+  requestId_() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+    });
+  },
+
   editingQuotaRow: null,
   editingQuotaVersion: null,
   editingBalanceRow: null,
   editingBalanceVersion: null,
+  balanceRequestId: null,
+  balanceRequestKey: '',
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
   cache: { quotaProfiles: [], balances: [], employmentTypes: [], leaveTypes: [], staffKeys: [] },
 
@@ -81,8 +91,8 @@ AdminViews.leave = {
       '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ใช้เพิ่ม (+ยอดใช้)</label>' +
       '<input id="b-extra" type="number" step="0.5" min="0" placeholder="0" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
       '</div>' +
-      '<div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1.5">เหตุผล</label>' +
-      '<input id="b-reason" type="text" maxlength="200" placeholder="เช่น พักร้อนสะสมจากปีก่อน / ลาก่อนใช้ระบบ" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
+      '<div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1.5">เหตุผล <span class="text-red-600">*</span></label>' +
+      '<input id="b-reason" type="text" maxlength="500" placeholder="อย่างน้อย 5 ตัวอักษร เช่น พักร้อนสะสมจากปีก่อน" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
       '</div>' +
       '<div class="flex gap-2 mt-3">' +
       '<button id="btnSaveBalance" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">เพิ่มรายการ</button>' +
@@ -255,6 +265,8 @@ AdminViews.leave = {
   resetBalanceForm() {
     this.editingBalanceRow = null;
     this.editingBalanceVersion = null;
+    this.balanceRequestId = null;
+    this.balanceRequestKey = '';
     ['b-year', 'b-carry', 'b-extra', 'b-reason'].forEach(id => { UI.$(id).value = ''; });
     UI.$('b-name').value = '';
     UI.$('b-type').value = '';
@@ -273,9 +285,18 @@ AdminViews.leave = {
       reason: UI.$('b-reason').value.trim(),
     };
     if (!payload.yearBE || !payload.name || !payload.leaveType) { UI.showToast('กรอกปีงบประมาณ ชื่อ และประเภทการลาให้ครบ', true); return; }
+    if (payload.reason.length < 5) { UI.showToast('กรุณาระบุเหตุผลอย่างน้อย 5 ตัวอักษร', true); return; }
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     const wasEditing = this.editingBalanceRow;
     try {
+      if (!wasEditing) {
+        const requestKey = JSON.stringify(payload);
+        if (!this.balanceRequestId || this.balanceRequestKey !== requestKey) {
+          this.balanceRequestId = this.requestId_();
+          this.balanceRequestKey = requestKey;
+        }
+        payload.requestId = this.balanceRequestId;
+      }
       await AdminAPI.call(wasEditing ? 'update_balance' : 'add_balance',
         wasEditing ? Object.assign({ row: wasEditing, version: this.editingBalanceVersion }, payload) : payload);
       UI.showToast(wasEditing ? 'บันทึกการแก้ไขแล้ว' : 'เพิ่มรายการแล้ว');

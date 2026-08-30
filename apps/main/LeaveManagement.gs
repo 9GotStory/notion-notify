@@ -109,7 +109,8 @@ function reassignLeaveApprover_(body, actorLabel, actorId) {
       ' เป็น ' + staffDisplayName_(target) + ' — เหตุผล: ' + reason + ' ' +
       leaveMutationAuditMarker_('reassign', requestId);
     const updated = parseLeavePage_(updateLeavePage_(pageId, {
-      [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_(stage, [target])),
+      [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_(stage, [target], null, null,
+        leave.currentApprover ? leave.currentApprover.needsSecond : undefined)),
       [PROPS_LEAVE.audit]: richTextValue_(appendLeaveAuditLine_(leave.audit, formatAuditLine_(null, actionText))),
       [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
     }));
@@ -226,7 +227,7 @@ function apiAdminAdjustLeave_(body) {
     if (leaveAuditHasMutation_(leave.audit, 'admin-adjust', requestId)) {
       return { ok: true, duplicate: true, leave: managementLeaveRow_(leave) };
     }
-    const submitter = findStaffByUserId_(roster, leave.submitterUserId);
+    const submitter = findAnyStaffByUserId_(roster, leave.submitterUserId);
     if (!submitter) throw new Error('ไม่พบผู้ยื่นในทะเบียนบุคลากร');
     const substitute = resolveRegisteredStaffChoice_(roster, input.substituteKey,
       leave.submitterUserId, 'ผู้ปฏิบัติงานแทน');

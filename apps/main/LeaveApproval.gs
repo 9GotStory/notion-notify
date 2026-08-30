@@ -44,15 +44,25 @@ function buildLeavePagePayload_(leave) {
 
 // "ผู้อนุมัติปัจจุบัน" เก็บในหน้าใบลาเป็น JSON {stage, userIds, names} —
 // stage 'first' = ผู้อนุมัติของกลุ่มงาน, 'second' = หัวหน้า สสอ.
-function serializeApproverInfo_(stage, targets, assignedAt, assignmentId) {
+function serializeApproverInfo_(stage, targets, assignedAt, assignmentId, needsSecond) {
   const timestamp = assignedAt || new Date().toISOString();
-  return JSON.stringify({
+  const info = {
     stage: stage,
     userIds: (targets || []).map(s => s.lineUserId),
     names: (targets || []).map(s => staffDisplayName_(s)),
     assignedAt: timestamp,
     assignmentId: assignmentId || Utilities.getUuid(),
-  });
+  };
+  if (typeof needsSecond === 'boolean') info.needsSecond = needsSecond;
+  return JSON.stringify(info);
+}
+
+function approvalNeedsSecond_(currentApprover, config, groupName) {
+  if (currentApprover && typeof currentApprover.needsSecond === 'boolean') {
+    return currentApprover.needsSecond;
+  }
+  const configRow = (config || []).find(c => c.groupName === String(groupName || ''));
+  return !!(configRow && configRow.forward);
 }
 
 function serializeSubstituteInfo_(staff) {
@@ -76,13 +86,13 @@ function parseSubstituteInfo_(value) {
 }
 
 function createNotionLeavePage_(payload) {
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages', {
+  const response = notionFetch_('https://api.notion.com/v1/pages', {
     method: 'post',
     contentType: 'application/json',
     headers: notionHeaders_(),
     payload: JSON.stringify(payload),
     muteHttpExceptions: true,
-  });
+  }, false);
   if (response.getResponseCode() >= 300) {
     throw new Error('บันทึกใบลาลง Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' +
       response.getContentText().substring(0, 200));
@@ -101,11 +111,11 @@ function normalizeNotionPageId_(pageId) {
 
 function getLeavePage_(pageId) {
   const safePageId = normalizeNotionPageId_(pageId);
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + encodeURIComponent(safePageId), {
+  const response = notionFetch_('https://api.notion.com/v1/pages/' + encodeURIComponent(safePageId), {
     method: 'get',
     headers: notionHeaders_(),
     muteHttpExceptions: true,
-  });
+  }, true);
   if (response.getResponseCode() >= 300) {
     throw new Error('เปิดใบลาจาก Notion ไม่ได้ (' + response.getResponseCode() + '): ' +
       response.getContentText().substring(0, 200));
@@ -115,13 +125,13 @@ function getLeavePage_(pageId) {
 
 function updateLeavePage_(pageId, properties) {
   const safePageId = normalizeNotionPageId_(pageId);
-  const response = UrlFetchApp.fetch('https://api.notion.com/v1/pages/' + encodeURIComponent(safePageId), {
+  const response = notionFetch_('https://api.notion.com/v1/pages/' + encodeURIComponent(safePageId), {
     method: 'patch',
     contentType: 'application/json',
     headers: notionHeaders_(),
     payload: JSON.stringify({ properties: properties }),
     muteHttpExceptions: true,
-  });
+  }, true);
   if (response.getResponseCode() >= 300) {
     throw new Error('อัปเดตใบลาใน Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' +
       response.getContentText().substring(0, 200));
@@ -509,15 +519,23 @@ function handleLeavePostback_(event, webhookEventId) {
     const actionLabel = isApprove ? 'อนุมัติ' : 'ไม่อนุมัติ';
     const auditText = appendLeaveAuditLine_(leavePage.audit, formatAuditLine_(tapper, actionLabel));
 
-    // อนุมัติขั้นแรก + กลุ่มงานนี้ตั้งค่าให้ส่งต่อ หัวหน้า สสอ. → เปลี่ยนขั้นแทนจบ
-    // (อ่านธงส่งต่อสดๆ จากชีต Approvers ทุกครั้ง — ผู้ดูแลสลับค่ากลางทางได้)
+    // อนุมัติขั้นแรก + แผนที่ snapshot ตอนยื่นกำหนดให้ส่งต่อ หัวหน้า สสอ. → เปลี่ยนขั้นแทนจบ
+    // ใบรุ่นเก่าที่ยังไม่มี needsSecond จึง fallback อ่านคอนฟิกสดเพื่อรักษาความเข้ากันได้
     if (isApprove && leavePage.status === LEAVE_STATUS.pendingApprover) {
-      const submitter = findStaffByUserId_(roster, leavePage.submitterUserId);
-      const config = readApproversConfig_();
-      const configRow = config.find(c => c.groupName === (submitter ? submitter.groupName : ''));
-      const needsSecond = !!(configRow && configRow.forward);
+      const submitter = findAnyStaffByUserId_(roster, leavePage.submitterUserId);
+      let config = null;
+      let needsSecond;
+      if (leavePage.currentApprover && typeof leavePage.currentApprover.needsSecond === 'boolean') {
+        needsSecond = approvalNeedsSecond_(leavePage.currentApprover, null,
+          submitter ? submitter.groupName : '');
+      } else {
+        config = readApproversConfig_();
+        needsSecond = approvalNeedsSecond_(leavePage.currentApprover, config,
+          submitter ? submitter.groupName : '');
+      }
 
       if (needsSecond) {
+        if (!config) config = readApproversConfig_();
         const submitterKey = submitter ? staffKey_(submitter) : '';
         const second = registeredStaffByNames_(roster, secondApproverNames_(settings))
           .filter(s => staffKey_(s) !== submitterKey && s.lineUserId !== tapperUserId);
@@ -539,7 +557,8 @@ function handleLeavePostback_(event, webhookEventId) {
 
         updateLeavePage_(leavePage.pageId, {
           [PROPS_LEAVE.status]: { select: { name: LEAVE_STATUS.pendingChiefOffice } },
-          [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_('second', nextTargets)),
+          [PROPS_LEAVE.currentApprover]: richTextValue_(serializeApproverInfo_('second', nextTargets,
+            null, null, false)),
           [PROPS_LEAVE.audit]: richTextValue_(auditText),
           [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
         });

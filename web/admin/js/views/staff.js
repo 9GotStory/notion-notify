@@ -25,12 +25,13 @@ AdminViews.staff = {
     // ----- ทำเนียบ + ประเภทบุคลากร -----
     let html =
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-4">' +
-      '<p class="text-sm font-semibold text-slate-600 px-4 pt-4 pb-2">ทำเนียบเจ้าหน้าที่ (' + staff.length + ' คน · ลงทะเบียนแล้ว ' +
+      '<p class="text-sm font-semibold text-slate-600 px-4 pt-4 pb-2">ทำเนียบเจ้าหน้าที่ (' + staff.length + ' คน · อนุมัติการผูกแล้ว ' +
       staff.filter(s => s.registered).length + ')</p>' +
       '<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-left text-xs text-slate-500">' +
-      '<tr><th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">กลุ่มงาน</th><th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5 w-24"></th></tr>' +
+      '<tr><th class="px-4 py-2.5">รหัส</th><th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">กลุ่มงาน</th>' +
+      '<th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5">สถานะการผูก</th><th class="px-4 py-2.5"></th></tr>' +
       '</thead><tbody id="staffBody" class="divide-y divide-slate-100"></tbody></table></div>' +
-      '<p class="text-xs text-slate-400 px-4 py-3">ประเภทบุคลากรใช้จับคู่สิทธิ์วันลาจากหน้า "สิทธิ์วันลา" — คนที่ยังไม่ระบุใช้ค่าเริ่มต้นตามระเบียบข้าราชการ</p>' +
+      '<p class="text-xs text-slate-400 px-4 py-3">ผู้ดูแลต้องเตรียมรหัสบุคลากรและสถานะ ACTIVE ก่อน ผู้ใช้จึงขอผูก LINE ได้ และต้องอนุมัติคำขอก่อนใช้งานระบบลา</p>' +
       '</div>';
 
     // ----- ผู้อนุมัติรายกลุ่มงาน -----
@@ -56,16 +57,17 @@ AdminViews.staff = {
     const body = UI.$('staffBody');
     body.innerHTML = (list || []).map(s =>
       '<tr>' +
-      '<td class="px-4 py-2.5 whitespace-nowrap">' + UI.escapeHtml(s.name) +
-      (s.registered ? '' : ' <span class="text-xs text-slate-400">(ยังไม่ลงทะเบียน)</span>') + '</td>' +
+      '<td class="px-4 py-2.5 font-mono text-xs">' + UI.escapeHtml(s.employeeId || '—') + '</td>' +
+      '<td class="px-4 py-2.5 whitespace-nowrap">' + UI.escapeHtml(s.name) + '</td>' +
       '<td class="px-4 py-2.5 text-slate-500">' + UI.escapeHtml(s.group || '-') + '</td>' +
       '<td class="px-4 py-2.5"></td>' +
-      '<td class="px-4 py-2.5 text-right"></td>' +
+      '<td class="px-4 py-2.5 text-xs">' + UI.escapeHtml(s.bindingLabel || s.bindingStatus || 'ต้องตรวจบัญชีเดิม') + '</td>' +
+      '<td class="px-4 py-2.5 text-right whitespace-nowrap"></td>' +
       '</tr>').join('');
 
     // ปุ่ม/select ผูก event ทีหลัง render ด้วย createElement — ไม่ฝัง payload ใน HTML string
     (list || []).forEach((s, i) => {
-      const td = body.children[i].children[2];
+      const td = body.children[i].children[3];
       const sel = document.createElement('select');
       sel.className = 'px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white max-w-[200px]';
       const placeholder = document.createElement('option');
@@ -81,7 +83,7 @@ AdminViews.staff = {
       });
       td.appendChild(sel);
 
-      const tdBtn = body.children[i].children[3];
+      const tdBtn = body.children[i].children[5];
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'px-3 py-1.5 rounded-lg border border-slate-200 text-primary text-xs font-medium hover:bg-slate-50 disabled:opacity-50';
@@ -94,6 +96,7 @@ AdminViews.staff = {
           placeholder.textContent = sel.value; // ค่าที่เลือกกลายเป็น placeholder ใหม่ของแถวนี้
           sel.value = '';
           UI.showToast('บันทึกแล้ว — ' + s.name + ' → ' + placeholder.textContent);
+          await this.render(UI.$('view'), this._isStale); // refresh row version ก่อนอนุมัติการผูกต่อ
         } catch (e) {
           UI.showToast(e.message, true);
         } finally {
@@ -101,6 +104,38 @@ AdminViews.staff = {
         }
       });
       tdBtn.appendChild(btn);
+
+      const reviewable = s.bindingStatus === 'PENDING' ||
+        (!!s.lineUserId && s.bindingStatus !== 'APPROVED');
+      if (reviewable) {
+        ['approve', 'reject'].forEach(action => {
+          const reviewButton = document.createElement('button');
+          reviewButton.type = 'button';
+          reviewButton.className = 'ml-1 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50 ' +
+            (action === 'approve' ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' :
+              'border-red-200 text-red-700 hover:bg-red-50');
+          reviewButton.textContent = action === 'approve' ? 'อนุมัติผูก' : 'ปฏิเสธ';
+          reviewButton.addEventListener('click', async () => {
+            const reason = window.prompt(action === 'approve'
+              ? 'ระบุหลักฐาน/เหตุผลที่ยืนยันตัวตน (อย่างน้อย 5 ตัวอักษร)'
+              : 'ระบุเหตุผลที่ปฏิเสธ (อย่างน้อย 5 ตัวอักษร)', 'ตรวจสอบกับทำเนียบแล้ว');
+            if (reason === null) return;
+            UI.setBusy(reviewButton, true, '…');
+            try {
+              await AdminAPI.call(action + '_staff_binding', {
+                row: s.row, version: s.version, reason: reason.trim(),
+              });
+              UI.showToast(action === 'approve' ? 'อนุมัติการผูกแล้ว' : 'ปฏิเสธและล้างการผูกแล้ว');
+              await this.render(UI.$('view'), this._isStale);
+            } catch (e) {
+              UI.showToast(e.message, true);
+            } finally {
+              UI.setBusy(reviewButton, false);
+            }
+          });
+          tdBtn.appendChild(reviewButton);
+        });
+      }
     });
   },
 

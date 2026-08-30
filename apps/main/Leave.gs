@@ -2,8 +2,8 @@
  * ระบบลางานเจ้าหน้าที่ — ใช้ LIFF เป็นหน้ายื่น (โฮสต์ GitHub Pages), Notion เป็นที่เก็บใบลา,
  * LINE OA เป็นช่องทางแจ้ง/อนุมัติ
  *
- * การระบุตัวตน: ผูก LINE userId กับชื่อในชีต Staff ครั้งเดียว (first-claim-wins — ชื่อที่ถูกผูกแล้ว
- * ใครมาเลือกซ้ำไม่ได้) ทุกคำขอจาก LIFF ต้องแนบ access token และฝั่งเซิร์ฟเวอร์ตรวจกับ LINE จริงทุกครั้ง
+ * การระบุตัวตน: ผู้ดูแลเตรียม Staff จากทำเนียบที่รับรอง ผู้ใช้ส่งรหัสบุคลากรเพื่อขอผูก LINE
+ * และยื่นลาได้หลังผู้ดูแลอนุมัติเท่านั้น ทุกคำขอจาก LIFF ต้องแนบ access token และตรวจกับ LINE จริงทุกครั้ง
  * (api.line.me/oauth2/v2.1/verify + /v2/profile) — ไม่เชื่อข้อมูลใดๆ ที่มาจากฝั่ง browser
  *
  * การอนุมัติสองชั้น (คอนฟิกทั้งหมดในชีต ไม่มี hardcode): ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.
@@ -12,17 +12,15 @@
  * gateway ตรวจ X-Line-Signature ก่อนส่งต่อ และการตรวจสิทธิ์คนกดปุ่มยังอ้างอิง
  * "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion อีกชั้น (ดู canApproveLeave_)
  *
- * โครงสร้างชีต Staff (สร้างหัวตารางโดยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" — แถวข้อมูลเกิดจากการลงทะเบียน
- * ของแต่ละคนผ่านฟอร์มเอง ไม่ต้องกรอกล่วงหน้า):
+ * โครงสร้างชีต Staff (สร้างหัวตารางโดยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" และผู้ดูแล preload ข้อมูล):
  *   แถว 1: ชื่อตาราง / แถว 2: หัวคอลัมน์ / เริ่มข้อมูลแถว 3 (ตามแบบชีต Settings/Holidays)
  *   คำนำหน้า | ชื่อ | สกุล | กลุ่มงาน | ตำแหน่ง | LINE User ID | ชื่อที่แสดงใน LINE | วันที่ลงทะเบียน
  *
- * โครงสร้างชีต Approvers (ผู้ดูแลกรอกเอง — เป็นทั้งคอนฟิกผู้อนุมัติและรายชื่อกลุ่มงานสำหรับ dropdown):
+ * โครงสร้างชีต Approvers (ผู้ดูแลกรอกเอง — เป็นคอนฟิกผู้อนุมัติ):
  *   กลุ่มงาน | ผู้อนุมัติ (ชื่อ สกุล ตามที่ลงทะเบียน หลายคนคั่นจุลภาค ใครกดก่อนได้ก่อน)
  *   | ส่งต่อให้ หัวหน้า สสอ. (TRUE ถ้าใบลาของกลุ่มงานนี้ต้องผ่าน หัวหน้า สสอ. ด้วย)
  *   รายชื่อ หัวหน้า สสอ. อยู่ใน Settings คีย์ second_approvers (คั่นจุลภาค)
- *   ตัวเลือก dropdown ของฟอร์มลงทะเบียน (คำนำหน้า/กลุ่มงาน/ตำแหน่ง) มาจาก prefix_options /
- *   ชีต Approvers (คอลัมน์กลุ่มงาน) / position_options ตามลำดับ — แก้ที่ชีตได้ทั้งหมด
+ *   ชื่อกลุ่มงานใน Staff ต้องตรงกับคอลัมน์กลุ่มงานใน Approvers เพื่อ resolve สายอนุมัติ
  *
  * โครงสร้าง Notion database "ใบลา" (ชื่อ property อ้างอิงผ่าน PROPS_LEAVE):
  *   ผู้ลา (title, เก็บชื่อเต็ม คำนำหน้า+ชื่อ-สกุล) / กลุ่มงาน (rich_text)
@@ -38,8 +36,8 @@
  * ระบบลางานเจ้าหน้าที่ — ใช้ LIFF เป็นหน้ายื่น (โฮสต์ GitHub Pages), Notion เป็นที่เก็บใบลา,
  * LINE OA เป็นช่องทางแจ้ง/อนุมัติ
  *
- * การระบุตัวตน: ผูก LINE userId กับชื่อในชีต Staff ครั้งเดียว (first-claim-wins — ชื่อที่ถูกผูกแล้ว
- * ใครมาเลือกซ้ำไม่ได้) ทุกคำขอจาก LIFF ต้องแนบ access token และฝั่งเซิร์ฟเวอร์ตรวจกับ LINE จริงทุกครั้ง
+ * การระบุตัวตน: ผู้ดูแลเตรียม Staff จากทำเนียบที่รับรอง ผู้ใช้ส่งรหัสบุคลากรเพื่อขอผูก LINE
+ * และยื่นลาได้หลังผู้ดูแลอนุมัติเท่านั้น ทุกคำขอจาก LIFF ต้องแนบ access token และตรวจกับ LINE จริงทุกครั้ง
  * (api.line.me/oauth2/v2.1/verify + /v2/profile) — ไม่เชื่อข้อมูลใดๆ ที่มาจากฝั่ง browser
  *
  * การอนุมัติสองชั้น (คอนฟิกทั้งหมดในชีต ไม่มี hardcode): ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.
@@ -48,17 +46,15 @@
  * gateway ตรวจ X-Line-Signature ก่อนส่งต่อ และการตรวจสิทธิ์คนกดปุ่มยังอ้างอิง
  * "ผู้อนุมัติปัจจุบัน" ที่เก็บในหน้า Notion อีกชั้น (ดู canApproveLeave_)
  *
- * โครงสร้างชีต Staff (สร้างหัวตารางโดยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" — แถวข้อมูลเกิดจากการลงทะเบียน
- * ของแต่ละคนผ่านฟอร์มเอง ไม่ต้องกรอกล่วงหน้า):
+ * โครงสร้างชีต Staff (สร้างหัวตารางโดยเมนู "เตรียม/ตรวจสอบชีตทั้งหมด" และผู้ดูแล preload ข้อมูล):
  *   แถว 1: ชื่อตาราง / แถว 2: หัวคอลัมน์ / เริ่มข้อมูลแถว 3 (ตามแบบชีต Settings/Holidays)
  *   คำนำหน้า | ชื่อ | สกุล | กลุ่มงาน | ตำแหน่ง | LINE User ID | ชื่อที่แสดงใน LINE | วันที่ลงทะเบียน
  *
- * โครงสร้างชีต Approvers (ผู้ดูแลกรอกเอง — เป็นทั้งคอนฟิกผู้อนุมัติและรายชื่อกลุ่มงานสำหรับ dropdown):
+ * โครงสร้างชีต Approvers (ผู้ดูแลกรอกเอง — เป็นคอนฟิกผู้อนุมัติ):
  *   กลุ่มงาน | ผู้อนุมัติ (ชื่อ สกุล ตามที่ลงทะเบียน หลายคนคั่นจุลภาค ใครกดก่อนได้ก่อน)
  *   | ส่งต่อให้ หัวหน้า สสอ. (TRUE ถ้าใบลาของกลุ่มงานนี้ต้องผ่าน หัวหน้า สสอ. ด้วย)
  *   รายชื่อ หัวหน้า สสอ. อยู่ใน Settings คีย์ second_approvers (คั่นจุลภาค)
- *   ตัวเลือก dropdown ของฟอร์มลงทะเบียน (คำนำหน้า/กลุ่มงาน/ตำแหน่ง) มาจาก prefix_options /
- *   ชีต Approvers (คอลัมน์กลุ่มงาน) / position_options ตามลำดับ — แก้ที่ชีตได้ทั้งหมด
+ *   ชื่อกลุ่มงานใน Staff ต้องตรงกับคอลัมน์กลุ่มงานใน Approvers เพื่อ resolve สายอนุมัติ
  *
  * โครงสร้าง Notion database "ใบลา" (ชื่อ property อ้างอิงผ่าน PROPS_LEAVE):
  *   ผู้ลา (title, เก็บชื่อเต็ม คำนำหน้า+ชื่อ-สกุล) / กลุ่มงาน (rich_text)
@@ -154,7 +150,17 @@ const STAFF_SHEET_COLUMNS = [
   // คอลัมน์ที่ 9 เพิ่มภายหลัง (ปรับปรุงระบบโควตาตามประเภทบุคลากร) — ต่อท้ายแทนการแทรกกลาง
   // เพื่อไม่ให้ชีตที่ติดตั้งไว้แล้วข้อมูลเพี้ยนจากคอลัมน์ขยับ / setupSheet เติมหัวคอลัมน์ให้ชีตเดิมเอง
   'ประเภทบุคลากร',
+  'รหัสบุคลากร', 'สถานะบุคลากร', 'สถานะการผูก LINE',
+  'LINE User ID ที่รออนุมัติ', 'ชื่อ LINE ที่รออนุมัติ', 'ขอผูกเมื่อ',
+  'ผู้อนุมัติการผูก', 'อนุมัติการผูกเมื่อ', 'Binding Request ID',
 ];
+
+const STAFF_ACTIVE_STATUS = 'ACTIVE';
+const STAFF_BINDING_STATUS = {
+  pending: 'PENDING',
+  approved: 'APPROVED',
+  rejected: 'REJECTED',
+};
 
 // ตารางโควตาต่อประเภทบุคลากร (ชีต QuotaProfiles) — สิทธิ์พื้นฐานต่างกันตามสถานะ
 // (ข้าราชการ/พนักงานราชการ/ลูกจ้างประจำ/ลูกจ้างชั่วคราว ฯลฯ) และต่างกันได้รายปี
@@ -219,6 +225,7 @@ const QUOTA_PROFILE_SEED = [
 const BALANCE_SHEET_COLUMNS = [
   'ปีงบประมาณ (พ.ศ.)', 'ชื่อ สกุล', 'ประเภทการลา',
   'ยกมา (วันใช้สิทธิ์)', 'ใช้เพิ่ม (วันใช้สิทธิ์)', 'เหตุผล', 'บันทึกเมื่อ',
+  'Request ID', 'ผู้ดำเนินการ',
 ];
 
 // ขอบเขตวันที่ยื่นได้: ย้อนหลัง (ลาป่วยมักแจ้งย้อน) และล่วงหน้า
@@ -226,7 +233,7 @@ const LEAVE_MAX_DAYS_BACK = 90;
 const LEAVE_MAX_DAYS_AHEAD = 365;
 const LEAVE_MAX_SPAN_DAYS = 365;
 
-// ---------- ทำเนียบ Staff (เกิดจากการลงทะเบียนผ่านฟอร์ม ไม่ต้องกรอกล่วงหน้า) ----------
+// ---------- ทำเนียบ Staff (ผู้ดูแล preload; ผู้ใช้ขอผูก LINE แล้วรออนุมัติ) ----------
 
 function readStaffRoster_() {
   const sheet = SpreadsheetApp.getActive().getSheetByName('Staff');
@@ -236,7 +243,6 @@ function readStaffRoster_() {
   const lastRow = sheet.getLastRow();
   const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, STAFF_SHEET_COLUMNS.length).getDisplayValues() : [];
   return data
-    .filter(row => String(row[1]).trim() && String(row[2]).trim()) // ต้องมีทั้งชื่อและสกุลจึงนับ
     .map((row, i) => ({
       row: 3 + i,
       prefix: String(row[0]).trim(),
@@ -248,7 +254,17 @@ function readStaffRoster_() {
       lineDisplayName: String(row[6]).trim(),
       registeredAt: String(row[7]).trim(),
       employmentType: String(row[8] || '').trim(), // คอลัมน์ที่ 9 — ว่าง = ยังไม่ระบุ (ใช้โควตาเริ่มต้นของระบบ)
-    }));
+      employeeId: String(row[9] || '').trim(),
+      employmentStatus: String(row[10] || '').trim().toUpperCase(),
+      bindingStatus: String(row[11] || '').trim().toUpperCase(),
+      pendingLineUserId: String(row[12] || '').trim(),
+      pendingLineDisplayName: String(row[13] || '').trim(),
+      bindingRequestedAt: String(row[14] || '').trim(),
+      bindingApprovedBy: String(row[15] || '').trim(),
+      bindingApprovedAt: String(row[16] || '').trim(),
+      bindingRequestId: String(row[17] || '').trim(),
+    }))
+    .filter(staff => staff.firstName && staff.lastName); // ต้องมีทั้งชื่อและสกุลจึงนับ
 }
 
 // ---------- ตารางโควตาตามประเภทบุคลากร (ชีต QuotaProfiles) ----------
@@ -290,8 +306,27 @@ function readQuotaProfiles_() {
   });
 }
 
-function findStaffByUserId_(roster, userId) {
+function isActiveStaff_(staff) {
+  return !!staff && staff.employmentStatus === STAFF_ACTIVE_STATUS;
+}
+
+function isApprovedStaffBinding_(staff) {
+  return isActiveStaff_(staff) && staff.bindingStatus === STAFF_BINDING_STATUS.approved &&
+    !!staff.lineUserId;
+}
+
+function findAnyStaffByUserId_(roster, userId) {
   return (roster || []).find(s => s.lineUserId && s.lineUserId === userId) || null;
+}
+
+function findStaffByUserId_(roster, userId) {
+  return (roster || []).find(s => isApprovedStaffBinding_(s) && s.lineUserId === userId) || null;
+}
+
+function findPendingStaffByUserId_(roster, userId) {
+  return (roster || []).find(s =>
+    (s.pendingLineUserId === userId && s.bindingStatus === STAFF_BINDING_STATUS.pending) ||
+    (s.lineUserId === userId && s.bindingStatus !== STAFF_BINDING_STATUS.approved)) || null;
 }
 
 // "ชื่อ สกุล" — key ที่ใช้อ้างอิงคนในชีต Approvers และ Settings (second_approvers)
@@ -337,6 +372,8 @@ function readLeaveBalances_() {
       usedExtra: usedExtra,
       reason: String(row[5] || '').trim(),
       recordedAt: String(row[6] || '').trim(),
+      requestId: String(row[7] || '').trim(),
+      actor: String(row[8] || '').trim(),
     });
   });
   return rows;
@@ -376,7 +413,7 @@ function secondApproverNames_(settings) {
 
 // คนที่ลงทะเบียนแล้วและชื่อตรงกับรายชื่อที่กำหนด (เอา userId ไม่ได้ = ยังไม่พร้อมรับการ์ด)
 function registeredStaffByNames_(roster, names) {
-  return (roster || []).filter(s => s.lineUserId && names.includes(staffKey_(s)));
+  return (roster || []).filter(s => isApprovedStaffBinding_(s) && names.includes(staffKey_(s)));
 }
 
 // พูลผู้อนุมัติทั้งหมดที่กำหนดไว้ในระบบ (ทุกกลุ่มงาน + หัวหน้า สสอ.) ที่ลงทะเบียนแล้ว
@@ -386,7 +423,7 @@ function allApproverPool_(config, settings, roster, excludeKey) {
   config.forEach(c => c.approverNames.forEach(n => names.add(n)));
   secondApproverNames_(settings).forEach(n => names.add(n));
   return (roster || []).filter(s =>
-    s.lineUserId && names.has(staffKey_(s)) && staffKey_(s) !== excludeKey);
+    isApprovedStaffBinding_(s) && names.has(staffKey_(s)) && staffKey_(s) !== excludeKey);
 }
 
 /**

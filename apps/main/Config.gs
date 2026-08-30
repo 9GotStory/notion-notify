@@ -51,6 +51,7 @@ function onOpen() {
     .addItem('ร่างยอดยกมาปีถัดไป', 'draftCarryOverNextYear')
     .addItem('รัน Unit Tests', 'runUnitTests')
     .addItem('ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ', 'installTrigger')
+    .addItem('สร้างรหัสจับคู่กลุ่ม LINE', 'startLineGroupPairing')
     .addSeparator()
     .addItem('เตรียม/ตรวจสอบชีตทั้งหมด', 'setupSheet')
     .addItem('เติมสิทธิ์วันลาตามระเบียบ', 'seedLeaveQuotaDefaults')
@@ -74,14 +75,39 @@ function setupSheet() {
   ensureSheet_(ss, 'Holidays', 'วันหยุดราชการ (ตรวจทานกับ soc.go.th ทุกต้นปี)', ['วันที่', 'ชื่อวันหยุด', 'ประเภท'], status);
   ensureSheet_(ss, 'Logs', 'บันทึกการทำงานของระบบ (เขียนอัตโนมัติ ไม่ต้องแก้ไข)', ['เวลาที่บันทึก', 'วันที่', 'สถานะ', 'รายละเอียด'], status);
   ensureSheet_(ss, 'Approvers', 'ผู้อนุมัติระบบลางาน — กลุ่มงานไหน ใครอนุมัติ ส่งต่อ หัวหน้า สสอ. ไหม', APPROVERS_SHEET_COLUMNS, status);
-  ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ — เพิ่มอัตโนมัติเมื่อแต่ละคนลงทะเบียนผ่านฟอร์มเอง', STAFF_SHEET_COLUMNS, status);
+  ensureSheet_(ss, 'Staff', 'ทำเนียบเจ้าหน้าที่ที่ผู้ดูแลรับรอง — ผู้ใช้ขอผูก LINE ด้วยรหัสบุคลากรและรออนุมัติ', STAFF_SHEET_COLUMNS, status);
   ensureSheet_(ss, 'LeaveBalances', 'สมุดรายการปรับยอดวันลา — ยอดที่แสดงทุกจุด = ใบลาจริง + รายการในนี้ (จัดการผ่านหน้าเว็บตั้งค่าหรือแก้ตรงนี้)', BALANCE_SHEET_COLUMNS, status);
   ensureSheet_(ss, 'QuotaProfiles', QUOTA_PROFILE_SHEET_TITLE, QUOTA_PROFILE_COLUMNS, status);
-  // migration: ชีต Staff ที่สร้างก่อนมีคอลัมน์ "ประเภทบุคลากร" — เติมหัวคอลัมน์ที่ 9 ให้ (ต่อท้าย ไม่ขยับของเดิม)
+  // migration: เติมหัวคอลัมน์ Staff ที่ต่อท้ายภายหลัง โดยไม่ขยับข้อมูลเดิม
   const staffSheet = ss.getSheetByName('Staff');
-  if (staffSheet && !String(staffSheet.getRange(2, 9).getDisplayValue()).trim()) {
-    staffSheet.getRange(2, 9).setValue('ประเภทบุคลากร');
-    status.push('เติมหัวคอลัมน์ "ประเภทบุคลากร" (คอลัมน์ I) ให้ชีต Staff');
+  if (staffSheet) {
+    const currentHeaders = staffSheet.getRange(2, 1, 1, STAFF_SHEET_COLUMNS.length).getDisplayValues()[0];
+    const migrateExistingBindings = !String(currentHeaders[10] || '').trim() &&
+      !String(currentHeaders[11] || '').trim();
+    const missingHeaders = [];
+    STAFF_SHEET_COLUMNS.forEach((header, index) => {
+      if (!String(currentHeaders[index] || '').trim()) {
+        staffSheet.getRange(2, index + 1).setValue(header);
+        missingHeaders.push(header);
+      }
+    });
+    if (missingHeaders.length) status.push('เติมหัวคอลัมน์ใหม่ให้ชีต Staff: ' + missingHeaders.join(', '));
+    // การติดตั้งเดิมมีเฉพาะบัญชีที่ใช้งานจริง: grandfather แถวเดิมหนึ่งครั้งเมื่อเพิ่มคอลัมน์สถานะ
+    // เพื่อไม่ล็อกผู้ใช้ทั้งหมดทันที ส่วนรหัสบุคลากรยังต้องให้ผู้ดูแลเติมจากแหล่งข้อมูล HR
+    if (migrateExistingBindings && staffSheet.getLastRow() >= 3) {
+      const existing = staffSheet.getRange(3, 1, staffSheet.getLastRow() - 2, STAFF_SHEET_COLUMNS.length)
+        .getDisplayValues();
+      let migrated = 0;
+      existing.forEach((row, index) => {
+        if (!String(row[1]).trim() || !String(row[2]).trim()) return;
+        staffSheet.getRange(3 + index, 11).setValue(STAFF_ACTIVE_STATUS);
+        if (String(row[5]).trim()) {
+          staffSheet.getRange(3 + index, 12).setValue(STAFF_BINDING_STATUS.approved);
+          migrated++;
+        }
+      });
+      status.push('รับรองบัญชี LINE เดิม ' + migrated + ' คนจากโครงชีตก่อน migration; ผู้ดูแลต้องเติมรหัสบุคลากร');
+    }
   }
 
   // บังคับรูปแบบวันที่ให้แสดงเป็น yyyy-MM-dd — โค้ดอ่านค่าตามที่แสดงบนจอ (readHolidaySet_)
@@ -99,7 +125,7 @@ function setupSheet() {
     ['enabled', 'TRUE', 'เปิด/ปิดระบบแจ้งเตือน (TRUE หรือ FALSE)'],
     ['notify_time', '08:30', 'เวลาส่งข้อความเช้า (HH:mm) — แก้แล้วต้องกดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ" ทุกครั้ง'],
     ['notion_database_id', 'your_notion_database_id', 'Database ID ของ "ปฏิทินการปฏิบัติงาน" ใน Notion'],
-    ['line_group_id', '', 'เติมอัตโนมัติเมื่อบอทเข้ากลุ่ม LINE และมีคนพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)'],
+    ['line_group_id', '', 'Group ID ที่ผู้ดูแลยืนยันแล้ว — จับคู่ด้วยรหัสใช้ครั้งเดียวจากเมนู ห้ามรับทุกข้อความใน webhook'],
     ['message_format', 'text', 'รูปแบบข้อความเช้า: text หรือ flex'],
     ['logs_retention_days', '90', 'จำนวนวันที่เก็บชีต Logs: 30-3650 วัน (ค่าเริ่มต้น 90) — ลบอัตโนมัติวันละครั้ง ไม่กระทบ AuditLog/SecurityEvents'],
     ['advance_notice_days', '1', 'แสดงส่วน "ล่วงหน้า" (งาน+ผู้ลาของ N วันถัดไป) ต่อท้ายข้อความเช้า: ใส่ 1-7 (เว้นว่าง = ปิด) — รวมในข้อความเดียวกับของวันนี้ จึงไม่เพิ่มโควตาข้อความ LINE'],
@@ -126,8 +152,21 @@ function setupSheet() {
     quotaSheet.getRange(2, 4).setValue(QUOTA_PROFILE_COLUMNS[3]);
   }
   const balanceSheet = ss.getSheetByName('LeaveBalances');
-  if (balanceSheet && String(balanceSheet.getRange(2, 1).getDisplayValue()).trim() === BALANCE_SHEET_COLUMNS[0]) {
-    balanceSheet.getRange(2, 4, 1, 2).setValues([[BALANCE_SHEET_COLUMNS[3], BALANCE_SHEET_COLUMNS[4]]]);
+  if (balanceSheet) {
+    const balanceHeaders = balanceSheet.getRange(2, 1, 1, BALANCE_SHEET_COLUMNS.length).getDisplayValues()[0];
+    const missingBalanceHeaders = [];
+    BALANCE_SHEET_COLUMNS.forEach((header, index) => {
+      if (!String(balanceHeaders[index] || '').trim()) {
+        balanceSheet.getRange(2, index + 1).setValue(header);
+        missingBalanceHeaders.push(header);
+      }
+    });
+    if (missingBalanceHeaders.length) {
+      status.push('เติมหัวคอลัมน์ใหม่ให้ชีต LeaveBalances: ' + missingBalanceHeaders.join(', '));
+    }
+    if (String(balanceSheet.getRange(2, 1).getDisplayValue()).trim() === BALANCE_SHEET_COLUMNS[0]) {
+      balanceSheet.getRange(2, 4, 1, 2).setValues([[BALANCE_SHEET_COLUMNS[3], BALANCE_SHEET_COLUMNS[4]]]);
+    }
   }
   const spellingMigration = migrateLeaveTypeSpelling_();
   if (spellingMigration.updated) {
@@ -183,6 +222,21 @@ function setupSheet() {
     SpreadsheetApp.getUi().alert('เตรียมสเปรดชีตเรียบร้อย', summary, SpreadsheetApp.getUi().ButtonSet.OK);
   } catch (err) {
     console.log(summary);
+  }
+}
+
+/** สร้างรหัสจับคู่กลุ่มแบบใช้ครั้งเดียว อายุ 10 นาที; ไม่บันทึกรหัสลง Logs */
+function startLineGroupPairing() {
+  const code = Utilities.getUuid().replace(/-/g, '').substring(0, 8).toUpperCase();
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('LINE_GROUP_PAIRING_CODE', code);
+  props.setProperty('LINE_GROUP_PAIRING_EXPIRES_AT', String(Date.now() + 10 * 60 * 1000));
+  const message = 'ส่งข้อความต่อไปนี้ในกลุ่ม LINE เป้าหมายภายใน 10 นาที:\n\nเชื่อมกลุ่ม ' + code +
+    '\n\nระบบจะใช้รหัสได้ครั้งเดียวและไม่เปลี่ยนกลุ่มจากข้อความอื่น';
+  try {
+    SpreadsheetApp.getUi().alert('จับคู่กลุ่ม LINE', message, SpreadsheetApp.getUi().ButtonSet.OK);
+  } catch (err) {
+    console.log('สร้างรหัสจับคู่กลุ่ม LINE แล้ว กรุณาเปิดจากเมนูใน Google Sheet เพื่อดูรหัส');
   }
 }
 
@@ -356,7 +410,7 @@ function collectSystemHealth_() {
     findings.push(['warn', 'ยังไม่ใส่ leave_database_id — ระบบลาใช้ไม่ได้จนกว่าจะวาง ID ของ database "ใบลา"']);
   }
   if (!String(settings.line_group_id || '').trim()) {
-    findings.push(['warn', 'ยังไม่มี line_group_id — เชิญบอทเข้ากลุ่ม LINE แล้วพิมพ์ข้อความ 1 ครั้ง (ต้อง deploy webhook ก่อน)']);
+    findings.push(['warn', 'ยังไม่มี line_group_id — ใช้เมนู "สร้างรหัสจับคู่กลุ่ม LINE" แล้วส่งข้อความจับคู่ในกลุ่มเป้าหมาย']);
   }
   const policyFinding = leavePolicyReviewFinding_(settings.leave_policy_reviewed_at, bangkokTodayStr_());
   if (policyFinding) findings.push(['warn', policyFinding]);
@@ -370,17 +424,22 @@ function collectSystemHealth_() {
     findings.push(['warn', 'ยังไม่ตั้ง NOTION_TOKEN ใน Script Properties — อ่าน/เขียน Notion ไม่ได้']);
   }
   if (!props.getProperty('LOGIN_CHANNEL_ID')) {
-    findings.push(['info', 'ยังไม่ตั้ง LOGIN_CHANNEL_ID (ไม่บังคับ — ตั้งแล้วเพิ่มความเข้มงวดการตรวจ token ของ LIFF)']);
+    findings.push(['warn', 'ยังไม่ตั้ง LOGIN_CHANNEL_ID — ระบบปฏิเสธการเข้าสู่ระบบ LIFF จนกว่าจะตั้งค่าให้ตรงกับ LINE Login channel']);
   }
   if (allowLegacyDirectRequests_()) {
-    findings.push(['info', 'Direct mode เปิดอยู่ — browser และ LINE เรียก Apps Script โดยตรงตามความเสี่ยงที่เจ้าของระบบยอมรับ']);
+    findings.push(['info', 'Direct mode สำหรับ browser เปิดอยู่ตามความเสี่ยงที่เจ้าของระบบยอมรับ']);
+  }
+  if (allowUnsignedLineWebhook_()) {
+    findings.push(['warn', 'ALLOW_UNSIGNED_LINE_WEBHOOK=TRUE — LINE webhook ตรงตรวจลายเซ็นไม่ได้ ควรใช้ gateway แล้วลบค่านี้']);
+  } else if (!props.getProperty('GATEWAY_SHARED_SECRET')) {
+    findings.push(['warn', 'LINE webhook ต้องผ่าน gateway แต่ยังไม่ตั้ง GATEWAY_SHARED_SECRET ใน Script Properties']);
   }
 
   // ชีต Approvers
   let config = [];
   try { config = readApproversConfig_(); } catch (err) { /* ยังไม่มีชีต/ยังไม่มีแถว */ }
   if (!config.length) {
-    findings.push(['warn', 'ชีต Approvers ยังไม่มีแถว — ฟอร์มลงทะเบียนจะไม่มีกลุ่มงานให้เลือก']);
+    findings.push(['warn', 'ชีต Approvers ยังไม่มีแถว — ระบบหาเส้นทางผู้อนุมัติไม่ได้']);
   }
   const secondNames = splitConfigNames_(settings.second_approvers);
   config.forEach(c => {
@@ -396,9 +455,17 @@ function collectSystemHealth_() {
   try { roster = readStaffRoster_(); } catch (err) { /* ยังไม่มีชีต */ }
   const dupNames = findDuplicates_(roster.map(s => staffKey_(s)));
   if (dupNames.length) findings.push(['warn', 'ชื่อ-สกุลซ้ำกันในชีต Staff: ' + dupNames.join(', ')]);
+  const dupEmployeeIds = findDuplicates_(roster.map(s => s.employeeId).filter(Boolean));
+  if (dupEmployeeIds.length) findings.push(['warn', 'รหัสบุคลากรซ้ำกันในชีต Staff: ' + dupEmployeeIds.join(', ')]);
+  const missingEmployeeIds = roster.filter(s => !s.employeeId).length;
+  if (missingEmployeeIds) findings.push(['warn', 'Staff ยังไม่มีรหัสบุคลากร ' + missingEmployeeIds + ' คน — บุคคลเหล่านี้ขอผูก LINE ใหม่ไม่ได้']);
+  const missingEmploymentStatus = roster.filter(s => !s.employmentStatus).length;
+  if (missingEmploymentStatus) findings.push(['warn', 'Staff ยังไม่มีสถานะบุคลากร ' + missingEmploymentStatus + ' คน — ต้องกำหนด ACTIVE หรือ INACTIVE']);
   if (roster.length) {
-    const registered = roster.filter(s => s.lineUserId).length;
-    findings.push(['info', 'ทำเนียบ Staff: ลงทะเบียนแล้ว ' + registered + '/' + roster.length + ' คน']);
+    const registered = roster.filter(isApprovedStaffBinding_).length;
+    const pending = roster.filter(s => s.bindingStatus === STAFF_BINDING_STATUS.pending).length;
+    findings.push(['info', 'ทำเนียบ Staff: อนุมัติการผูกแล้ว ' + registered + '/' + roster.length +
+      ' คน' + (pending ? ' · รอตรวจสอบ ' + pending + ' คน' : '')]);
   }
 
   // ผู้อนุมัติที่อ้างในคอนฟิกแต่ยังไม่มีชื่อนี้ใน Staff (ยังไม่ลงทะเบียน หรือพิมพ์ไม่ตรง)

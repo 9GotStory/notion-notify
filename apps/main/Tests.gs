@@ -21,10 +21,12 @@ function runUnitTests() {
     testCleanupOldFailCounts_,
     testLogRetention_,
     testNotionPlaceholder_,
+    testNotionRetryPolicy_,
     // ระบบลางาน (ไฟล์ Leave*.gs)
     testStaffDisplayName_,
     testResolveApprovalChain_,
     testCanApproveLeave_,
+    testApprovalSnapshot_,
     testNotionPageId_,
     testLeaveSystemSwitch_,
     testLeaveApprovalSwitch_,
@@ -339,6 +341,32 @@ function testNotionPlaceholder_() {
   );
 }
 
+function testNotionRetryPolicy_() {
+  assertTrue_(shouldRetryNotion_(429, false), '429 ต้อง retry ตาม Retry-After');
+  assertTrue_(shouldRetryNotion_(529, true), 'คำขอ idempotent ต้อง retry 529');
+  assertTrue_(shouldRetryNotion_(503, true), 'คำขอ idempotent ต้อง retry 5xx');
+  assertFalse_(shouldRetryNotion_(503, false), 'ห้าม retry create ที่อาจสร้างสำเร็จแล้ว');
+  assertFalse_(shouldRetryNotion_(400, true), 'validation error ห้าม retry');
+}
+
+function testApprovalSnapshot_() {
+  const configOn = [{ groupName: 'คลัง', forward: true }];
+  const configOff = [{ groupName: 'คลัง', forward: false }];
+  assertFalse_(approvalNeedsSecond_({ needsSecond: false }, configOn, 'คลัง'),
+    'snapshot ปิดต้องไม่เปลี่ยนตามคอนฟิกใหม่');
+  assertTrue_(approvalNeedsSecond_({ needsSecond: true }, configOff, 'คลัง'),
+    'snapshot เปิดต้องไม่เปลี่ยนตามคอนฟิกใหม่');
+  assertTrue_(approvalNeedsSecond_({ stage: 'first' }, configOn, 'คลัง'),
+    'ใบรุ่นเก่าต้อง fallback คอนฟิก');
+  assertFalse_(Object.prototype.hasOwnProperty.call(
+    JSON.parse(serializeApproverInfo_('first', [], null, null, undefined)), 'needsSecond'),
+    'การ reassign ใบรุ่นเก่าต้องไม่เปลี่ยน undefined เป็น false');
+  assertFalse_(duplicateSubmissionResponse_({ currentApprover: { stage: 'first', needsSecond: false },
+    requestId: 'r', pageId: 'p', workDays: 1, leaveType: 'ลากิจ', period: 'เต็มวัน', status: LEAVE_STATUS.pendingApprover,
+    notificationState: LEAVE_NOTIFICATION_STATE.sent }).needsSecond,
+  'duplicate response ต้องใช้ snapshot ไม่เดาจาก stage');
+}
+
 function createTestItem_() {
   return {
     title: 'ประชุมทีม',
@@ -362,7 +390,10 @@ function createTestRoster_() {
     { row: 6, prefix: 'นาย', firstName: 'สมชาย', lastName: 'ใจแข็ง', groupName: 'กลุ่มงานแพทย์และการพยาบาล', position: 'พยาบาลวิชาชีพ', lineUserId: '', lineDisplayName: '', registeredAt: '' },
     { row: 7, prefix: 'นาย', firstName: 'สมพร', lastName: 'ผู้อำนวยการดี', groupName: 'บริหาร', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_SECOND1', lineDisplayName: 'ChiefOffice1', registeredAt: '2026-08-01' },
     { row: 8, prefix: 'นาง', firstName: 'สมศรี', lastName: 'ผู้อำนวยการดี', groupName: 'บริหาร', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_SECOND2', lineDisplayName: 'ChiefOffice2', registeredAt: '2026-08-01' },
-  ];
+  ].map(function (staff, index) {
+    return Object.assign({ employeeId: 'EMP' + (index + 1), employmentStatus: 'ACTIVE',
+      bindingStatus: staff.lineUserId ? 'APPROVED' : '', pendingLineUserId: '' }, staff);
+  });
 }
 
 // คอนฟิกจำลองตามโครงชีต Approvers: กลุ่มงาน | ผู้อนุมัติ | ส่งต่อ หัวหน้า สสอ.
@@ -403,6 +434,9 @@ function testStaffDisplayName_() {
   assertEqual_(staffDisplayName_(null), '');
   // ช่องว่างซ้ำต้องยุบเป็นช่องเดียว เพื่อจับคู่กับชื่อที่ผู้ดูแลพิมพ์ในชีตได้
   assertEqual_(staffKey_({ firstName: 'สมศักดิ์', lastName: 'ใจ  ดี' }), 'สมศักดิ์ ใจ ดี');
+  assertTrue_(isApprovedStaffBinding_(roster[0]));
+  assertFalse_(isApprovedStaffBinding_(Object.assign({}, roster[0], { employmentStatus: 'INACTIVE' })));
+  assertFalse_(isApprovedStaffBinding_(Object.assign({}, roster[0], { bindingStatus: 'PENDING' })));
 }
 
 function testResolveApprovalChain_() {
@@ -441,7 +475,7 @@ function testResolveApprovalChain_() {
   );
 
   // กลุ่มงานที่ยังไม่มีแถวในชีต Approvers (ต้องเป็นคนที่ไม่อยู่ในลิสต์ หัวหน้า สสอ. ไม่งั้นชนเคสนอกระบบก่อน)
-  const orphanStaff = { prefix: 'นาย', firstName: 'สมโชค', lastName: 'ใจสั้น', groupName: 'กลุ่มงานซ่อมบำรุง', position: 'ช่างซ่อมบำรุง', lineUserId: 'U_ORPHAN', lineDisplayName: '', registeredAt: '2026-08-01' };
+  const orphanStaff = { prefix: 'นาย', firstName: 'สมโชค', lastName: 'ใจสั้น', groupName: 'กลุ่มงานซ่อมบำรุง', position: 'ช่างซ่อมบำรุง', lineUserId: 'U_ORPHAN', lineDisplayName: '', registeredAt: '2026-08-01', employeeId: 'EMP-ORPHAN', employmentStatus: 'ACTIVE', bindingStatus: 'APPROVED' };
   assertThrows_(
     function () { resolveApprovalChain_(config, settings, roster, orphanStaff); },
     'ยังไม่ได้ตั้งค่าผู้อนุมัติ'
@@ -824,7 +858,7 @@ function testBuildLeavePagePayload_() {
     reason: 'ไปต่อด่าน',
     workDays: 2,
     initialStatus: LEAVE_STATUS.pendingApprover,
-    currentApprover: serializeApproverInfo_('first', approvers),
+    currentApprover: serializeApproverInfo_('first', approvers, null, null, true),
     requestId: '123e4567-e89b-42d3-a456-426614174000',
   });
 
@@ -843,6 +877,7 @@ function testBuildLeavePagePayload_() {
   const parsed = JSON.parse(payload.properties[PROPS_LEAVE.currentApprover].rich_text[0].text.content);
   assertEqual_(parsed.stage, 'first');
   assertEqual_(parsed.userIds.join(','), 'U_CHIEF');
+  assertTrue_(parsed.needsSecond, 'ต้อง snapshot แผนส่งต่อขั้นสองไว้ในใบลา');
 
   // กรณีเริ่มที่ หัวหน้า สสอ. ทันที (ผู้ยื่นคือผู้อนุมัติของกลุ่มตัวเอง)
   const directPayload = buildLeavePagePayload_({
@@ -1235,18 +1270,24 @@ function testSubtractLeaveFromUsage_() {
   assertEqual_(subtractLeaveFromUsage_(null, createTestLeave_()), null);
 
   const usage = { 'ลากิจ': 3, 'ลาพักร้อน': 2 };
-  const result = subtractLeaveFromUsage_(usage, { leaveType: 'ลากิจ', workDays: 2 });
+  const result = subtractLeaveFromUsage_(usage,
+    { leaveType: 'ลากิจ', workDays: 2, status: LEAVE_STATUS.pendingApprover });
   assertEqual_(result['ลากิจ'], 1);
   assertEqual_(result['ลาพักร้อน'], 2); // ประเภทอื่นไม่ถูกแตะ
   assertEqual_(usage['ลากิจ'], 3); // ต้นฉบับไม่ถูก mutate
 
   // หักจนติดลบ → หนีบที่ 0 (ใบเดิมอาจถูกแก้ประเภทใน Notion มาก่อน)
-  assertEqual_(subtractLeaveFromUsage_({ 'ลากิจ': 1 }, { leaveType: 'ลากิจ', workDays: 2 })['ลากิจ'], 0);
+  assertEqual_(subtractLeaveFromUsage_({ 'ลากิจ': 1 },
+    { leaveType: 'ลากิจ', workDays: 2, status: LEAVE_STATUS.approved })['ลากิจ'], 0);
+  // ใบที่ยกเลิก/ไม่อนุมัติไม่เคยถูกนับใน usage จึงห้ามหักออกอีกตอนผู้ดูแลเปิดสถานะกลับ
+  assertEqual_(subtractLeaveFromUsage_({ 'ลากิจ': 3 },
+    { leaveType: 'ลากิจ', workDays: 2, status: LEAVE_STATUS.cancelled })['ลากิจ'], 3);
 }
 
 function testSubtractLeaveFromTargetYearUsage_() {
   const usage = { 'ลากิจ': 3 };
-  const oldLeave = { start: '2026-12-20', leaveType: 'ลากิจ', workDays: 2 };
+  const oldLeave = { start: '2026-12-20', leaveType: 'ลากิจ', workDays: 2,
+    status: LEAVE_STATUS.pendingApprover };
   assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2027)['ลากิจ'], 1);
   assertEqual_(subtractLeaveFromTargetYearUsage_(usage, oldLeave, 2026)['ลากิจ'], 3);
 }
