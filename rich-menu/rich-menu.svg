@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="1686" viewBox="0 0 2500 1686">
+  <defs>
+    <linearGradient id="scheduleBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F6E56"/>
+      <stop offset="1" stop-color="#084A3C"/>
+    </linearGradient>
+    <linearGradient id="websiteBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E8F3EF"/>
+      <stop offset="1" stop-color="#D5E9E2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="22" stdDeviation="24" flood-color="#062E26" flood-opacity=".20"/>
+    </filter>
+  </defs>
+
+  <!-- Left: schedule -->
+  <rect width="1666" height="1686" fill="url(#scheduleBg)"/>
+  <circle cx="112" cy="112" r="70" fill="#FFFFFF" opacity=".98"/>
+  <text x="112" y="101" text-anchor="middle" fill="#0F6E56" font-family="Noto Sans Thai, sans-serif" font-size="34" font-weight="800">สสอ.</text>
+  <text x="112" y="143" text-anchor="middle" fill="#0F6E56" font-family="Noto Sans Thai, sans-serif" font-size="32" font-weight="700">สอง</text>
+  <text x="210" y="102" fill="#DFF3EC" font-family="Noto Sans Thai, sans-serif" font-size="40" font-weight="600">สำนักงานสาธารณสุขอำเภอสอง</text>
+  <text x="210" y="151" fill="#A9D8C9" font-family="Noto Sans Thai, sans-serif" font-size="30">จังหวัดแพร่</text>
+
+  <g transform="translate(508 320)" filter="url(#shadow)">
+    <rect x="0" y="70" width="650" height="590" rx="72" fill="#FFFFFF"/>
+    <path d="M72 70h506a72 72 0 0 1 72 72v92H0v-92a72 72 0 0 1 72-72z" fill="#E7A84B"/>
+    <rect x="130" y="0" width="58" height="152" rx="29" fill="#C9E7DD"/>
+    <rect x="462" y="0" width="58" height="152" rx="29" fill="#C9E7DD"/>
+    <g fill="#0F6E56">
+      <rect x="105" y="310" width="102" height="84" rx="18"/>
+      <rect x="274" y="310" width="102" height="84" rx="18"/>
+      <rect x="443" y="310" width="102" height="84" rx="18"/>
+      <rect x="105" y="455" width="102" height="84" rx="18"/>
+      <rect x="274" y="455" width="102" height="84" rx="18"/>
+      <rect x="443" y="455" width="102" height="84" rx="18"/>
+    </g>
+    <path d="M293 487l47 47 112-129" fill="none" stroke="#E7A84B" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="833" y="1165" text-anchor="middle" fill="#FFFFFF" font-family="Noto Sans Thai, sans-serif" font-size="112" font-weight="700">ตารางงาน</text>
+  <text x="833" y="1250" text-anchor="middle" fill="#C7E5DC" font-family="Noto Sans Thai, sans-serif" font-size="45" font-weight="500">ปฏิทินงานและกำลังคน</text>
+  <rect x="603" y="1340" width="460" height="102" rx="51" fill="#FFFFFF" opacity=".13" stroke="#FFFFFF" stroke-opacity=".35" stroke-width="3"/>
+  <text x="833" y="1408" text-anchor="middle" fill="#FFFFFF" font-family="Noto Sans Thai, sans-serif" font-size="42" font-weight="600">แตะเพื่อเปิดดู</text>
+
+  <!-- Right top: leave form -->
+  <rect x="1666" width="834" height="843" fill="#FFF9EE"/>
+  <rect x="1666" width="24" height="843" fill="#E7A84B"/>
+  <g transform="translate(1943 50) scale(.8)">
+    <rect x="0" y="0" width="350" height="460" rx="44" fill="#FFFFFF" stroke="#E7A84B" stroke-width="16" filter="url(#shadow)"/>
+    <path d="M85 130h180M85 210h180M85 290h100" stroke="#0F6E56" stroke-width="28" stroke-linecap="round"/>
+    <circle cx="270" cy="355" r="92" fill="#0F6E56"/>
+    <path d="M226 355l31 31 61-73" fill="none" stroke="#FFFFFF" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="2083" y="515" text-anchor="middle" fill="#0B5643" font-family="Noto Sans Thai, sans-serif" font-size="76" font-weight="700">ยื่นใบลา</text>
+  <text x="2083" y="588" text-anchor="middle" fill="#47665D" font-family="Noto Sans Thai, sans-serif" font-size="34" font-weight="500">ส่งคำขอและติดตามสถานะ</text>
+  <rect x="1873" y="645" width="420" height="96" rx="48" fill="#E7A84B"/>
+  <text x="2083" y="709" text-anchor="middle" fill="#FFFFFF" font-family="Noto Sans Thai, sans-serif" font-size="39" font-weight="700">เปิดแบบฟอร์ม</text>
+
+  <!-- Right bottom: office website -->
+  <rect x="1666" y="843" width="834" height="843" fill="url(#websiteBg)"/>
+  <rect x="1666" y="843" width="24" height="843" fill="#0F6E56"/>
+  <g transform="translate(1903 905)" fill="none" stroke="#0F6E56" stroke-width="24">
+    <circle cx="180" cy="180" r="166" fill="#FFFFFF" filter="url(#shadow)"/>
+    <ellipse cx="180" cy="180" rx="76" ry="166"/>
+    <path d="M20 126h320M20 234h320M180 14v332"/>
+  </g>
+  <text x="2083" y="1315" text-anchor="middle" fill="#0B5643" font-family="Noto Sans Thai, sans-serif" font-size="64" font-weight="700">เว็บไซต์สำนักงาน</text>
+  <text x="2083" y="1382" text-anchor="middle" fill="#47665D" font-family="Noto Sans Thai, sans-serif" font-size="34" font-weight="500">ข่าวสารและประชาสัมพันธ์</text>
+  <rect x="1863" y="1450" width="440" height="96" rx="48" fill="#0F6E56"/>
+  <text x="2083" y="1514" text-anchor="middle" fill="#FFFFFF" font-family="Noto Sans Thai, sans-serif" font-size="39" font-weight="700">เยี่ยมชมเว็บไซต์</text>
+
+  <!-- Exact action boundaries -->
+  <path d="M1666 0v1686M1666 843h834" fill="none" stroke="#FFFFFF" stroke-opacity=".72" stroke-width="8"/>
+</svg>

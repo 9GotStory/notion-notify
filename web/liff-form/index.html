@@ -144,24 +144,28 @@
   <!-- ===== ฟอร์มยื่นลา ===== -->
   <section id="view-form" class="hidden">
     <p id="leaveOffForm" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
-    <p id="approvalOffNote" class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4">
-      ℹ️ ระบบปิดการอนุมัติอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลัก ไม่ต้องรอใครกดอนุมัติ
-    </p>
     <div id="editBanner" class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4">
       <p>✏️ กำลังแก้ไขใบลาที่ยื่นไว้ — บันทึกแล้วใบลาจะกลับไปรอผู้อนุมัติใหม่อีกครั้ง</p>
       <button type="button" id="btnCancelEdit" class="mt-1 text-xs font-semibold underline">ยกเลิกการแก้ไขและกลับไปรายการของฉัน</button>
     </div>
-    <header class="flex items-center gap-3 mb-5">
-      <div class="w-11 h-11 rounded-full bg-primary-light text-primary flex items-center justify-center text-lg font-bold flex-none" id="userInitial">ก</div>
+    <header class="flex items-center gap-3 mb-3">
+      <div class="w-10 h-10 rounded-full bg-primary-light text-primary flex items-center justify-center text-base font-bold flex-none" id="userInitial">ก</div>
       <div class="min-w-0">
         <p class="font-semibold leading-tight truncate" id="greetingName"></p>
         <p class="text-xs text-slate-500 truncate" id="greetingGroup"></p>
       </div>
     </header>
+    <p id="approvalOffNote" class="hidden text-xs text-slate-500 mb-3 px-1">
+      <span class="font-semibold text-sky-700">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกและแจ้งกลุ่มหลักทันที
+    </p>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
-      <p class="text-sm font-semibold text-slate-600 mb-2.5">ประเภทการลา</p>
+    <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+      <div class="flex items-baseline justify-between gap-2 mb-2.5">
+        <p class="text-sm font-semibold text-slate-700">ประเภทการลา</p>
+        <p class="text-xs text-slate-400">เลือก 1 ประเภท</p>
+      </div>
       <div id="typeGrid" class="grid grid-cols-2 gap-2"></div>
+      <p id="typeHelp" class="hidden mt-3 text-xs leading-relaxed text-slate-600 bg-primary-light rounded-xl px-3 py-2.5" aria-live="polite"></p>
       <p id="usageLine" class="hidden mt-3 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"></p>
     </div>
 
@@ -255,7 +259,7 @@
 
   // คำอธิบายประเภทลา (รายการประเภทจริงมาจาก Settings ผ่าน session — ที่นี่เก็บแค่คำอธิบายของชื่อที่รู้จัก)
   const TYPE_DESCRIPTIONS = {
-    'ลาป่วย': 'ไม่สบาย แจ้งได้ทันที/ย้อนหลัง — เกิน 3 วันทำการต้องมีใบรับรองแพทย์',
+    'ลาป่วย': 'แจ้งได้ทันทีหรือย้อนหลัง หากลาเกิน 3 วันทำการต้องมีใบรับรองแพทย์',
     'ลากิจ': 'ธุระจำเป็น — ควรแจ้งล่วงหน้าอย่างน้อย 3 วันทำการ',
     'ลาพักร้อน': 'ลาพักผ่อนประจำปี — สิทธิ์และการสะสมขึ้นกับประเภทบุคลากร',
     'ลาคลอด': 'สิทธิ์ขึ้นกับประเภทบุคลากรและระเบียบที่ใช้บังคับ',
@@ -822,30 +826,34 @@
       btn.type = 'button';
       // ไฮไลต์ประเภทที่เลือกอยู่ (รวมถึงตอน prefill จากใบที่กำลังแก้ไข) ตั้งแต่ตอนสร้างปุ่ม
       const selected = name === state.leaveType;
-      btn.className = 'type-btn text-left p-3.5 rounded-xl border transition-colors motion-reduce:transition-none ' +
+      btn.className = 'type-btn min-h-12 px-3 py-2.5 rounded-xl border text-center transition-colors motion-reduce:transition-none ' +
+        (name.length > 22 ? 'col-span-2 ' : '') +
         (selected ? 'bg-primary-light border-primary' : 'border-slate-200 hover:border-primary');
-      const info = state.usage && state.usage[name];
-      const quotaUnit = info && info.unit ? info.unit :
-        (CALENDAR_QUOTA_TYPES.includes(name) ? 'วันปฏิทิน' : 'วันทำการ');
-      const quotaText = info && info.quota != null
-        ? (info.basis === 'manual_event'
-          ? ' · เกณฑ์อ้างอิง ' + info.quota + ' ' + quotaUnit + ' (HR ตรวจรายกรณี)'
-          : ' · สิทธิ์ปีงบประมาณ ' + (state.leaveYear || 'ปัจจุบัน') + ' ' + info.quota + ' ' + quotaUnit) : '';
-      btn.innerHTML = '<span class="block font-semibold text-sm">' + escapeHtml(name) + '</span>' +
-        '<span class="block text-xs text-slate-500 mt-0.5 leading-snug">' +
-        escapeHtml((TYPE_DESCRIPTIONS[name] || '') + quotaText) + '</span>';
+      btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
+      btn.innerHTML = '<span class="block font-semibold text-[13px] sm:text-sm leading-snug">' + escapeHtml(name) + '</span>';
       btn.addEventListener('click', () => {
         state.leaveType = name;
         document.querySelectorAll('.type-btn').forEach(b => {
           const active = b === btn;
           b.classList.toggle('bg-primary-light', active);
           b.classList.toggle('border-primary', active);
+          b.setAttribute('aria-pressed', active ? 'true' : 'false');
         });
+        refreshTypeHelp_();
         refreshUsageLine_();
         refreshDayCount();
       });
       grid.appendChild(btn);
     });
+    refreshTypeHelp_();
+  }
+
+  // แสดงคำอธิบายเฉพาะประเภทที่เลือก เพื่อให้ปุ่มสั้นและสแกนได้เร็วบนมือถือ
+  function refreshTypeHelp_() {
+    const el = $('typeHelp');
+    const description = TYPE_DESCRIPTIONS[state.leaveType] || '';
+    el.classList.toggle('hidden', !description);
+    el.textContent = description;
   }
 
   // แถวยอดใช้/สิทธิ์ของประเภทที่เลือก (ยอดจริงมาจากใบลาใน Notion ผ่าน session)
@@ -1026,7 +1034,7 @@
           ? '<div class="flex justify-between"><span class="text-slate-500">วันใช้สิทธิ์</span><span class="font-semibold">' + escapeHtml(result.quotaDaysLabel || '') + '</span></div>' : '') +
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
         (result.autoApproved && !result.notificationPending
-          ? '<span class="block text-xs text-sky-700 mt-1">ระบบปิดการอนุมัติอยู่ — บันทึกเป็นอนุมัติทันทีและแจ้งเข้ากลุ่มหลักแล้ว ไม่ต้องรอใครกดอนุมัติ</span>'
+          ? '<span class="block text-xs text-sky-700 mt-1">อนุมัติอัตโนมัติ · ระบบบันทึกและแจ้งกลุ่มหลักแล้ว</span>'
           : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) +
         (result.warnings && result.warnings.length
           ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2 whitespace-pre-line">' + escapeHtml(result.warnings.join('\n')) + '</span>'

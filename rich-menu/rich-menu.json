@@ -1,0 +1,35 @@
+{
+  "size": {
+    "width": 2500,
+    "height": 1686
+  },
+  "selected": true,
+  "name": "สสอ.สอง เมนูหลัก",
+  "chatBarText": "เมนูหลัก",
+  "areas": [
+    {
+      "bounds": { "x": 0, "y": 0, "width": 1666, "height": 1686 },
+      "action": {
+        "type": "uri",
+        "label": "ตารางงาน",
+        "uri": "https://liff.line.me/2011183549-zYNjgHZB"
+      }
+    },
+    {
+      "bounds": { "x": 1666, "y": 0, "width": 834, "height": 843 },
+      "action": {
+        "type": "uri",
+        "label": "ยื่นใบลา",
+        "uri": "https://liff.line.me/2011183549-W3menotq"
+      }
+    },
+    {
+      "bounds": { "x": 1666, "y": 843, "width": 834, "height": 843 },
+      "action": {
+        "type": "uri",
+        "label": "เว็บไซต์สำนักงาน",
+        "uri": "https://songhealth.moph.go.th/"
+      }
+    }
+  ]
+}

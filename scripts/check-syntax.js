@@ -79,6 +79,29 @@ function checkDirectModeContracts() {
   });
 }
 
+function checkLiffFormUxContracts() {
+  const filename = 'web/liff-form/index.html';
+  const source = fs.readFileSync(path.join(root, filename), 'utf8');
+  const required = [
+    'id="typeHelp"',
+    'function refreshTypeHelp_()',
+    "btn.setAttribute('aria-pressed', selected ? 'true' : 'false')",
+    'ลาช่วยเหลือภรรยาคลอดบุตร',
+  ];
+  const forbidden = [
+    "escapeHtml((TYPE_DESCRIPTIONS[name] || '') + quotaText)",
+    'ระบบปิดการอนุมัติอยู่ — ยื่นแล้วบันทึกเป็นอนุมัติทันที',
+  ];
+  const missing = required.filter(value => !source.includes(value));
+  const present = forbidden.filter(value => source.includes(value));
+  if (missing.length || present.length) {
+    console.error(filename + ' mobile UX contract failed' +
+      (missing.length ? '; missing: ' + missing.join(', ') : '') +
+      (present.length ? '; forbidden: ' + present.join(', ') : ''));
+    process.exitCode = 1;
+  }
+}
+
 walk(path.join(root, 'apps'))
   .filter(file => file.endsWith('.gs'))
   .forEach(file => check(fs.readFileSync(file, 'utf8'), path.relative(root, file)));
@@ -101,5 +124,6 @@ walk(path.join(root, 'web'))
 
 checkAdminViewContracts();
 checkDirectModeContracts();
+checkLiffFormUxContracts();
 
-if (!process.exitCode) console.log('Syntax, admin view, and direct-mode contract checks passed');
+if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');
