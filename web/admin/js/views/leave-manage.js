@@ -46,6 +46,22 @@ AdminViews['leave-manage'] = {
     return select;
   },
 
+  dateField_(label, selected) {
+    const wrap = UI.el('label', 'relative block min-h-[58px] px-3 py-2 border border-slate-200 rounded-lg bg-white cursor-pointer focus-within:ring-2 focus-within:ring-primary/30');
+    const caption = UI.el('span', 'block text-[11px] font-semibold text-slate-500', label);
+    const display = UI.el('span', 'block mt-0.5 text-sm text-slate-800', '— เลือกวันที่ —');
+    const input = document.createElement('input');
+    input.type = 'date';
+    input.value = selected || '';
+    input.setAttribute('aria-label', label);
+    input.className = 'absolute inset-0 w-full h-full opacity-0 cursor-pointer';
+    const refresh = () => { display.textContent = input.value ? UI.formatThaiDate(input.value) : '— เลือกวันที่ —'; };
+    input.addEventListener('change', refresh);
+    refresh();
+    wrap.appendChild(caption); wrap.appendChild(display); wrap.appendChild(input);
+    return { element: wrap, input: input, display: display };
+  },
+
   leaveCard_(leave, index) {
     const card = UI.el('section', 'bg-white border border-slate-200 rounded-2xl p-4 mb-3');
     card.innerHTML =
@@ -100,8 +116,10 @@ AdminViews['leave-manage'] = {
     const panel = UI.el('div', 'mt-3 grid grid-cols-2 gap-2');
     const status = this.optionSelect_(['อนุมัติ', 'ยกเลิก'], '', x => x, leave.status);
     const type = this.optionSelect_(this.data.leaveTypes || [], '', x => x, leave.leaveType);
-    const start = document.createElement('input'); start.type = 'date'; start.value = leave.start; start.className = status.className;
-    const end = document.createElement('input'); end.type = 'date'; end.value = leave.end; end.className = status.className;
+    const startField = this.dateField_('วันเริ่ม', leave.start);
+    const endField = this.dateField_('วันสิ้นสุด', leave.end);
+    const start = startField.input;
+    const end = endField.input;
     const period = this.optionSelect_(this.data.periods || [], '', x => x, leave.period);
     const people = [{ key: '', name: '— ไม่ระบุผู้ปฏิบัติงานแทน —', groupName: '' }].concat(this.data.staffOptions || []);
     const substitute = this.optionSelect_(people, 'key', p => p.name + (p.groupName ? ' · ' + p.groupName : ''), leave.substituteKey);
@@ -124,7 +142,8 @@ AdminViews['leave-manage'] = {
         await this.render(UI.$('view'), this._isStale);
       } catch (err) { UI.showToast(err.message, true); } finally { UI.setBusy(button, false); }
     });
-    [status, type, start, end, period, substitute, reason, adjustment, button].forEach(node => panel.appendChild(node));
+    [status, type, startField.element, endField.element, period, substitute, reason, adjustment, button]
+      .forEach(node => panel.appendChild(node));
     return this.togglePanel_('ปรับผลการลาใช้จริง', panel);
   },
 };

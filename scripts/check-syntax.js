@@ -143,7 +143,23 @@ function checkThaiDateContracts() {
     console,
     setTimeout() { return 1; },
     clearTimeout() {},
-    document: {},
+    document: {
+      createElement(tag) {
+        return {
+          tagName: tag,
+          className: '',
+          textContent: '',
+          value: '',
+          children: [],
+          listeners: {},
+          dataset: {},
+          classList: { add() {}, remove() {} },
+          setAttribute(name, value) { this[name] = String(value); },
+          appendChild(child) { this.children.push(child); },
+          addEventListener(type, listener) { this.listeners[type] = listener; },
+        };
+      },
+    },
     Blob: function Blob() {},
     URL: {},
   });
@@ -182,6 +198,32 @@ function checkThaiDateContracts() {
       process.exitCode = 1;
     }
   });
+
+  const leaveManage = fs.readFileSync(path.join(root, 'web/admin/js/views/leave-manage.js'), 'utf8');
+  const leaveManageRequired = [
+    "dateField_('วันเริ่ม', leave.start)",
+    "dateField_('วันสิ้นสุด', leave.end)",
+    'UI.formatThaiDate(input.value)',
+    "input.className = 'absolute inset-0 w-full h-full opacity-0 cursor-pointer'",
+  ];
+  const missing = leaveManageRequired.filter(value => !leaveManage.includes(value));
+  if (missing.length) {
+    console.error('Admin leave-management date field contract failed; missing: ' + missing.join(', '));
+    process.exitCode = 1;
+  }
+  vm.runInContext(leaveManage, context, { filename: 'web/admin/js/views/leave-manage.js' });
+  const field = vm.runInContext("AdminViews['leave-manage'].dateField_('วันเริ่ม', '2026-08-30')", context);
+  if (field.input.type !== 'date' || field.display.textContent !== '30 ส.ค. 2569' ||
+      field.input.className.indexOf('opacity-0') === -1) {
+    console.error('Admin leave-management date field did not show the shared Thai format over the native picker');
+    process.exitCode = 1;
+  }
+  field.input.value = '2026-08-31';
+  field.input.listeners.change();
+  if (field.display.textContent !== '31 ส.ค. 2569') {
+    console.error('Admin leave-management date field did not refresh after date selection');
+    process.exitCode = 1;
+  }
 }
 
 walk(path.join(root, 'apps'))
