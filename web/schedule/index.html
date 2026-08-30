@@ -25,6 +25,8 @@
 <!-- Tailwind v4 — คอมไพล์ชุดเดียวกับฟอร์มลา (แก้ธีมที่ web/liff-form/src/styles.css) -->
 <link rel="stylesheet" href="../liff-form/styles.css">
 
+<script src="../shared/date.js"></script>
+
 <!-- GitHub Actions แทนที่ placeholder ก่อน deploy ด้วยค่าจาก Environment "liff"
      (SCHEDULE_LIFF_ID เป็นตัวเลือก — ว่าง = โหมดสาธารณะล้วน, API_URL ต้องมี) -->
 <script>
@@ -90,7 +92,6 @@
 
   const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
     'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
-  const THAI_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
   const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
   // ขอบเขตการดู มิเรอร์ฝั่งเซิร์ฟเวอร์ (apiSchedule_): ย้อนหลัง 1 เดือน ล่วงหน้า 6 เดือน
@@ -129,9 +130,8 @@
     return THAI_MONTHS[m - 1] + ' ' + (y + 543);
   }
   function dayLabel(dateStr) {
-    const [y, m, d] = dateStr.split('-').map(Number);
     const dow = new Date(dateStr + 'T00:00:00').getDay();
-    return 'วัน' + THAI_DAYS[dow] + 'ที่ ' + d + ' ' + THAI_MONTHS_SHORT[m - 1] + ' ' + (y + 543);
+    return 'วัน' + THAI_DAYS[dow] + ' · ' + ThaiDate.format(dateStr);
   }
   function escapeHtml(str) {
     return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({

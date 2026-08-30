@@ -49,13 +49,13 @@ AdminViews.holidays = {
       const tr = UI.el('tr');
       if (String(h.date) < today) tr.className = 'opacity-50'; // วันที่ผ่านไปแล้วจางลง
       tr.innerHTML =
-        '<td class="px-4 py-2.5 font-mono text-xs whitespace-nowrap">' + UI.escapeHtml(h.date) + '</td>' +
+        '<td class="px-4 py-2.5 text-xs whitespace-nowrap">' + UI.escapeHtml(UI.formatThaiDate(h.date)) + '</td>' +
         '<td class="px-4 py-2.5">' + UI.escapeHtml(h.name) + '</td>' +
         '<td class="px-4 py-2.5 text-slate-500 text-xs">' + UI.escapeHtml(h.type) + '</td>';
       const td = UI.el('td', 'px-4 py-2.5 text-right');
       const del = UI.el('button', 'text-xs text-red-500 hover:underline', 'ลบ');
       del.addEventListener('click', async () => {
-        if (!confirm('ลบวันหยุด ' + h.date + ' — ' + h.name + '?')) return;
+        if (!confirm('ลบวันหยุด ' + UI.formatThaiDate(h.date) + ' — ' + h.name + '?')) return;
         UI.setBusy(del, true, 'กำลังลบ…');
         try {
           await AdminAPI.call('delete_holiday', { row: h.row, version: h.version });

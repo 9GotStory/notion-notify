@@ -42,6 +42,7 @@
     API_URL: '__API_URL__',
   };
 </script>
+<script src="../shared/date.js"></script>
 </head>
 <body class="font-sans bg-canvas text-slate-900 text-[15px] leading-relaxed">
 
@@ -424,15 +425,11 @@
     }
     return count;
   }
-  const THAI_MONTH_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
   function thaiShort(dateStr) {
-    const p = dateStr.split('-').map(Number);
-    return p[2] + ' ' + THAI_MONTH_SHORT[p[1] - 1] + ' ' + (p[0] + 543);
+    return ThaiDate.format(dateStr);
   }
   function dateRangeLabel(start, end) {
-    if (!start) return '';
-    if (!end || end === start) return thaiShort(start);
-    return thaiShort(start) + ' – ' + thaiShort(end);
+    return ThaiDate.range(start, end);
   }
 
   // ---------- คุยกับ GAS API ----------

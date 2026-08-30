@@ -16,7 +16,7 @@ AdminViews.overview = {
       const stale = String(log.status).indexOf('error') === 0 ||
         UI.daysBetween_(log.date, UI.todayStr_()) >= 2;
       dotClass = stale ? 'bg-amber-400' : 'bg-emerald-300';
-      statusText = 'ตรวจสอบล่าสุด ' + log.date + ' — ' + log.status;
+      statusText = 'ตรวจสอบล่าสุด ' + UI.formatThaiDate(log.date) + ' — ' + log.status;
     }
     if (res.runtimeHealth && !res.runtimeHealth.healthy) {
       dotClass = 'bg-red-500';

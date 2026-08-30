@@ -52,6 +52,8 @@ async function run() {
     mineLeaveCard: mineLeaveCard_,
     renderMineState: renderMineState_,
     setButtonBusy: setButtonBusy_,
+    thaiShort: thaiShort,
+    dateRangeLabel: dateRangeLabel,
   };
 })();`);
   assert(source.includes('__leaveUiTest'), 'could not install LIFF UI test hook');
@@ -102,9 +104,16 @@ async function run() {
     },
   });
   context.globalThis = context;
+  vm.runInContext(fs.readFileSync(path.resolve(__dirname, '../web/shared/date.js'), 'utf8'), context,
+    { filename: 'shared-date.js' });
   vm.runInContext(source, context, { filename: 'liff-form-inline.js' });
 
   const ui = context.__leaveUiTest;
+  assert(ui.thaiShort('2026-08-30') === '30 ส.ค. 2569', 'single date format mismatch');
+  assert(ui.dateRangeLabel('2026-08-30', '2026-08-31') === '30–31 ส.ค. 2569',
+    'same-month date range format mismatch');
+  assert(ui.dateRangeLabel('2026-09-30', '2026-10-01') === '30 ก.ย. 2569 – 1 ต.ค. 2569',
+    'cross-month date range format mismatch');
   const leave = {
     pageId: 'page-1', leaveType: 'ลากิจ', start: '2026-09-01', end: '2026-09-01',
     period: 'เต็มวัน', workDays: 1, workDaysLabel: '1 วัน', status: 'รอผู้อนุมัติ',

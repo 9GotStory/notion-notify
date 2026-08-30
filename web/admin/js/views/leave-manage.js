@@ -11,7 +11,7 @@ AdminViews['leave-manage'] = {
   },
 
   dateLabel_(leave) {
-    return leave.start + (leave.end && leave.end !== leave.start ? ' – ' + leave.end : '') +
+    return UI.formatThaiDateRange(leave.start, leave.end) +
       (leave.period && leave.period !== 'เต็มวัน' ? ' (' + leave.period + ')' : '');
   },
 

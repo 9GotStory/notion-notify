@@ -138,6 +138,52 @@ function checkLogRetentionContracts() {
   });
 }
 
+function checkThaiDateContracts() {
+  const context = vm.createContext({
+    console,
+    setTimeout() { return 1; },
+    clearTimeout() {},
+    document: {},
+    Blob: function Blob() {},
+    URL: {},
+  });
+  vm.runInContext(fs.readFileSync(path.join(root, 'web/shared/date.js'), 'utf8'), context,
+    { filename: 'web/shared/date.js' });
+  vm.runInContext(fs.readFileSync(path.join(root, 'web/admin/js/ui.js'), 'utf8'), context,
+    { filename: 'web/admin/js/ui.js' });
+  const actual = vm.runInContext(`({
+    date: UI.formatThaiDate('2026-08-30'),
+    sameMonth: UI.formatThaiDateRange('2026-08-30', '2026-08-31'),
+    crossMonth: UI.formatThaiDateRange('2026-09-30', '2026-10-01'),
+    dateTime: UI.formatThaiDateTime('2026-08-30 08:30:00'),
+  })`, context);
+  const expected = {
+    date: '30 ส.ค. 2569',
+    sameMonth: '30–31 ส.ค. 2569',
+    crossMonth: '30 ก.ย. 2569 – 1 ต.ค. 2569',
+    dateTime: '30 ส.ค. 2569 08:30:00 น.',
+  };
+  Object.keys(expected).forEach(key => {
+    if (actual[key] !== expected[key]) {
+      console.error('Thai date format mismatch for ' + key + ': ' + actual[key]);
+      process.exitCode = 1;
+    }
+  });
+
+  const pageContracts = [
+    ['web/liff-form/index.html', '../shared/date.js', 'ThaiDate.range(start, end)'],
+    ['web/schedule/index.html', '../shared/date.js', 'ThaiDate.format(dateStr)'],
+    ['web/admin/index.html', '../shared/date.js', 'js/ui.js'],
+  ];
+  pageContracts.forEach(([file, scriptPath, formatter]) => {
+    const source = fs.readFileSync(path.join(root, file), 'utf8');
+    if (!source.includes(scriptPath) || !source.includes(formatter)) {
+      console.error(file + ' does not use the shared Thai date formatter');
+      process.exitCode = 1;
+    }
+  });
+}
+
 walk(path.join(root, 'apps'))
   .filter(file => file.endsWith('.gs'))
   .forEach(file => check(fs.readFileSync(file, 'utf8'), path.relative(root, file)));
@@ -162,5 +208,6 @@ checkAdminViewContracts();
 checkDirectModeContracts();
 checkLiffFormUxContracts();
 checkLogRetentionContracts();
+checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');

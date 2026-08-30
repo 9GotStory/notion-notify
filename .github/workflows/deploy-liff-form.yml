@@ -22,6 +22,7 @@ on:
       - 'web/liff-form/**'
       - 'web/schedule/**'
       - 'web/admin/**'
+      - 'web/shared/**'
       - '.github/workflows/deploy-liff-form.yml'
   workflow_dispatch:
 
@@ -85,6 +86,8 @@ jobs:
             exit 1
           fi
           mkdir -p site/web/liff-form
+          mkdir -p site/web/shared
+          cp web/shared/date.js site/web/shared/date.js
           cp web/liff-form/index.html site/web/liff-form/index.html
           # ตราหน่วยงานสำหรับหน้า loading — คัดลอกเฉพาะเมื่อมีไฟล์ (ไม่มีก็ไม่พัง หน้าเว็บ fallback เป็นตรา "สสอ.")
           if [ -f web/liff-form/logo.png ]; then cp web/liff-form/logo.png site/web/liff-form/logo.png; fi

@@ -137,8 +137,8 @@ AdminViews.system = {
     (list || []).forEach(l => {
       const tr = UI.el('tr');
       tr.innerHTML =
-        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + UI.escapeHtml(l.date) + '</td>' +
-        '<td class="px-4 py-2.5 font-mono text-xs text-slate-500 whitespace-nowrap">' + UI.escapeHtml(l.timestamp) + '</td>' +
+        '<td class="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">' + UI.escapeHtml(UI.formatThaiDate(l.date)) + '</td>' +
+        '<td class="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">' + UI.escapeHtml(UI.formatThaiDateTime(l.timestamp)) + '</td>' +
         '<td class="px-4 py-2.5"><span class="inline-block px-2.5 py-0.5 rounded-full text-xs font-semibold ' + UI.badgeClasses(l.status) + '">' + UI.escapeHtml(l.status) + '</span></td>' +
         '<td class="px-4 py-2.5">' + UI.escapeHtml(l.detail) + '</td>';
       body.appendChild(tr);

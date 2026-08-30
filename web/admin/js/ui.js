@@ -63,6 +63,12 @@ const UI = {
     return Math.round((b - a) / 86400000);
   },
 
+  formatThaiDate(value) { return ThaiDate.format(value); },
+
+  formatThaiDateRange(start, end) { return ThaiDate.range(start, end); },
+
+  formatThaiDateTime(value) { return ThaiDate.formatDateTime(value); },
+
   badgeClasses(status) {
     const s = String(status || '');
     if (s.indexOf('success') === 0) return 'bg-emerald-50 text-emerald-700';
