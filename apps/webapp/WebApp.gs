@@ -199,6 +199,7 @@ const ADMIN_API = {
   add_quota_profile: p => api_addQuotaProfile(p.yearBE, p.employmentType, p.leaveType, p.quota, p.note),
   update_quota_profile: p => api_updateQuotaProfile(p.row, p.version, p.yearBE, p.employmentType, p.leaveType, p.quota, p.note),
   delete_quota_profile: p => api_deleteQuotaProfile(p.row, p.version),
+  set_staff_position: p => api_setStaffPosition(p.staffKey, p.position),
   set_staff_employment_type: p => api_setStaffEmploymentType(p.staffKey, p.employmentType),
   approve_staff_binding: p => api_reviewStaffBinding_(p.row, p.version, 'APPROVE', p.reason),
   reject_staff_binding: p => api_reviewStaffBinding_(p.row, p.version, 'REJECT', p.reason),
@@ -570,6 +571,7 @@ function readReportStaff_() {
       name: [String(row[0]).trim(), String(row[1]).trim(), String(row[2]).trim()].filter(Boolean).join(' '),
       key: (String(row[1]).trim() + ' ' + String(row[2]).trim()).replace(/\s+/g, ' '),
       group: String(row[3]).trim(),
+      position: String(row[4]).trim(),
       lineUserId: String(row[5]).trim(),
       employmentType: String(row[8] || '').trim(),
       employeeId: String(row[9] || '').trim(),
@@ -807,12 +809,14 @@ function api_getQuotaProfiles() {
   const roster = readReportStaff_();
   return {
     profiles: rows,
+    positionOptions: String(settings.position_options || '')
+      .split(',').map(s => s.trim()).filter(Boolean),
     employmentTypes: String(settings.employment_type_options || '')
       .split(',').map(s => s.trim()).filter(Boolean),
     leaveTypes: adminLeaveTypes_(settings),
     staff: roster.map(s => ({
       row: s.row, version: s.version, name: s.name, key: s.key, group: s.group,
-      employmentType: s.employmentType, employeeId: s.employeeId,
+      position: s.position, employmentType: s.employmentType, employeeId: s.employeeId,
       employmentStatus: s.employmentStatus, bindingStatus: s.bindingStatus,
       lineUserId: s.lineUserId, pendingLineDisplayName: s.pendingLineDisplayName,
       bindingRequestedAt: s.bindingRequestedAt,
@@ -863,6 +867,30 @@ function api_deleteQuotaProfile(rowNumber, version) {
     sheet.deleteRow(requireCurrentRow_(sheet, rowNumber, 5, version));
   });
   return { ok: true };
+}
+
+/** แก้ "ตำแหน่ง" ของเจ้าหน้าที่คนหนึ่ง (คอลัมน์ที่ 5 ของชีต Staff) จากรายการ Settings.position_options */
+function api_setStaffPosition(staffKey, position) {
+  const key = String(staffKey || '').trim().replace(/\s+/g, ' ');
+  const value = String(position || '').trim();
+  if (!key) return { ok: false, error: 'กรุณาระบุชื่อ สกุล' };
+  if (!value) return { ok: false, error: 'กรุณาเลือกตำแหน่ง' };
+  const allowedPositions = String(api_getSettings().position_options || '')
+    .split(',').map(item => item.trim()).filter(Boolean);
+  if (!allowedPositions.includes(value)) return { ok: false, error: 'ตำแหน่งไม่อยู่ในรายการที่อนุญาต' };
+  return withAdminWriteLock_(function () {
+    const sheet = getSheet_('Staff');
+    const lastRow = sheet.getLastRow();
+    const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 3).getDisplayValues() : [];
+    for (let i = 0; i < data.length; i++) {
+      const rowKey = (String(data[i][1]).trim() + ' ' + String(data[i][2]).trim()).replace(/\s+/g, ' ');
+      if (rowKey === key) {
+        sheet.getRange(3 + i, 5).setValue(value);
+        return { ok: true };
+      }
+    }
+    return { ok: false, error: 'ไม่พบชื่อนี้ในชีต Staff' };
+  });
 }
 
 /** แก้ "ประเภทบุคลากร" ของเจ้าหน้าที่คนหนึ่ง (คอลัมน์ที่ 9 ของชีต Staff) ตาม "ชื่อ สกุล"

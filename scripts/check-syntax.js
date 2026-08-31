@@ -116,12 +116,18 @@ function checkAdminStaffUxContracts() {
   const source = fs.readFileSync(path.join(root, filename), 'utf8');
   const required = [
     'id="staffCards"',
-    'renderStaffCards(staff)',
+    'this.renderStaffCards(this.staffPageItems_())',
     'data-role="binding-actions"',
+    'data-role="position-control"',
     'data-role="employment-control"',
+    'id="staffPagination"',
+    'staffPageSize: 10',
+    'this.staffList.slice(start, start + this.staffPageSize)',
+    'ตำแหน่ง:',
     'สถานะบุคลากร ACTIVE/INACTIVE มาจากทำเนียบที่ HR รับรอง',
-    "btn.textContent = 'บันทึกการเปลี่ยนแปลง'",
-    "btn.classList.toggle('hidden', !sel.value)",
+    "'set_staff_position', 'position', 'ตำแหน่ง'",
+    "'set_staff_employment_type', 'employmentType', 'ประเภทบุคลากร'",
+    "button.classList.toggle('hidden', !select.value)",
     "reviewButton.textContent = action === 'approve' ? 'อนุมัติผูก' : 'ปฏิเสธ'",
     "'min-h-11 flex-1 sm:flex-none",
   ];
@@ -135,6 +141,35 @@ function checkAdminStaffUxContracts() {
     console.error(filename + ' mobile staff UX contract failed' +
       (missing.length ? '; missing: ' + missing.join(', ') : '') +
       (present.length ? '; forbidden: ' + present.join(', ') : ''));
+    process.exitCode = 1;
+  }
+
+  const context = vm.createContext({ AdminViews: {} });
+  try {
+    vm.runInContext(source, context, { filename });
+    const staff = context.AdminViews.staff;
+    staff.staffList = Array.from({ length: 23 }, (_, index) => ({ index }));
+    staff.staffPage = 3;
+    if (staff.staffPageCount_() !== 3 || staff.staffPageItems_().length !== 3 ||
+        staff.staffPageItems_()[0].index !== 20) {
+      throw new Error('Staff pagination must split 23 records into 10, 10, and 3');
+    }
+  } catch (err) {
+    console.error(err.stack || err);
+    process.exitCode = 1;
+  }
+
+  const backend = fs.readFileSync(path.join(root, 'apps/webapp/WebApp.gs'), 'utf8');
+  const backendRequired = [
+    'position: String(row[4]).trim()',
+    'position: s.position',
+    'positionOptions: String(settings.position_options',
+    'set_staff_position: p => api_setStaffPosition(p.staffKey, p.position)',
+    'sheet.getRange(3 + i, 5).setValue(value)',
+  ];
+  const backendMissing = backendRequired.filter(value => !backend.includes(value));
+  if (backendMissing.length) {
+    console.error('Admin staff position contract failed; missing: ' + backendMissing.join(', '));
     process.exitCode = 1;
   }
 }

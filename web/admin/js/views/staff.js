@@ -5,7 +5,11 @@
 AdminViews.staff = {
 
   employmentTypes: [],
+  positionOptions: [],
   approversVersion: '',
+  staffList: [],
+  staffPage: 1,
+  staffPageSize: 10,
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
   async render(root, isStale) {
@@ -17,7 +21,10 @@ AdminViews.staff = {
     ]);
     if (isStale()) return; // ผู้ใช้ไปหน้าอื่นแล้ว — หยุดก่อนแตะ DOM
     this.employmentTypes = quotaRes.employmentTypes || [];
+    this.positionOptions = quotaRes.positionOptions || [];
     const staff = quotaRes.staff || [];
+    this.staffList = staff;
+    this.staffPage = Math.min(this.staffPage, this.staffPageCount_());
     const staffKeys = approversRes.staffKeys || [];
     const approvers = approversRes.approvers || [];
     this.approversVersion = approversRes.version || '';
@@ -28,6 +35,7 @@ AdminViews.staff = {
       '<p class="text-sm font-semibold text-slate-600 px-4 pt-4 pb-2">ทำเนียบเจ้าหน้าที่ (' + staff.length + ' คน · อนุมัติการผูกแล้ว ' +
       staff.filter(s => s.registered).length + ')</p>' +
       '<div id="staffCards" class="divide-y divide-slate-100"></div>' +
+      '<div id="staffPagination" class="hidden border-t border-slate-100 px-4 py-3"></div>' +
       '<p class="text-xs text-slate-400 px-4 py-3">สถานะบุคลากร ACTIVE/INACTIVE มาจากทำเนียบที่ HR รับรอง ส่วนสถานะผูก LINE ระบบอัปเดตอัตโนมัติจากคำขอและการอนุมัติ</p>' +
       '</div>';
 
@@ -44,10 +52,51 @@ AdminViews.staff = {
       '</div>';
 
     root.innerHTML = html;
-    this.renderStaffCards(staff);
+    this.renderStaffPage_();
     this.renderApproverRows(approvers, staffKeys);
     UI.$('apAddRow').addEventListener('click', () => this.appendApproverRow('', '', false, staffKeys));
     UI.$('apSave').addEventListener('click', () => this.saveApprovers());
+  },
+
+  staffPageCount_() {
+    return Math.max(1, Math.ceil(this.staffList.length / this.staffPageSize));
+  },
+
+  staffPageItems_() {
+    const start = (this.staffPage - 1) * this.staffPageSize;
+    return this.staffList.slice(start, start + this.staffPageSize);
+  },
+
+  renderStaffPage_() {
+    this.staffPage = Math.min(Math.max(1, this.staffPage), this.staffPageCount_());
+    this.renderStaffCards(this.staffPageItems_());
+    const pagination = UI.$('staffPagination');
+    if (this.staffList.length <= this.staffPageSize) {
+      pagination.classList.add('hidden');
+      pagination.innerHTML = '';
+      return;
+    }
+    pagination.classList.remove('hidden');
+    pagination.innerHTML =
+      '<div class="flex items-center justify-between gap-3">' +
+        '<p class="text-xs text-slate-500">หน้า ' + this.staffPage + ' จาก ' + this.staffPageCount_() + '</p>' +
+        '<div class="flex gap-2">' +
+          '<button id="staffPrev" type="button" class="min-h-10 px-3 rounded-lg border border-slate-200 text-sm font-medium disabled:opacity-40">ก่อนหน้า</button>' +
+          '<button id="staffNext" type="button" class="min-h-10 px-3 rounded-lg border border-slate-200 text-sm font-medium disabled:opacity-40">ถัดไป</button>' +
+        '</div>' +
+      '</div>';
+    const prev = UI.$('staffPrev');
+    const next = UI.$('staffNext');
+    prev.disabled = this.staffPage === 1;
+    next.disabled = this.staffPage === this.staffPageCount_();
+    prev.addEventListener('click', () => {
+      this.staffPage--;
+      this.renderStaffPage_();
+    });
+    next.addEventListener('click', () => {
+      this.staffPage++;
+      this.renderStaffPage_();
+    });
   },
 
   renderStaffCards(list) {
@@ -66,7 +115,8 @@ AdminViews.staff = {
       return '<article class="p-4">' +
         '<div class="min-w-0">' +
           '<p class="font-semibold text-slate-800 break-words">' + UI.escapeHtml(s.name) + '</p>' +
-          '<p class="mt-0.5 text-xs text-slate-500 break-words">' + UI.escapeHtml(s.group || 'ยังไม่ระบุกลุ่มงาน') +
+          '<p class="mt-0.5 text-xs text-slate-500 break-words">ตำแหน่ง: ' + UI.escapeHtml(s.position || 'ยังไม่ระบุ') + '</p>' +
+          '<p class="mt-0.5 text-xs text-slate-500 break-words">กลุ่มงาน: ' + UI.escapeHtml(s.group || 'ยังไม่ระบุ') +
             ' · รหัส <span class="font-mono">' + UI.escapeHtml(s.employeeId || '—') + '</span></p>' +
         '</div>' +
         '<div class="mt-2 flex flex-wrap gap-2">' +
@@ -77,9 +127,15 @@ AdminViews.staff = {
             UI.escapeHtml(s.bindingLabel || s.bindingStatus || 'ยังไม่ผูก') + '</span>' +
         '</div>' +
         '<div data-role="binding-actions" class="mt-3 flex flex-wrap gap-2"></div>' +
-        '<div class="mt-3 rounded-xl bg-slate-50 p-3">' +
-          '<label class="block text-xs font-medium text-slate-500 mb-1.5">ประเภทบุคลากร</label>' +
-          '<div data-role="employment-control" class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2"></div>' +
+        '<div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+          '<div class="rounded-xl bg-slate-50 p-3">' +
+            '<label class="block text-xs font-medium text-slate-500 mb-1.5">ตำแหน่ง</label>' +
+            '<div data-role="position-control"></div>' +
+          '</div>' +
+          '<div class="rounded-xl bg-slate-50 p-3">' +
+            '<label class="block text-xs font-medium text-slate-500 mb-1.5">ประเภทบุคลากร</label>' +
+            '<div data-role="employment-control"></div>' +
+          '</div>' +
         '</div>' +
       '</article>';
     }).join('');
@@ -87,45 +143,12 @@ AdminViews.staff = {
     // ปุ่ม/select ผูก event ทีหลัง render ด้วย createElement — ไม่ฝัง payload ใน HTML string
     (list || []).forEach((s, i) => {
       const card = wrap.children[i];
+      const positionControl = card.querySelector('[data-role="position-control"]');
       const employmentControl = card.querySelector('[data-role="employment-control"]');
-      const sel = document.createElement('select');
-      sel.className = 'w-full h-11 px-3 border border-slate-200 rounded-lg text-sm bg-white';
-      const placeholder = document.createElement('option');
-      placeholder.value = '';
-      placeholder.textContent = s.employmentType || '— ยังไม่ระบุ —';
-      sel.appendChild(placeholder);
-      this.employmentTypes.forEach(t => {
-        if (t === s.employmentType) return;
-        const o = document.createElement('option');
-        o.value = t;
-        o.textContent = t;
-        sel.appendChild(o);
-      });
-      employmentControl.appendChild(sel);
-
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'hidden h-11 w-full sm:w-auto px-4 rounded-lg border border-slate-200 text-primary text-sm font-medium bg-white hover:bg-slate-100 disabled:opacity-50';
-      btn.textContent = 'บันทึกการเปลี่ยนแปลง';
-      sel.addEventListener('change', () => {
-        btn.classList.toggle('hidden', !sel.value);
-      });
-      btn.addEventListener('click', async () => {
-        if (!sel.value) { UI.showToast('เลือกประเภทบุคลากรก่อนบันทึก', true); return; }
-        UI.setBusy(btn, true, 'กำลังบันทึก…');
-        try {
-          await AdminAPI.call('set_staff_employment_type', { staffKey: s.key, employmentType: sel.value });
-          placeholder.textContent = sel.value; // ค่าที่เลือกกลายเป็น placeholder ใหม่ของแถวนี้
-          sel.value = '';
-          UI.showToast('บันทึกแล้ว — ' + s.name + ' → ' + placeholder.textContent);
-          await this.render(UI.$('view'), this._isStale); // refresh row version ก่อนอนุมัติการผูกต่อ
-        } catch (e) {
-          UI.showToast(e.message, true);
-        } finally {
-          UI.setBusy(btn, false, 'บันทึก');
-        }
-      });
-      employmentControl.appendChild(btn);
+      this.appendStaffOptionControl_(positionControl, s, this.positionOptions, s.position,
+        'set_staff_position', 'position', 'ตำแหน่ง');
+      this.appendStaffOptionControl_(employmentControl, s, this.employmentTypes, s.employmentType,
+        'set_staff_employment_type', 'employmentType', 'ประเภทบุคลากร');
 
       const reviewable = s.bindingStatus === 'PENDING' ||
         (!!s.lineUserId && s.bindingStatus !== 'APPROVED');
@@ -164,6 +187,49 @@ AdminViews.staff = {
         });
       }
     });
+  },
+
+  appendStaffOptionControl_(container, staff, options, currentValue, action, valueKey, label) {
+    const control = document.createElement('div');
+    control.className = 'grid grid-cols-1 gap-2';
+    const select = document.createElement('select');
+    select.className = 'w-full h-11 px-3 border border-slate-200 rounded-lg text-sm bg-white';
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = currentValue || '— ยังไม่ระบุ —';
+    select.appendChild(placeholder);
+    (options || []).forEach(value => {
+      if (value === currentValue) return;
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+    });
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'hidden h-11 w-full px-4 rounded-lg border border-slate-200 text-primary text-sm font-medium bg-white hover:bg-slate-100 disabled:opacity-50';
+    button.textContent = 'บันทึก' + label;
+    select.addEventListener('change', () => {
+      button.classList.toggle('hidden', !select.value);
+    });
+    button.addEventListener('click', async () => {
+      if (!select.value) { UI.showToast('เลือก' + label + 'ก่อนบันทึก', true); return; }
+      UI.setBusy(button, true, 'กำลังบันทึก…');
+      try {
+        const payload = { staffKey: staff.key };
+        payload[valueKey] = select.value;
+        await AdminAPI.call(action, payload);
+        UI.showToast('บันทึกแล้ว — ' + staff.name + ' → ' + select.value);
+        await this.render(UI.$('view'), this._isStale);
+      } catch (e) {
+        UI.showToast(e.message, true);
+      } finally {
+        UI.setBusy(button, false);
+      }
+    });
+    control.appendChild(select);
+    control.appendChild(button);
+    container.appendChild(control);
   },
 
   renderApproverRows(approvers, staffKeys) {
