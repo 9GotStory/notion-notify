@@ -63,6 +63,7 @@ const state = {
     { prefix: 'นาย', firstName: 'อนุมัติ', lastName: 'ขั้นแรก', groupName: 'งานบริหาร', position: 'หัวหน้างาน', lineUserId: 'U-first', employmentType: 'ข้าราชการ' },
     { prefix: 'นาย', firstName: 'ชาญ', lastName: 'ชำนาญ', groupName: 'งานบริหาร', position: 'หัวหน้า สสอ.', lineUserId: 'U-chief', employmentType: 'ข้าราชการ' },
     { prefix: 'นางสาว', firstName: 'สำรอง', lastName: 'พร้อมงาน', groupName: 'งานบริหาร', position: 'เจ้าหน้าที่', lineUserId: 'U-backup', employmentType: 'ข้าราชการ' },
+    { prefix: 'นาย', firstName: 'รอ', lastName: 'ผูกบัญชี', groupName: 'งานบริการ', position: 'เจ้าหน้าที่', lineUserId: '', employmentType: 'ข้าราชการ', employmentStatus: '', bindingStatus: '' },
   ],
   approvers: [
     { groupName: 'งานบริการ', approverNames: ['อนุมัติ ขั้นแรก'], forward: true },
@@ -74,7 +75,7 @@ const state = {
 };
 
 state.roster = state.roster.map((staff, index) => Object.assign({
-  employeeId: 'EMP' + (index + 1), employmentStatus: 'ACTIVE', bindingStatus: 'APPROVED',
+  row: 3 + index, employeeId: 'EMP' + (index + 1), employmentStatus: 'ACTIVE', bindingStatus: 'APPROVED',
   pendingLineUserId: '',
 }, staff));
 
@@ -106,6 +107,29 @@ const context = vm.createContext({
   },
   LockService: {
     getScriptLock() { return { tryLock: () => true, releaseLock() {} }; },
+  },
+  SpreadsheetApp: {
+    getActive() {
+      return {
+        getSheetByName() {
+          return {
+            getRange(row, column) {
+              return {
+                setValues(values) {
+                  if (column !== 12) throw new Error('unexpected Staff write column ' + column);
+                  const staff = state.roster.find(item => item.row === row);
+                  if (!staff) throw new Error('unexpected Staff write row ' + row);
+                  [staff.bindingStatus, staff.pendingLineUserId, staff.pendingLineDisplayName,
+                    staff.bindingRequestedAt, staff.bindingApprovedBy, staff.bindingApprovedAt,
+                    staff.bindingRequestId] = values[0];
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+    flush() {},
   },
 });
 
@@ -268,6 +292,17 @@ test('session distinguishes registered and unregistered users', () => {
   assert(unregistered.ok && !unregistered.registered, 'unregistered session mismatch');
   assert(!unregistered.staffOptions && !unregistered.options.staffOptions,
     'unregistered session exposed the registered staff directory');
+});
+
+test('blank system statuses become PENDING only after a valid bind request', () => {
+  const result = api({
+    apiAction: 'bind', accessToken: 'token-unknown', employeeId: 'EMP6', requestId: requestId(90),
+  });
+  const staff = state.roster.find(item => item.employeeId === 'EMP6');
+  assert(result.ok && result.pendingApproval, 'blank roster status could not request binding');
+  assert(staff.employmentStatus === '', 'binding request set ACTIVE before admin approval');
+  assert(staff.bindingStatus === 'PENDING' && staff.pendingLineUserId === 'U-unknown',
+    'binding request did not persist PENDING candidate');
 });
 
 test('leave submission rejects a missing day period', () => {
@@ -537,8 +572,10 @@ test('chief can reassign one pending leave to any registered staff and old card 
 test('admin leave actions require the shared token and can adjust actual usage with audit', () => {
   const listDenied = api({ apiAction: 'adminLeaveList', token: 'wrong' });
   const list = api({ apiAction: 'adminLeaveList', token: 'admin-secret' });
+  const registeredCount = state.roster.filter(staff =>
+    staff.lineUserId && staff.employmentStatus === 'ACTIVE' && staff.bindingStatus === 'APPROVED').length;
   assert(!listDenied.ok && listDenied.code === 'UNAUTHORIZED', 'admin list accepted a bad token');
-  assert(list.ok && list.staffOptions.length === state.roster.length, 'admin list did not include registered staff');
+  assert(list.ok && list.staffOptions.length === registeredCount, 'admin list did not include registered staff');
 
   const result = submit('token-other', 65, { start: '2026-09-25', end: '2026-09-25' });
   postback('U-first', result.pageId, 'approve', 'adjust-first');

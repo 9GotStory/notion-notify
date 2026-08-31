@@ -69,6 +69,43 @@ if (normalizedAdminLeaveType !== 'ลาช่วยเหลือภรรย�
 } else {
   console.log('PASS testAdminLeaveTypeSpelling');
 }
+const staffRosterLifecycle = vm.runInContext(`({
+  complete: adminStaffRosterComplete_(['นาย', 'สมศักดิ์', 'ใจดี', 'บริหาร', 'นักวิชาการ', '', '', '', 'ข้าราชการ', 'EMP001']),
+  missingPosition: adminStaffRosterComplete_(['นาย', 'สมศักดิ์', 'ใจดี', 'บริหาร', '', '', '', '', 'ข้าราชการ', 'EMP001']),
+})`, webappContext);
+if (!staffRosterLifecycle.complete || staffRosterLifecycle.missingPosition) {
+  console.error('FAIL testAdminStaffRosterLifecycle');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminStaffRosterLifecycle');
+}
+const approverDirectory = vm.runInContext(`(function () {
+  var original = readReportStaff_;
+  readReportStaff_ = function () { return [
+    { key: 'อนุมัติ หนึ่ง', name: 'นาย อนุมัติ หนึ่ง', group: 'งานบริการ', position: 'หัวหน้างาน', lineUserId: 'U1', employmentStatus: 'ACTIVE', bindingStatus: 'APPROVED' },
+    { key: 'รอ ผูก', name: 'นาย รอ ผูก', group: 'งานบริการ', position: 'เจ้าหน้าที่', lineUserId: '', employmentStatus: '', bindingStatus: '' },
+    { key: 'หยุด ใช้', name: 'นาย หยุด ใช้', group: 'งานบริหาร', position: 'เจ้าหน้าที่', lineUserId: 'U2', employmentStatus: 'INACTIVE', bindingStatus: 'APPROVED' },
+  ]; };
+  try {
+    return {
+      directory: adminApproverDirectory_(),
+      invalidGroup: api_saveApprovers_([{ group: 'งานนอกระบบ', names: 'อนุมัติ หนึ่ง' }], 'version'),
+      invalidStaff: api_saveApprovers_([{ group: 'งานบริการ', names: 'รอ ผูก' }], 'version'),
+    };
+  } finally {
+    readReportStaff_ = original;
+  }
+})()`, webappContext);
+if (approverDirectory.directory.groupOptions.join(',') !== 'งานบริการ,งานบริหาร' ||
+    approverDirectory.directory.staffKeys.join(',') !== 'อนุมัติ หนึ่ง' ||
+    approverDirectory.directory.staffOptions[0].position !== 'หัวหน้างาน' ||
+    approverDirectory.invalidGroup.ok !== false || !/ไม่พบกลุ่มงาน/.test(approverDirectory.invalidGroup.error) ||
+    approverDirectory.invalidStaff.ok !== false || !/ไม่พบรายชื่อ/.test(approverDirectory.invalidStaff.error)) {
+  console.error('FAIL testAdminApproverDirectory');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminApproverDirectory');
+}
 const validBalanceError = vm.runInContext(
   "validateBalanceInput_('2570', 'สมศักดิ์ ใจดี', 'ลากิจ', '1', '', 'ปรับตามเอกสาร HR')", webappContext);
 const shortBalanceReason = vm.runInContext(

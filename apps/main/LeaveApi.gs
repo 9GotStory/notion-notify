@@ -147,7 +147,9 @@ function apiBind_(body) {
     const matches = roster.filter(s => s.employeeId === employeeId);
     if (matches.length !== 1) throw new Error('ไม่พบรหัสบุคลากรในทำเนียบ หรือข้อมูลซ้ำ กรุณาติดต่อผู้ดูแล');
     const staff = matches[0];
-    if (!isActiveStaff_(staff)) throw new Error('บัญชีบุคลากรนี้ยังไม่เปิดใช้งาน กรุณาติดต่อผู้ดูแล');
+    if (staff.employmentStatus && !isActiveStaff_(staff)) {
+      throw new Error('บัญชีบุคลากรนี้ยังไม่เปิดใช้งาน กรุณาติดต่อผู้ดูแล');
+    }
     const sameUser = findAnyStaffByUserId_(roster, profile.userId);
     const pendingUser = findPendingStaffByUserId_(roster, profile.userId);
     if ((sameUser && sameUser.row !== staff.row) || (pendingUser && pendingUser.row !== staff.row)) {
@@ -165,6 +167,9 @@ function apiBind_(body) {
         return { ok: true, registered: false, pendingApproval: true, duplicate: true };
       }
       throw new Error('รหัสบุคลากรนี้มีคำขอผูกบัญชีที่กำลังรอตรวจสอบ กรุณาติดต่อผู้ดูแล');
+    }
+    if (!canRequestStaffBinding_(staff)) {
+      throw new Error('ข้อมูลทำเนียบบุคลากรไม่ครบ กรุณาให้ผู้ดูแลตรวจคำนำหน้า ชื่อ สกุล กลุ่มงาน ตำแหน่ง ประเภทบุคลากร และรหัสบุคลากร');
     }
 
     const requestedAt = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');

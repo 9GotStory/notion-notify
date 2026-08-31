@@ -918,6 +918,12 @@ function api_setStaffEmploymentType(staffKey, employmentType) {
   });
 }
 
+function adminStaffRosterComplete_(values) {
+  return [0, 1, 2, 3, 4, 8, 9].every(function (index) {
+    return !!String(values[index] || '').trim();
+  });
+}
+
 /** อนุมัติ/ปฏิเสธการผูก LINE กับ record ในทำเนียบ — ใช้ row version กันผู้ดูแลสองคนเขียนทับกัน */
 function api_reviewStaffBinding_(rowNumber, version, decision, reason) {
   const action = String(decision || '').toUpperCase();
@@ -930,24 +936,34 @@ function api_reviewStaffBinding_(rowNumber, version, decision, reason) {
   return withAdminWriteLock_(function () {
     const row = requireCurrentRow_(sheet, rowNumber, 18, version);
     const values = sheet.getRange(row, 1, 1, 18).getDisplayValues()[0];
-    const active = String(values[10] || '').trim().toUpperCase() === 'ACTIVE';
+    const employmentStatus = String(values[10] || '').trim().toUpperCase();
     const candidateId = String(values[12] || values[5] || '').trim();
     const candidateName = String(values[13] || values[6] || '').trim();
     if (action === 'APPROVE') {
-      if (!active) throw new Error('อนุมัติไม่ได้จนกว่าสถานะบุคลากรจะเป็น ACTIVE');
+      if (!adminStaffRosterComplete_(values)) {
+        throw new Error('ข้อมูลทำเนียบบุคลากรไม่ครบ กรุณาตรวจคำนำหน้า ชื่อ สกุล กลุ่มงาน ตำแหน่ง ประเภทบุคลากร และรหัสบุคลากร');
+      }
+      if (employmentStatus && employmentStatus !== 'ACTIVE') {
+        throw new Error('อนุมัติไม่ได้เพราะสถานะบุคลากรเป็น ' + employmentStatus);
+      }
       if (!candidateId) throw new Error('ไม่พบ LINE User ID ที่รออนุมัติหรือบัญชีเดิมให้ตรวจสอบ');
       const lastRow = sheet.getLastRow();
       const all = lastRow >= 3 ? sheet.getRange(3, 6, lastRow - 2, 8).getDisplayValues() : [];
       const duplicate = all.some((other, index) => 3 + index !== row &&
         (String(other[0] || '').trim() === candidateId || String(other[7] || '').trim() === candidateId));
       if (duplicate) throw new Error('LINE User ID นี้ถูกใช้ใน record อื่นแล้ว');
-      sheet.getRange(row, 6, 1, 3).setValues([[
-        candidateId, candidateName, values[7] || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd'),
-      ]]);
-      sheet.getRange(row, 12, 1, 6).setValues([[
-        'APPROVED', '', '', '', 'ผู้ดูแลระบบ: ' + reviewReason,
-        Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm'),
-      ]]);
+      const approvedValues = values.slice(5, 17); // F:Q — เขียนสถานะบุคลากรและสถานะผูกพร้อมกัน
+      approvedValues[0] = candidateId;
+      approvedValues[1] = candidateName;
+      approvedValues[2] = values[7] || Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+      approvedValues[5] = 'ACTIVE';
+      approvedValues[6] = 'APPROVED';
+      approvedValues[7] = '';
+      approvedValues[8] = '';
+      approvedValues[9] = '';
+      approvedValues[10] = 'ผู้ดูแลระบบ: ' + reviewReason;
+      approvedValues[11] = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd HH:mm');
+      sheet.getRange(row, 6, 1, 12).setValues([approvedValues]);
     } else {
       sheet.getRange(row, 6, 1, 3).setValues([['', '', '']]);
       sheet.getRange(row, 12, 1, 6).setValues([[
@@ -993,8 +1009,24 @@ function api_getOverview_() {
   });
 }
 
-/** รายการผู้อนุมัติรายกลุ่มงาน (ชีต Approvers: กลุ่มงาน | รายชื่อคั่นจุลภาค | ส่งต่อ หัวหน้า สสอ. = TRUE)
- *  staffKeys ให้ฝั่งหน้าเว็บทำ datalist ช่วยพิมพ์ชื่อให้ตรงกับทำเนียบ */
+function adminApproverDirectory_() {
+  const roster = readReportStaff_();
+  const eligibleStaff = roster.filter(staff => staff.lineUserId &&
+    staff.employmentStatus === 'ACTIVE' && staff.bindingStatus === 'APPROVED');
+  return {
+    groupOptions: Array.from(new Set(roster.map(staff => staff.group).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, 'th')),
+    staffKeys: eligibleStaff.map(staff => staff.key).sort((a, b) => a.localeCompare(b, 'th')),
+    staffOptions: eligibleStaff.map(staff => ({
+      key: staff.key,
+      name: staff.name,
+      group: staff.group,
+      position: staff.position,
+    })).sort((a, b) => a.name.localeCompare(b.name, 'th')),
+  };
+}
+
+/** รายการผู้อนุมัติรายกลุ่มงาน (ชีต Approvers: กลุ่มงาน | รายชื่อคั่นจุลภาค | ส่งต่อ หัวหน้า สสอ. = TRUE) */
 function api_getApprovers_() {
   const sheet = getSheet_('Approvers');
   const lastRow = sheet.getLastRow();
@@ -1011,13 +1043,11 @@ function api_getApprovers_() {
       forward: String(row[2] || '').trim().toUpperCase() === 'TRUE',
     });
   });
-  const staffKeys = readReportStaff_().filter(s => s.lineUserId && s.employmentStatus === 'ACTIVE' &&
-    s.bindingStatus === 'APPROVED').map(s => s.key).sort((a, b) => a.localeCompare(b, 'th'));
-  return withOk_({
+  const directory = adminApproverDirectory_();
+  return withOk_(Object.assign({
     approvers: approvers,
-    staffKeys: staffKeys,
     version: rowVersion_(data.reduce((all, row) => all.concat(row), [])),
-  });
+  }, directory));
 }
 
 /** บันทึกตารางผู้อนุมัติทั้งตาราง (replace แถว 3 ลงไป) — เลี่ยงการ track เลขแถวรายแถว
@@ -1027,18 +1057,20 @@ function api_saveApprovers_(rows, expectedVersion) {
     return { ok: false, error: 'รายการต้องเป็น array ไม่เกิน 50 แถว' };
   }
   const seen = new Set();
-  const staffKeys = new Set(readReportStaff_().filter(staff => staff.lineUserId &&
-    staff.employmentStatus === 'ACTIVE' && staff.bindingStatus === 'APPROVED').map(staff => staff.key));
+  const directory = adminApproverDirectory_();
+  const groupOptions = new Set(directory.groupOptions);
+  const staffKeys = new Set(directory.staffKeys);
   const values = [];
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i] || {};
     const group = String(r.group || '').trim();
     const names = String(r.names || '').trim();
-    if (!group) return { ok: false, error: 'แถวที่ ' + (i + 1) + ': กรุณากรอกชื่อกลุ่มงาน' };
+    if (!group) return { ok: false, error: 'แถวที่ ' + (i + 1) + ': กรุณาเลือกกลุ่มงาน' };
     if (group.length > 100) return { ok: false, error: 'แถวที่ ' + (i + 1) + ': ชื่อกลุ่มงานยาวเกิน 100 ตัวอักษร' };
+    if (!groupOptions.has(group)) return { ok: false, error: 'แถวที่ ' + (i + 1) + ': ไม่พบกลุ่มงานในชีต Staff: ' + group };
     if (seen.has(group)) return { ok: false, error: 'ชื่อกลุ่มงานซ้ำกัน: ' + group };
     seen.add(group);
-    if (!names) return { ok: false, error: 'แถวที่ ' + (i + 1) + ' (' + group + '): กรุณากรอกชื่อผู้อนุมัติอย่างน้อยหนึ่งคน' };
+    if (!names) return { ok: false, error: 'แถวที่ ' + (i + 1) + ' (' + group + '): กรุณาเลือกผู้อนุมัติอย่างน้อยหนึ่งคน' };
     if (names.length > 500) return { ok: false, error: 'แถวที่ ' + (i + 1) + ' (' + group + '): รายชื่อยาวเกิน 500 ตัวอักษร' };
     const unknownNames = names.split(/[,，\n]/).map(name => name.trim().replace(/\s+/g, ' ')).filter(Boolean)
       .filter(name => !staffKeys.has(name));

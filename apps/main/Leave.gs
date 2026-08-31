@@ -253,7 +253,7 @@ function readStaffRoster_() {
       lineUserId: String(row[5]).trim(),
       lineDisplayName: String(row[6]).trim(),
       registeredAt: String(row[7]).trim(),
-      employmentType: String(row[8] || '').trim(), // คอลัมน์ที่ 9 — ว่าง = ยังไม่ระบุ (ใช้โควตาเริ่มต้นของระบบ)
+      employmentType: String(row[8] || '').trim(), // คอลัมน์ที่ 9 — ต้องมีสำหรับคำขอผูกใหม่; บัญชีเดิมยังอ่านค่าเก่าได้
       employeeId: String(row[9] || '').trim(),
       employmentStatus: String(row[10] || '').trim().toUpperCase(),
       bindingStatus: String(row[11] || '').trim().toUpperCase(),
@@ -308,6 +308,17 @@ function readQuotaProfiles_() {
 
 function isActiveStaff_(staff) {
   return !!staff && staff.employmentStatus === STAFF_ACTIVE_STATUS;
+}
+
+/** ข้อมูลที่ HR ต้องเตรียมเองก่อนให้บุคลากรขอผูก LINE; สถานะทั้งสองช่องเป็นหน้าที่ระบบ */
+function isCompleteStaffRosterEntry_(staff) {
+  return !!staff && ['prefix', 'firstName', 'lastName', 'groupName', 'position', 'employmentType', 'employeeId']
+    .every(key => String(staff[key] || '').trim());
+}
+
+function canRequestStaffBinding_(staff) {
+  return isCompleteStaffRosterEntry_(staff) &&
+    (!staff.employmentStatus || isActiveStaff_(staff));
 }
 
 function isApprovedStaffBinding_(staff) {

@@ -24,6 +24,7 @@ function runUnitTests() {
     testNotionRetryPolicy_,
     // ระบบลางาน (ไฟล์ Leave*.gs)
     testStaffDisplayName_,
+    testStaffRosterEntry_,
     testResolveApprovalChain_,
     testCanApproveLeave_,
     testApprovalSnapshot_,
@@ -391,7 +392,7 @@ function createTestRoster_() {
     { row: 7, prefix: 'นาย', firstName: 'สมพร', lastName: 'ผู้อำนวยการดี', groupName: 'บริหาร', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_SECOND1', lineDisplayName: 'ChiefOffice1', registeredAt: '2026-08-01' },
     { row: 8, prefix: 'นาง', firstName: 'สมศรี', lastName: 'ผู้อำนวยการดี', groupName: 'บริหาร', position: 'นักบริหารงานสาธารณสุข', lineUserId: 'U_SECOND2', lineDisplayName: 'ChiefOffice2', registeredAt: '2026-08-01' },
   ].map(function (staff, index) {
-    return Object.assign({ employeeId: 'EMP' + (index + 1), employmentStatus: 'ACTIVE',
+    return Object.assign({ employeeId: 'EMP' + (index + 1), employmentType: 'ข้าราชการ', employmentStatus: 'ACTIVE',
       bindingStatus: staff.lineUserId ? 'APPROVED' : '', pendingLineUserId: '' }, staff);
   });
 }
@@ -437,6 +438,20 @@ function testStaffDisplayName_() {
   assertTrue_(isApprovedStaffBinding_(roster[0]));
   assertFalse_(isApprovedStaffBinding_(Object.assign({}, roster[0], { employmentStatus: 'INACTIVE' })));
   assertFalse_(isApprovedStaffBinding_(Object.assign({}, roster[0], { bindingStatus: 'PENDING' })));
+}
+
+function testStaffRosterEntry_() {
+  const staff = createTestRoster_()[0];
+  assertTrue_(isCompleteStaffRosterEntry_(staff));
+  assertTrue_(canRequestStaffBinding_(Object.assign({}, staff, {
+    employmentStatus: '', bindingStatus: '', lineUserId: '',
+  })));
+  assertFalse_(canRequestStaffBinding_(Object.assign({}, staff, {
+    employmentStatus: 'INACTIVE', bindingStatus: '', lineUserId: '',
+  })));
+  assertFalse_(canRequestStaffBinding_(Object.assign({}, staff, {
+    position: '', employmentStatus: '', bindingStatus: '', lineUserId: '',
+  })));
 }
 
 function testResolveApprovalChain_() {

@@ -457,10 +457,9 @@ function collectSystemHealth_() {
   if (dupNames.length) findings.push(['warn', 'ชื่อ-สกุลซ้ำกันในชีต Staff: ' + dupNames.join(', ')]);
   const dupEmployeeIds = findDuplicates_(roster.map(s => s.employeeId).filter(Boolean));
   if (dupEmployeeIds.length) findings.push(['warn', 'รหัสบุคลากรซ้ำกันในชีต Staff: ' + dupEmployeeIds.join(', ')]);
-  const missingEmployeeIds = roster.filter(s => !s.employeeId).length;
-  if (missingEmployeeIds) findings.push(['warn', 'Staff ยังไม่มีรหัสบุคลากร ' + missingEmployeeIds + ' คน — บุคคลเหล่านี้ขอผูก LINE ใหม่ไม่ได้']);
-  const missingEmploymentStatus = roster.filter(s => !s.employmentStatus).length;
-  if (missingEmploymentStatus) findings.push(['warn', 'Staff ยังไม่มีสถานะบุคลากร ' + missingEmploymentStatus + ' คน — ต้องกำหนด ACTIVE หรือ INACTIVE']);
+  const incompleteRoster = roster.filter(s => !isCompleteStaffRosterEntry_(s)).length;
+  if (incompleteRoster) findings.push(['warn', 'Staff มีข้อมูลทำเนียบไม่ครบ ' + incompleteRoster +
+    ' คน — ตรวจคำนำหน้า ชื่อ สกุล กลุ่มงาน ตำแหน่ง ประเภทบุคลากร และรหัสบุคลากร']);
   if (roster.length) {
     const registered = roster.filter(isApprovedStaffBinding_).length;
     const pending = roster.filter(s => s.bindingStatus === STAFF_BINDING_STATUS.pending).length;

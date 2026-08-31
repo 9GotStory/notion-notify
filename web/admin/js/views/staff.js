@@ -1,5 +1,5 @@
 // หน้าบุคลากร — ทำเนียบ + ประเภทบุคลากรต่อคน + ผู้อนุมัติรายกลุ่มงาน
-// (ประเภทบุคลากรย้ายมาจากแท็บโควตาเดิม — จัดให้อยู่โดมน์บุคลากรจริง / ผู้อนุมัติเดิมแก้ชีตตรงๆ เท่านั้น)
+// (ตำแหน่ง ประเภทบุคลากร กลุ่มงาน และผู้อนุมัติอ้างอิงจากข้อมูลมาตรฐานของระบบ)
 'use strict';
 
 AdminViews.staff = {
@@ -25,7 +25,9 @@ AdminViews.staff = {
     const staff = quotaRes.staff || [];
     this.staffList = staff;
     this.staffPage = Math.min(this.staffPage, this.staffPageCount_());
-    const staffKeys = approversRes.staffKeys || [];
+    const approverStaffOptions = approversRes.staffOptions ||
+      (approversRes.staffKeys || []).map(key => ({ key: key, name: key, group: '', position: '' }));
+    const approverGroupOptions = approversRes.groupOptions || [];
     const approvers = approversRes.approvers || [];
     this.approversVersion = approversRes.version || '';
 
@@ -36,7 +38,7 @@ AdminViews.staff = {
       staff.filter(s => s.registered).length + ')</p>' +
       '<div id="staffCards" class="divide-y divide-slate-100"></div>' +
       '<div id="staffPagination" class="hidden border-t border-slate-100 px-4 py-3"></div>' +
-      '<p class="text-xs text-slate-400 px-4 py-3">สถานะบุคลากร ACTIVE/INACTIVE มาจากทำเนียบที่ HR รับรอง ส่วนสถานะผูก LINE ระบบอัปเดตอัตโนมัติจากคำขอและการอนุมัติ</p>' +
+      '<p class="text-xs text-slate-400 px-4 py-3">HR เตรียมข้อมูลทำเนียบและรหัสบุคลากรโดยเว้นสถานะทั้งสองช่อง ระบบจะตั้ง PENDING เมื่อขอผูก และตั้ง ACTIVE/APPROVED เมื่ออนุมัติ</p>' +
       '</div>';
 
     // ----- ผู้อนุมัติรายกลุ่มงาน -----
@@ -46,15 +48,16 @@ AdminViews.staff = {
       '<p class="text-sm font-semibold text-slate-600">ผู้อนุมัติรายกลุ่มงาน (' + approvers.length + ')</p>' +
       '<button id="apAddRow" type="button" class="text-xs text-primary font-medium hover:underline">+ เพิ่มกลุ่มงาน</button>' +
       '</div>' +
-      '<p class="text-xs text-slate-500 mb-3">รายชื่อคั่นด้วยจุลภาค (ต้องเป็น "ชื่อ สกุล" ที่ลงทะเบียนแล้ว) — บันทึกแบบแทนที่ทั้งตาราง</p>' +
+      '<p class="text-xs text-slate-500 mb-3">เลือกกลุ่มงานและผู้อนุมัติจากทำเนียบ Staff โดยตรง ผู้อนุมัติต้องผูก LINE และได้รับอนุมัติแล้ว — บันทึกแบบแทนที่ทั้งตาราง</p>' +
       '<div id="apRows" class="space-y-2"></div>' +
       '<button id="apSave" type="button" class="mt-4 h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">บันทึกผู้อนุมัติทั้งหมด</button>' +
       '</div>';
 
     root.innerHTML = html;
     this.renderStaffPage_();
-    this.renderApproverRows(approvers, staffKeys);
-    UI.$('apAddRow').addEventListener('click', () => this.appendApproverRow('', '', false, staffKeys));
+    this.renderApproverRows(approvers, approverStaffOptions, approverGroupOptions);
+    UI.$('apAddRow').addEventListener('click', () =>
+      this.appendApproverRow('', '', false, approverStaffOptions, approverGroupOptions));
     UI.$('apSave').addEventListener('click', () => this.saveApprovers());
   },
 
@@ -112,6 +115,9 @@ AdminViews.staff = {
         ? 'bg-amber-50 text-amber-700'
         : (approved ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600');
       const active = s.employmentStatus === 'ACTIVE';
+      const employmentStatusClass = active
+        ? 'bg-emerald-50 text-emerald-700'
+        : (s.employmentStatus ? 'bg-red-50 text-red-700' : 'bg-slate-100 text-slate-600');
       return '<article class="p-4">' +
         '<div class="min-w-0">' +
           '<p class="font-semibold text-slate-800 break-words">' + UI.escapeHtml(s.name) + '</p>' +
@@ -121,8 +127,8 @@ AdminViews.staff = {
         '</div>' +
         '<div class="mt-2 flex flex-wrap gap-2">' +
           '<span class="rounded-full px-2.5 py-1 text-xs font-medium ' +
-            (active ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700') + '">บุคลากร: ' +
-            UI.escapeHtml(s.employmentStatus || 'ยังไม่ระบุ') + '</span>' +
+            employmentStatusClass + '">บุคลากร: ' +
+            UI.escapeHtml(s.employmentStatus || 'รอระบบยืนยัน') + '</span>' +
           '<span class="max-w-full rounded-full px-2.5 py-1 text-xs font-medium break-words ' + statusClass + '">ผูก LINE: ' +
             UI.escapeHtml(s.bindingLabel || s.bindingStatus || 'ยังไม่ผูก') + '</span>' +
         '</div>' +
@@ -232,47 +238,104 @@ AdminViews.staff = {
     container.appendChild(control);
   },
 
-  renderApproverRows(approvers, staffKeys) {
+  renderApproverRows(approvers, staffOptions, groupOptions) {
     const wrap = UI.$('apRows');
     wrap.innerHTML = '';
-    if (!approvers.length) this.appendApproverRow('', '', false, staffKeys);
-    approvers.forEach(a => this.appendApproverRow(a.group, a.names, a.forward, staffKeys));
+    if (!approvers.length) this.appendApproverRow('', '', false, staffOptions, groupOptions);
+    approvers.forEach(a => this.appendApproverRow(a.group, a.names, a.forward, staffOptions, groupOptions));
   },
 
-  appendApproverRow(group, names, forward, staffKeys) {
+  appendApproverRow(group, names, forward, staffOptions, groupOptions) {
     const wrap = UI.$('apRows');
     const row = document.createElement('div');
-    row.className = 'grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto_auto] gap-2 items-center';
-    row.dataset.datalistId = '';
+    row.className = 'rounded-xl border border-slate-200 p-3 grid grid-cols-1 sm:grid-cols-2 gap-3 items-start';
 
-    const groupInput = document.createElement('input');
-    groupInput.type = 'text';
-    groupInput.maxLength = 100;
-    groupInput.placeholder = 'ชื่อกลุ่มงาน';
-    groupInput.value = group || '';
-    groupInput.className = 'px-3 py-2 border border-slate-200 rounded-lg text-sm';
-
-    const namesInput = document.createElement('input');
-    namesInput.type = 'text';
-    namesInput.maxLength = 500;
-    namesInput.placeholder = 'ชื่อ สกุล คั่นจุลภาค';
-    namesInput.value = names || '';
-    namesInput.className = 'px-3 py-2 border border-slate-200 rounded-lg text-sm';
-    // datalist ช่วยพิมพ์ชื่อให้ตรงทำเนียบ (ชื่อต้องตรงเป๊ะระบบถึงจับคู่ผู้อนุมัติได้)
-    const listId = 'dl-' + Math.random().toString(36).slice(2, 8);
-    const dl = document.createElement('datalist');
-    dl.id = listId;
-    (staffKeys || []).forEach(k => {
-      const o = document.createElement('option');
-      o.value = k;
-      dl.appendChild(o);
+    const groupControl = document.createElement('div');
+    const groupLabel = document.createElement('label');
+    groupLabel.className = 'block text-xs font-medium text-slate-500 mb-1.5';
+    groupLabel.textContent = 'กลุ่มงาน';
+    const groupSelect = document.createElement('select');
+    groupSelect.dataset.role = 'approver-group';
+    groupSelect.className = 'w-full h-11 px-3 border border-slate-200 rounded-lg text-sm bg-white';
+    const groupPlaceholder = document.createElement('option');
+    groupPlaceholder.value = '';
+    groupPlaceholder.textContent = '— เลือกกลุ่มงานจาก Staff —';
+    groupSelect.appendChild(groupPlaceholder);
+    const availableGroups = groupOptions || [];
+    if (group && !availableGroups.includes(group)) {
+      const legacyGroup = document.createElement('option');
+      legacyGroup.value = group;
+      legacyGroup.textContent = group + ' (ไม่มีใน Staff)';
+      groupSelect.appendChild(legacyGroup);
+    }
+    availableGroups.forEach(value => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = value;
+      groupSelect.appendChild(option);
     });
-    namesInput.setAttribute('list', listId);
+    groupSelect.value = group || '';
+    groupControl.appendChild(groupLabel);
+    groupControl.appendChild(groupSelect);
+
+    const namesControl = document.createElement('fieldset');
+    const namesLabel = document.createElement('legend');
+    namesLabel.className = 'block text-xs font-medium text-slate-500 mb-1.5';
+    namesLabel.textContent = 'ผู้อนุมัติ (เลือกได้หลายคน)';
+    const namesList = document.createElement('div');
+    namesList.className = 'max-h-44 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100';
+    const selectedNames = new Set(String(names || '').split(/[,，\n]/)
+      .map(name => name.trim().replace(/\s+/g, ' ')).filter(Boolean));
+    const availableKeys = new Set();
+    (staffOptions || []).forEach(staff => {
+      const key = String(staff.key || '').trim();
+      if (!key) return;
+      availableKeys.add(key);
+      const label = document.createElement('label');
+      label.className = 'flex items-start gap-2 px-3 py-2.5 text-sm text-slate-700 cursor-pointer hover:bg-slate-50';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.dataset.role = 'approver-name';
+      checkbox.value = key;
+      checkbox.checked = selectedNames.has(key);
+      checkbox.className = 'mt-0.5 w-4 h-4 accent-[#0F6E56]';
+      const detail = [staff.position, staff.group].filter(Boolean).join(' · ');
+      const text = document.createElement('span');
+      text.textContent = (staff.name || key) + (detail ? ' — ' + detail : '');
+      label.appendChild(checkbox);
+      label.appendChild(text);
+      namesList.appendChild(label);
+    });
+    selectedNames.forEach(name => {
+      if (availableKeys.has(name)) return;
+      const label = document.createElement('label');
+      label.className = 'flex items-start gap-2 px-3 py-2.5 text-sm text-red-700 bg-red-50 cursor-pointer';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.dataset.role = 'approver-name';
+      checkbox.value = name;
+      checkbox.checked = true;
+      checkbox.className = 'mt-0.5 w-4 h-4 accent-[#0F6E56]';
+      const text = document.createElement('span');
+      text.textContent = name + ' — ไม่พร้อมเป็นผู้อนุมัติ กรุณายกเลิกเลือก';
+      label.appendChild(checkbox);
+      label.appendChild(text);
+      namesList.appendChild(label);
+    });
+    if (!namesList.children.length) {
+      const empty = document.createElement('p');
+      empty.className = 'px-3 py-3 text-xs text-amber-700 bg-amber-50';
+      empty.textContent = 'ยังไม่มีบุคลากรที่ผูก LINE และอนุมัติแล้ว';
+      namesList.appendChild(empty);
+    }
+    namesControl.appendChild(namesLabel);
+    namesControl.appendChild(namesList);
 
     const forwardLabel = document.createElement('label');
     forwardLabel.className = 'flex items-center gap-1.5 text-xs text-slate-600 whitespace-nowrap';
     const forwardCheck = document.createElement('input');
     forwardCheck.type = 'checkbox';
+    forwardCheck.dataset.role = 'approver-forward';
     forwardCheck.checked = !!forward;
     forwardCheck.className = 'w-4 h-4 accent-[#0F6E56]';
     forwardLabel.appendChild(forwardCheck);
@@ -284,9 +347,8 @@ AdminViews.staff = {
     del.textContent = 'ลบ';
     del.addEventListener('click', () => row.remove());
 
-    row.appendChild(groupInput);
-    row.appendChild(namesInput);
-    row.appendChild(dl);
+    row.appendChild(groupControl);
+    row.appendChild(namesControl);
     row.appendChild(forwardLabel);
     row.appendChild(del);
     wrap.appendChild(row);
@@ -294,9 +356,10 @@ AdminViews.staff = {
 
   collectApproverRows() {
     return Array.from(UI.$('apRows').children).map(row => ({
-      group: (row.children[0].value || '').trim(),
-      names: (row.children[1].value || '').trim(),
-      forward: row.children[3].querySelector('input').checked,
+      group: (row.querySelector('[data-role="approver-group"]').value || '').trim(),
+      names: Array.from(row.querySelectorAll('[data-role="approver-name"]:checked'))
+        .map(input => input.value).join(', '),
+      forward: row.querySelector('[data-role="approver-forward"]').checked,
     }));
   },
 

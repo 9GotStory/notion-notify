@@ -124,16 +124,25 @@ function checkAdminStaffUxContracts() {
     'staffPageSize: 10',
     'this.staffList.slice(start, start + this.staffPageSize)',
     'ตำแหน่ง:',
-    'สถานะบุคลากร ACTIVE/INACTIVE มาจากทำเนียบที่ HR รับรอง',
+    'HR เตรียมข้อมูลทำเนียบและรหัสบุคลากรโดยเว้นสถานะทั้งสองช่อง',
+    "s.employmentStatus || 'รอระบบยืนยัน'",
     "'set_staff_position', 'position', 'ตำแหน่ง'",
     "'set_staff_employment_type', 'employmentType', 'ประเภทบุคลากร'",
     "button.classList.toggle('hidden', !select.value)",
     "reviewButton.textContent = action === 'approve' ? 'อนุมัติผูก' : 'ปฏิเสธ'",
     "'min-h-11 flex-1 sm:flex-none",
+    "approversRes.staffOptions",
+    "approversRes.groupOptions",
+    "groupSelect.dataset.role = 'approver-group'",
+    "checkbox.dataset.role = 'approver-name'",
+    "row.querySelectorAll('[data-role=\"approver-name\"]:checked')",
+    'เลือกกลุ่มงานและผู้อนุมัติจากทำเนียบ Staff โดยตรง',
   ];
   const forbidden = [
     'id="staffBody"',
     'renderStaffTable(staff)',
+    "namesInput.type = 'text'",
+    "document.createElement('datalist')",
   ];
   const missing = required.filter(value => !source.includes(value));
   const present = forbidden.filter(value => source.includes(value));
@@ -166,10 +175,23 @@ function checkAdminStaffUxContracts() {
     'positionOptions: String(settings.position_options',
     'set_staff_position: p => api_setStaffPosition(p.staffKey, p.position)',
     'sheet.getRange(3 + i, 5).setValue(value)',
+    'function adminStaffRosterComplete_(values)',
+    "employmentStatus && employmentStatus !== 'ACTIVE'",
+    "approvedValues[5] = 'ACTIVE'",
+    "approvedValues[6] = 'APPROVED'",
+    'sheet.getRange(row, 6, 1, 12).setValues([approvedValues])',
+    'function adminApproverDirectory_()',
+    'groupOptions: Array.from(new Set(roster.map(staff => staff.group).filter(Boolean)))',
+    "if (!groupOptions.has(group)) return { ok: false, error:",
   ];
   const backendMissing = backendRequired.filter(value => !backend.includes(value));
-  if (backendMissing.length) {
-    console.error('Admin staff position contract failed; missing: ' + backendMissing.join(', '));
+  const backendForbidden = [
+    "if (!active) throw new Error('อนุมัติไม่ได้จนกว่าสถานะบุคลากรจะเป็น ACTIVE')",
+  ].filter(value => backend.includes(value));
+  if (backendMissing.length || backendForbidden.length) {
+    console.error('Admin staff lifecycle contract failed' +
+      (backendMissing.length ? '; missing: ' + backendMissing.join(', ') : '') +
+      (backendForbidden.length ? '; forbidden: ' + backendForbidden.join(', ') : ''));
     process.exitCode = 1;
   }
 }
