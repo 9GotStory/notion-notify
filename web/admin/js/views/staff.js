@@ -27,11 +27,8 @@ AdminViews.staff = {
       '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-4">' +
       '<p class="text-sm font-semibold text-slate-600 px-4 pt-4 pb-2">ทำเนียบเจ้าหน้าที่ (' + staff.length + ' คน · อนุมัติการผูกแล้ว ' +
       staff.filter(s => s.registered).length + ')</p>' +
-      '<div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-slate-50 text-left text-xs text-slate-500">' +
-      '<tr><th class="px-4 py-2.5">รหัส</th><th class="px-4 py-2.5">ชื่อ</th><th class="px-4 py-2.5">กลุ่มงาน</th>' +
-      '<th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5">สถานะการผูก</th><th class="px-4 py-2.5"></th></tr>' +
-      '</thead><tbody id="staffBody" class="divide-y divide-slate-100"></tbody></table></div>' +
-      '<p class="text-xs text-slate-400 px-4 py-3">ผู้ดูแลต้องเตรียมรหัสบุคลากรและสถานะ ACTIVE ก่อน ผู้ใช้จึงขอผูก LINE ได้ และต้องอนุมัติคำขอก่อนใช้งานระบบลา</p>' +
+      '<div id="staffCards" class="divide-y divide-slate-100"></div>' +
+      '<p class="text-xs text-slate-400 px-4 py-3">สถานะบุคลากร ACTIVE/INACTIVE มาจากทำเนียบที่ HR รับรอง ส่วนสถานะผูก LINE ระบบอัปเดตอัตโนมัติจากคำขอและการอนุมัติ</p>' +
       '</div>';
 
     // ----- ผู้อนุมัติรายกลุ่มงาน -----
@@ -47,29 +44,52 @@ AdminViews.staff = {
       '</div>';
 
     root.innerHTML = html;
-    this.renderStaffTable(staff);
+    this.renderStaffCards(staff);
     this.renderApproverRows(approvers, staffKeys);
     UI.$('apAddRow').addEventListener('click', () => this.appendApproverRow('', '', false, staffKeys));
     UI.$('apSave').addEventListener('click', () => this.saveApprovers());
   },
 
-  renderStaffTable(list) {
-    const body = UI.$('staffBody');
-    body.innerHTML = (list || []).map(s =>
-      '<tr>' +
-      '<td class="px-4 py-2.5 font-mono text-xs">' + UI.escapeHtml(s.employeeId || '—') + '</td>' +
-      '<td class="px-4 py-2.5 whitespace-nowrap">' + UI.escapeHtml(s.name) + '</td>' +
-      '<td class="px-4 py-2.5 text-slate-500">' + UI.escapeHtml(s.group || '-') + '</td>' +
-      '<td class="px-4 py-2.5"></td>' +
-      '<td class="px-4 py-2.5 text-xs">' + UI.escapeHtml(s.bindingLabel || s.bindingStatus || 'ต้องตรวจบัญชีเดิม') + '</td>' +
-      '<td class="px-4 py-2.5 text-right whitespace-nowrap"></td>' +
-      '</tr>').join('');
+  renderStaffCards(list) {
+    const wrap = UI.$('staffCards');
+    if (!(list || []).length) {
+      wrap.innerHTML = '<p class="px-4 py-8 text-center text-sm text-slate-400">ยังไม่มีรายชื่อบุคลากร</p>';
+      return;
+    }
+    wrap.innerHTML = list.map(s => {
+      const pending = s.bindingStatus === 'PENDING';
+      const approved = s.bindingStatus === 'APPROVED';
+      const statusClass = pending
+        ? 'bg-amber-50 text-amber-700'
+        : (approved ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600');
+      const active = s.employmentStatus === 'ACTIVE';
+      return '<article class="p-4">' +
+        '<div class="min-w-0">' +
+          '<p class="font-semibold text-slate-800 break-words">' + UI.escapeHtml(s.name) + '</p>' +
+          '<p class="mt-0.5 text-xs text-slate-500 break-words">' + UI.escapeHtml(s.group || 'ยังไม่ระบุกลุ่มงาน') +
+            ' · รหัส <span class="font-mono">' + UI.escapeHtml(s.employeeId || '—') + '</span></p>' +
+        '</div>' +
+        '<div class="mt-2 flex flex-wrap gap-2">' +
+          '<span class="rounded-full px-2.5 py-1 text-xs font-medium ' +
+            (active ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700') + '">บุคลากร: ' +
+            UI.escapeHtml(s.employmentStatus || 'ยังไม่ระบุ') + '</span>' +
+          '<span class="max-w-full rounded-full px-2.5 py-1 text-xs font-medium break-words ' + statusClass + '">ผูก LINE: ' +
+            UI.escapeHtml(s.bindingLabel || s.bindingStatus || 'ยังไม่ผูก') + '</span>' +
+        '</div>' +
+        '<div data-role="binding-actions" class="mt-3 flex flex-wrap gap-2"></div>' +
+        '<div class="mt-3 rounded-xl bg-slate-50 p-3">' +
+          '<label class="block text-xs font-medium text-slate-500 mb-1.5">ประเภทบุคลากร</label>' +
+          '<div data-role="employment-control" class="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-2"></div>' +
+        '</div>' +
+      '</article>';
+    }).join('');
 
     // ปุ่ม/select ผูก event ทีหลัง render ด้วย createElement — ไม่ฝัง payload ใน HTML string
     (list || []).forEach((s, i) => {
-      const td = body.children[i].children[3];
+      const card = wrap.children[i];
+      const employmentControl = card.querySelector('[data-role="employment-control"]');
       const sel = document.createElement('select');
-      sel.className = 'px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white max-w-[200px]';
+      sel.className = 'w-full h-11 px-3 border border-slate-200 rounded-lg text-sm bg-white';
       const placeholder = document.createElement('option');
       placeholder.value = '';
       placeholder.textContent = s.employmentType || '— ยังไม่ระบุ —';
@@ -81,16 +101,18 @@ AdminViews.staff = {
         o.textContent = t;
         sel.appendChild(o);
       });
-      td.appendChild(sel);
+      employmentControl.appendChild(sel);
 
-      const tdBtn = body.children[i].children[5];
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'px-3 py-1.5 rounded-lg border border-slate-200 text-primary text-xs font-medium hover:bg-slate-50 disabled:opacity-50';
-      btn.textContent = 'บันทึก';
+      btn.className = 'hidden h-11 w-full sm:w-auto px-4 rounded-lg border border-slate-200 text-primary text-sm font-medium bg-white hover:bg-slate-100 disabled:opacity-50';
+      btn.textContent = 'บันทึกการเปลี่ยนแปลง';
+      sel.addEventListener('change', () => {
+        btn.classList.toggle('hidden', !sel.value);
+      });
       btn.addEventListener('click', async () => {
         if (!sel.value) { UI.showToast('เลือกประเภทบุคลากรก่อนบันทึก', true); return; }
-        UI.setBusy(btn, true, '…');
+        UI.setBusy(btn, true, 'กำลังบันทึก…');
         try {
           await AdminAPI.call('set_staff_employment_type', { staffKey: s.key, employmentType: sel.value });
           placeholder.textContent = sel.value; // ค่าที่เลือกกลายเป็น placeholder ใหม่ของแถวนี้
@@ -103,17 +125,22 @@ AdminViews.staff = {
           UI.setBusy(btn, false, 'บันทึก');
         }
       });
-      tdBtn.appendChild(btn);
+      employmentControl.appendChild(btn);
 
       const reviewable = s.bindingStatus === 'PENDING' ||
         (!!s.lineUserId && s.bindingStatus !== 'APPROVED');
       if (reviewable) {
+        const actions = card.querySelector('[data-role="binding-actions"]');
+        const actionLabel = document.createElement('p');
+        actionLabel.className = 'w-full text-xs font-medium text-slate-500';
+        actionLabel.textContent = 'ตรวจสอบการผูกบัญชี LINE';
+        actions.appendChild(actionLabel);
         ['approve', 'reject'].forEach(action => {
           const reviewButton = document.createElement('button');
           reviewButton.type = 'button';
-          reviewButton.className = 'ml-1 px-3 py-1.5 rounded-lg border text-xs font-medium disabled:opacity-50 ' +
-            (action === 'approve' ? 'border-emerald-200 text-emerald-700 hover:bg-emerald-50' :
-              'border-red-200 text-red-700 hover:bg-red-50');
+          reviewButton.className = 'min-h-11 flex-1 sm:flex-none px-4 rounded-lg border text-sm font-semibold disabled:opacity-50 ' +
+            (action === 'approve' ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700' :
+              'border-red-200 bg-white text-red-700 hover:bg-red-50');
           reviewButton.textContent = action === 'approve' ? 'อนุมัติผูก' : 'ปฏิเสธ';
           reviewButton.addEventListener('click', async () => {
             const reason = window.prompt(action === 'approve'
@@ -133,7 +160,7 @@ AdminViews.staff = {
               UI.setBusy(reviewButton, false);
             }
           });
-          tdBtn.appendChild(reviewButton);
+          actions.appendChild(reviewButton);
         });
       }
     });

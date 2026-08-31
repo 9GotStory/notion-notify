@@ -111,6 +111,34 @@ function checkLiffFormUxContracts() {
   }
 }
 
+function checkAdminStaffUxContracts() {
+  const filename = 'web/admin/js/views/staff.js';
+  const source = fs.readFileSync(path.join(root, filename), 'utf8');
+  const required = [
+    'id="staffCards"',
+    'renderStaffCards(staff)',
+    'data-role="binding-actions"',
+    'data-role="employment-control"',
+    'สถานะบุคลากร ACTIVE/INACTIVE มาจากทำเนียบที่ HR รับรอง',
+    "btn.textContent = 'บันทึกการเปลี่ยนแปลง'",
+    "btn.classList.toggle('hidden', !sel.value)",
+    "reviewButton.textContent = action === 'approve' ? 'อนุมัติผูก' : 'ปฏิเสธ'",
+    "'min-h-11 flex-1 sm:flex-none",
+  ];
+  const forbidden = [
+    'id="staffBody"',
+    'renderStaffTable(staff)',
+  ];
+  const missing = required.filter(value => !source.includes(value));
+  const present = forbidden.filter(value => source.includes(value));
+  if (missing.length || present.length) {
+    console.error(filename + ' mobile staff UX contract failed' +
+      (missing.length ? '; missing: ' + missing.join(', ') : '') +
+      (present.length ? '; forbidden: ' + present.join(', ') : ''));
+    process.exitCode = 1;
+  }
+}
+
 function checkLogRetentionContracts() {
   const contracts = [
     {
@@ -249,6 +277,7 @@ walk(path.join(root, 'web'))
 checkAdminViewContracts();
 checkDirectModeContracts();
 checkLiffFormUxContracts();
+checkAdminStaffUxContracts();
 checkLogRetentionContracts();
 checkThaiDateContracts();
 
