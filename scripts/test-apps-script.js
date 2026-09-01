@@ -131,6 +131,51 @@ if (validRetentionErrors.length || !invalidRetentionErrors.some(error => /30-365
 } else {
   console.log('PASS testAdminLogRetentionValidation');
 }
+const logPageWindows = vm.runInContext(`({
+  first: logPageWindow_(1, 15, 32),
+  last: logPageWindow_(3, 15, 32),
+  clamped: logPageWindow_(99, 500, 32),
+  single: logPageWindow_(1, 1, 32),
+  empty: logPageWindow_(1, 15, 0),
+})`, webappContext);
+if (logPageWindows.first.startRow !== 20 || logPageWindows.first.count !== 15 ||
+    logPageWindows.last.page !== 3 || logPageWindows.last.startRow !== 3 || logPageWindows.last.count !== 2 ||
+    logPageWindows.clamped.pageSize !== 50 || logPageWindows.clamped.page !== 1 ||
+    logPageWindows.single.pageSize !== 1 || logPageWindows.single.startRow !== 34 || logPageWindows.single.count !== 1 ||
+    logPageWindows.empty.totalPages !== 1 || logPageWindows.empty.count !== 0) {
+  console.error('FAIL testAdminLogPagination');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminLogPagination');
+}
+const logPageApi = vm.runInContext(`(function () {
+  var original = getSheet_;
+  var read = null;
+  getSheet_ = function () { return {
+    getLastRow: function () { return 34; },
+    getRange: function (startRow, column, count, width) {
+      read = { startRow: startRow, column: column, count: count, width: width };
+      return { getValues: function () { return [
+        [new Date('2026-09-01T08:00:00+07:00'), '2026-09-01', 'success', 'เก่ากว่า'],
+        [new Date('2026-09-01T09:00:00+07:00'), '2026-09-01', 'error', 'ใหม่กว่า'],
+      ]; } };
+    },
+  }; };
+  try {
+    var result = api_getLogsPage(3, 15);
+    return { read: read, result: result };
+  } finally {
+    getSheet_ = original;
+  }
+})()`, webappContext);
+if (logPageApi.read.startRow !== 3 || logPageApi.read.count !== 2 || logPageApi.read.width !== 4 ||
+    logPageApi.result.logs[0].detail !== 'ใหม่กว่า' || logPageApi.result.pagination.page !== 3 ||
+    logPageApi.result.pagination.totalItems !== 32) {
+  console.error('FAIL testAdminLogPageApi');
+  process.exitCode = 1;
+} else {
+  console.log('PASS testAdminLogPageApi');
+}
 const fiscalReportHelpers = vm.runInContext(`({
   beforeBoundary: reportFiscalYearCEForDate_(new Date('2026-09-30T12:00:00+07:00')),
   atBoundary: reportFiscalYearCEForDate_(new Date('2026-10-01T00:00:00+07:00')),

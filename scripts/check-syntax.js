@@ -362,6 +362,49 @@ function checkLogRetentionContracts() {
   });
 }
 
+function checkAdminLogPaginationContracts() {
+  const frontendFile = 'web/admin/js/views/system.js';
+  const frontend = fs.readFileSync(path.join(root, frontendFile), 'utf8');
+  const backendFile = 'apps/webapp/WebApp.gs';
+  const backend = fs.readFileSync(path.join(root, backendFile), 'utf8');
+  const frontendRequired = [
+    'logPageSize: 15', 'id="logPagination"', 'id="logPrevBtn"', 'id="logNextBtn"',
+    "AdminAPI.call('get_logs', { page: target, pageSize: this.logPageSize })",
+    'logStatusMeta_(status)', 'วันที่อ้างอิง', 'ประเภทเหตุการณ์', 'aria-live="polite"',
+  ];
+  const backendRequired = [
+    'get_logs: p => withOk_(api_getLogsPage(p.page, p.pageSize || p.limit))',
+    'function logPageWindow_(page, pageSize, totalItems)',
+    'function api_getLogsPage(page, pageSize)',
+    'totalItems: window.totalItems', 'totalPages: window.totalPages',
+  ];
+  const frontendMissing = frontendRequired.filter(value => !frontend.includes(value));
+  const backendMissing = backendRequired.filter(value => !backend.includes(value));
+  if (frontendMissing.length || backendMissing.length) {
+    console.error('Admin Logs pagination contract failed' +
+      (frontendMissing.length ? '; frontend missing: ' + frontendMissing.join(', ') : '') +
+      (backendMissing.length ? '; backend missing: ' + backendMissing.join(', ') : ''));
+    process.exitCode = 1;
+  }
+
+  try {
+    const context = vm.createContext({ AdminViews: {} });
+    vm.runInContext(frontend, context, { filename: frontendFile });
+    const logs = context.AdminViews.system;
+    const errorMeta = logs.logStatusMeta_('leave-push-fail');
+    const skipMeta = logs.logStatusMeta_('skip-leave');
+    const successMeta = logs.logStatusMeta_('success');
+    if (errorMeta.label !== 'ผิดพลาด' || !errorMeta.badge.includes('danger') ||
+        skipMeta.label !== 'ข้ามการส่ง' || !skipMeta.badge.includes('warning') ||
+        successMeta.label !== 'สำเร็จ' || !successMeta.badge.includes('success')) {
+      throw new Error('Admin Logs status codes must map to readable result badges');
+    }
+  } catch (err) {
+    console.error(err.stack || err);
+    process.exitCode = 1;
+  }
+}
+
 function checkScheduleLifecycleContracts() {
   const contracts = [
     {
@@ -526,6 +569,7 @@ checkLiffFormUxContracts();
 checkAdminStaffUxContracts();
 checkDesignSystemContracts();
 checkLogRetentionContracts();
+checkAdminLogPaginationContracts();
 checkScheduleLifecycleContracts();
 checkThaiDateContracts();
 

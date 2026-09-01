@@ -189,7 +189,8 @@ const ADMIN_API = {
   get_holidays: () => withOk_({ holidays: api_getHolidays() }),
   add_holiday: p => api_addHoliday(p.date, p.name, p.type),
   delete_holiday: p => api_deleteHoliday(p.row, p.version),
-  get_logs: p => withOk_({ logs: api_getLogs(p.limit) }),
+  // รองรับ client รุ่นเดิมที่ยังส่ง limit และ client ใหม่ที่ส่ง page/pageSize
+  get_logs: p => withOk_(api_getLogsPage(p.page, p.pageSize || p.limit)),
   get_leave_report: p => api_getLeaveReport(p.year, p.month),
   get_balances: () => withOk_(api_getBalances()),
   add_balance: p => api_addBalance(p.yearBE, p.name, p.leaveType, p.carryIn, p.usedExtra, p.reason, p.requestId),
@@ -409,18 +410,48 @@ function api_deleteHoliday(rowNumber, version) {
 // ---------- Logs (อ่านอย่างเดียว) ----------
 
 function api_getLogs(limit) {
+  return api_getLogsPage(1, limit).logs;
+}
+
+function logPageWindow_(page, pageSize, totalItems) {
+  const sizeValue = Number(pageSize);
+  const size = Number.isInteger(sizeValue) ? Math.min(Math.max(sizeValue, 1), 50) : 15;
+  const total = Math.max(0, Number(totalItems) || 0);
+  const totalPages = Math.max(1, Math.ceil(total / size));
+  const pageValue = Number(page);
+  const currentPage = Number.isInteger(pageValue) ? Math.min(Math.max(pageValue, 1), totalPages) : 1;
+  const newestOffset = (currentPage - 1) * size;
+  const count = Math.max(0, Math.min(size, total - newestOffset));
+  return {
+    page: currentPage,
+    pageSize: size,
+    totalItems: total,
+    totalPages: totalPages,
+    startRow: 3 + total - newestOffset - count,
+    count: count,
+  };
+}
+
+function api_getLogsPage(page, pageSize) {
   const sheet = getSheet_('Logs');
   const lastRow = sheet.getLastRow();
-  if (lastRow < 3) return [];
-  const n = Math.min(limit || 30, lastRow - 2);
-  const startRow = lastRow - n + 1;
-  const data = sheet.getRange(startRow, 1, n, 4).getValues();
-  return data.reverse().map(row => ({
+  const window = logPageWindow_(page, pageSize, Math.max(0, lastRow - 2));
+  const data = window.count ? sheet.getRange(window.startRow, 1, window.count, 4).getValues() : [];
+  const logs = data.reverse().map(row => ({
     timestamp: row[0] instanceof Date ? Utilities.formatDate(row[0], 'Asia/Bangkok', 'yyyy-MM-dd HH:mm:ss') : String(row[0]),
     date: formatCell_(row[1]),
     status: String(row[2]),
     detail: String(row[3]),
   }));
+  return {
+    logs: logs,
+    pagination: {
+      page: window.page,
+      pageSize: window.pageSize,
+      totalItems: window.totalItems,
+      totalPages: window.totalPages,
+    },
+  };
 }
 
 // ---------- รายงานวันลา (แท็บ "รายงานวันลา" — อ่านใบลาจาก Notion ด้วย token แบบอ่านอย่างเดียว) ----------
