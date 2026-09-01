@@ -14,9 +14,10 @@ AdminViews.holidays = {
       '<p class="ui-section-title mb-3">เพิ่มวันหยุด</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
       '<div><span class="ui-label">วันที่</span>' +
-      '<label class="relative block min-h-11 cursor-pointer rounded-control border border-border bg-white px-3 py-2.5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">' +
-      '<span id="hdDateDisplay" class="block text-sm text-text">— เลือกวันที่ —</span>' +
-      '<input id="hdDate" type="date" aria-label="วันที่" class="absolute inset-0 h-full w-full cursor-pointer opacity-0"></label></div>' +
+      '<button id="hdDateTrigger" type="button" aria-haspopup="dialog" aria-controls="hdDate" class="ui-field flex cursor-pointer items-center justify-between text-left">' +
+      '<span id="hdDateDisplay">— เลือกวันที่ —</span>' +
+      '<span class="text-xs font-semibold text-brand" aria-hidden="true">เลือก</span></button>' +
+      '<input id="hdDate" type="date" aria-label="วันที่" tabindex="-1" class="fixed bottom-0 right-0 h-px w-px opacity-0 pointer-events-none"></div>' +
       '<div><label for="hdType" class="ui-label">ประเภท</label>' +
       '<select id="hdType" class="ui-field">' +
       this.TYPES.map(t => '<option value="' + t + '">' + t + '</option>').join('') +
@@ -37,6 +38,7 @@ AdminViews.holidays = {
       '</div>';
 
     UI.$('hdAddBtn').addEventListener('click', () => this.add());
+    UI.$('hdDateTrigger').addEventListener('click', () => this.openDatePicker_());
     UI.$('hdDate').addEventListener('change', () => this.refreshDateDisplay_());
     this.refreshDateDisplay_();
     await this.reload();
@@ -47,6 +49,21 @@ AdminViews.holidays = {
     const display = UI.$('hdDateDisplay');
     if (!input || !display) return;
     display.textContent = input.value ? UI.formatThaiDate(input.value) : '— เลือกวันที่ —';
+  },
+
+  openDatePicker_() {
+    const input = UI.$('hdDate');
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+      try {
+        input.showPicker();
+        return;
+      } catch (_) {
+        // บาง webview ไม่อนุญาต showPicker — ใช้ native click ต่อด้านล่าง
+      }
+    }
+    input.focus({ preventScroll: true });
+    input.click();
   },
 
   async reload() {

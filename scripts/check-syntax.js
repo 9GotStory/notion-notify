@@ -267,7 +267,10 @@ function checkDesignSystemContracts() {
 
   const holidaysSource = fs.readFileSync(path.join(root, 'web/admin/js/views/holidays.js'), 'utf8');
   [
+    'id="hdDateTrigger"',
     'id="hdDateDisplay"',
+    "UI.$('hdDateTrigger').addEventListener('click'",
+    "typeof input.showPicker === 'function'",
     'UI.formatThaiDate(input.value)',
     'min-w-[132px] whitespace-nowrap',
     'ui-btn-danger whitespace-nowrap',
@@ -278,7 +281,17 @@ function checkDesignSystemContracts() {
     }
   });
   try {
-    const elements = { hdDate: { value: '2026-09-01' }, hdDateDisplay: { textContent: '' } };
+    let pickerCalls = 0;
+    let clickCalls = 0;
+    const elements = {
+      hdDate: {
+        value: '2026-09-01',
+        showPicker: () => { pickerCalls += 1; },
+        focus: () => {},
+        click: () => { clickCalls += 1; },
+      },
+      hdDateDisplay: { textContent: '' },
+    };
     const context = vm.createContext({
       AdminViews: {},
       UI: { $: id => elements[id], formatThaiDate: value => value === '2026-09-01' ? '1 ก.ย. 2569' : '' },
@@ -292,6 +305,15 @@ function checkDesignSystemContracts() {
     context.AdminViews.holidays.refreshDateDisplay_();
     if (elements.hdDateDisplay.textContent !== '— เลือกวันที่ —') {
       throw new Error('holiday date field did not restore the empty label');
+    }
+    context.AdminViews.holidays.openDatePicker_();
+    if (pickerCalls !== 1 || clickCalls !== 0) {
+      throw new Error('holiday date trigger did not prefer the native showPicker API');
+    }
+    delete elements.hdDate.showPicker;
+    context.AdminViews.holidays.openDatePicker_();
+    if (clickCalls !== 1) {
+      throw new Error('holiday date trigger did not fall back to native input click');
     }
   } catch (err) {
     console.error(err.stack || err);
