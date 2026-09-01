@@ -248,6 +248,56 @@ function checkLogRetentionContracts() {
   });
 }
 
+function checkScheduleLifecycleContracts() {
+  const contracts = [
+    {
+      file: 'apps/main/Notion.gs',
+      required: [
+        "const NOTION_SEND_STATUSES = ['ยืนยันแล้ว']",
+        "const NOTION_SCHEDULE_STATUSES = ['ยืนยันแล้ว', 'เสร็จสิ้น']",
+        'function updateNotionWorkStatus_(pageId, status)',
+        "method: 'patch'",
+      ],
+    },
+    {
+      file: 'apps/main/Calendar.gs',
+      required: [
+        'function buildNotionQueryPayload_(todayStr, tomorrowStr, statuses)',
+        'function buildPastConfirmedSchedulePayload_(todayStr)',
+        'function scheduleItemEndedBefore_(item, todayStr)',
+        'function completePastScheduleItems_(now, databaseId)',
+        "updateNotionWorkStatus_(item.pageId, 'เสร็จสิ้น')",
+        'bounds.to, NOTION_SCHEDULE_STATUSES)',
+      ],
+    },
+    {
+      file: 'apps/main/Summary.gs',
+      required: [
+        'const completed = completePastScheduleItems_(now, settings.notion_database_id)',
+        "logResult_(now, 'schedule-status'",
+        'function ensureLogCleanupTrigger_()',
+        '.atHour(3)',
+      ],
+    },
+    {
+      file: 'apps/main/Config.gs',
+      required: [
+        "status.push('ติดตั้ง trigger บำรุงรักษารายวันเวลา 03:00 น.')",
+        't.getHandlerFunction() === LOG_CLEANUP_TRIGGER_HANDLER',
+        'งานที่พ้นวันจะไม่เปลี่ยนเป็นเสร็จสิ้นอัตโนมัติ',
+      ],
+    },
+  ];
+  contracts.forEach(contract => {
+    const source = fs.readFileSync(path.join(root, contract.file), 'utf8');
+    const missing = contract.required.filter(value => !source.includes(value));
+    if (missing.length) {
+      console.error(contract.file + ' schedule lifecycle contract failed; missing: ' + missing.join(', '));
+      process.exitCode = 1;
+    }
+  });
+}
+
 function checkThaiDateContracts() {
   const context = vm.createContext({
     console,
@@ -361,6 +411,7 @@ checkDirectModeContracts();
 checkLiffFormUxContracts();
 checkAdminStaffUxContracts();
 checkLogRetentionContracts();
+checkScheduleLifecycleContracts();
 checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');

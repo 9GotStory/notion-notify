@@ -12,6 +12,7 @@ function runUnitTests() {
     testWeekend_,
     testPlainText_,
     testNotionStatusWhitelist_,
+    testScheduleStatusCompletion_,
     testParseNotionPage_,
     testTimeLabels_,
     testItemSubFields_,
@@ -166,6 +167,7 @@ function testPlainText_() {
 }
 
 function testNotionStatusWhitelist_() {
+  // ข้อความ LINE ใช้เฉพาะงานยืนยันแล้ว
   const payload = buildNotionQueryPayload_('2026-08-06', '2026-08-07');
   const filters = payload.filter.and;
   assertEqual_(filters.length, 3);
@@ -181,6 +183,54 @@ function testNotionStatusWhitelist_() {
   assertFalse_(allowedStatuses.includes('ร่าง'));
   assertFalse_(allowedStatuses.includes('เสร็จสิ้น'));
   assertFalse_(allowedStatuses.includes('ยกเลิก'));
+
+  // หน้าเว็บเก็บทั้งงานที่ยังยืนยันอยู่และประวัติงานที่เสร็จแล้ว
+  const schedulePayload = buildNotionQueryPayload_(
+    '2026-08-01', '2026-09-01', NOTION_SCHEDULE_STATUSES);
+  const scheduleStatuses = schedulePayload.filter.and[2].or.map(function (filter) {
+    return filter.select.equals;
+  });
+  assertEqual_(scheduleStatuses.join(','), 'ยืนยันแล้ว,เสร็จสิ้น');
+  assertFalse_(scheduleStatuses.includes('ร่าง'));
+  assertFalse_(scheduleStatuses.includes('ยกเลิก'));
+
+  const pastPayload = buildPastConfirmedSchedulePayload_('2026-09-01');
+  assertEqual_(pastPayload.filter.and[0].date.before, '2026-09-01T00:00:00+07:00');
+  assertEqual_(pastPayload.filter.and[1].or.map(function (filter) {
+    return filter.select.equals;
+  }).join(','), 'ยืนยันแล้ว');
+}
+
+function testScheduleStatusCompletion_() {
+  const originalResolve = resolveDataSourceId_;
+  const originalQuery = queryNotionPages_;
+  const originalUpdate = updateNotionWorkStatus_;
+  const updated = [];
+  resolveDataSourceId_ = function () { return 'test-data-source'; };
+  queryNotionPages_ = function () {
+    return [
+      { id: '11111111-1111-1111-1111-111111111111', properties: scheduleTestProperties_('2026-08-31', null) },
+      { id: '22222222-2222-2222-2222-222222222222', properties: scheduleTestProperties_('2026-08-30', '2026-09-01') },
+      { id: '33333333-3333-3333-3333-333333333333', properties: scheduleTestProperties_('2026-09-01', null) },
+    ];
+  };
+  updateNotionWorkStatus_ = function (pageId, status) { updated.push(pageId + '|' + status); };
+  try {
+    const count = completePastScheduleItems_(new Date('2026-09-01T03:00:00+07:00'), 'database-id');
+    assertEqual_(count, 1);
+    assertEqual_(updated.join(','), '11111111-1111-1111-1111-111111111111|เสร็จสิ้น');
+  } finally {
+    resolveDataSourceId_ = originalResolve;
+    queryNotionPages_ = originalQuery;
+    updateNotionWorkStatus_ = originalUpdate;
+  }
+}
+
+function scheduleTestProperties_(start, end) {
+  const properties = {};
+  properties[PROPS_NOTION.date] = { date: { start: start, end: end } };
+  properties[PROPS_NOTION.status] = { select: { name: 'ยืนยันแล้ว' } };
+  return properties;
 }
 
 function testParseNotionPage_() {
@@ -198,7 +248,8 @@ function testParseNotionPage_() {
   properties[PROPS_NOTION.details] = { rich_text: [{ plain_text: 'สรุปงาน' }] };
   properties[PROPS_NOTION.notes] = { rich_text: [{ plain_text: 'เตรียมเอกสาร' }] };
 
-  const item = parseNotionPage_({ properties: properties });
+  const item = parseNotionPage_({ id: '12345678-1234-1234-1234-123456789abc', properties: properties });
+  assertEqual_(item.pageId, '12345678-1234-1234-1234-123456789abc');
   assertEqual_(item.title, 'ประชุมทีม');
   assertEqual_(item.start, '2026-08-06T08:30:00+07:00');
   assertEqual_(item.end, '2026-08-06T16:00:00+07:00');
@@ -1117,6 +1168,13 @@ function testScheduleHelpers_() {
   assertFalse_(itemOverlapsRange_({ start: '2026-09-01', end: null }, '2026-08-01', '2026-09-01'), 'เริ่มวันแรกของเดือนถัดไปต้องไม่นับ (toStr exclusive)');
   assertTrue_(itemOverlapsRange_({ start: '2026-08-31T23:00:00+07:00', end: '2026-09-02' }, '2026-08-01', '2026-09-01'), 'datetime ที่มีเวลาต้องเทียบแบบตัดเอาแค่วันที่');
   assertFalse_(itemOverlapsRange_({ start: null }, '2026-08-01', '2026-09-01'), 'ไม่มีวันที่เลยต้องไม่นับ');
+
+  // ปิดงานหลังวันสิ้นสุดเท่านั้น: งานหลายวันยังไม่เสร็จระหว่างช่วง
+  assertTrue_(scheduleItemEndedBefore_({ start: '2026-08-30', end: '2026-08-31' }, '2026-09-01'));
+  assertFalse_(scheduleItemEndedBefore_({ start: '2026-08-30', end: '2026-09-01' }, '2026-09-01'));
+  assertTrue_(scheduleItemEndedBefore_({ start: '2026-08-31', end: null }, '2026-09-01'));
+  assertFalse_(scheduleItemEndedBefore_({ start: '2026-09-01', end: null }, '2026-09-01'));
+  assertFalse_(scheduleItemEndedBefore_({ start: null }, '2026-09-01'));
 
   // ขยายรายวัน: งานคร่อมข้ามเดือน 30 ส.ค.-2 ก.ย. → เดือน ส.ค. เห็น 2 วันท้าย / เดือน ก.ย. เห็น 2 วันแรก
   const spanItem = { title: 'อบรม', start: '2026-08-30', end: '2026-09-02', location: '', assignees: [], details: '', notes: '' };

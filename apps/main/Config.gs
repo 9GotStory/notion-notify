@@ -200,6 +200,11 @@ function setupSheet() {
   } catch (triggerErr) {
     status.push('⚠ ติดตั้ง trigger เตือนใบลาค้างไม่สำเร็จ: ' + triggerErr);
   }
+  try {
+    if (ensureLogCleanupTrigger_()) status.push('ติดตั้ง trigger บำรุงรักษารายวันเวลา 03:00 น.');
+  } catch (triggerErr) {
+    status.push('⚠ ติดตั้ง trigger บำรุงรักษารายวันไม่สำเร็จ: ' + triggerErr);
+  }
 
   // ตรวจความพร้อมระบบทั้งสายหลังสร้าง/เติมชีต — ให้ผู้ดูแลเห็นว่าขาดอะไรในคลิกเดียว
   const findings = collectSystemHealth_();
@@ -488,6 +493,12 @@ function collectSystemHealth_() {
     findings.push(['warn', 'ยังไม่ตั้งเวลาส่งอัตโนมัติ — กดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ"']);
   } else if (!notificationEnabled && hasTrigger) {
     findings.push(['info', 'การแจ้งเตือนปิดอยู่แต่ยังมี trigger เดิม — กดเมนูติดตั้ง/อัปเดตหนึ่งครั้งเพื่อลบ trigger']);
+  }
+
+  const hasDailyMaintenance = ScriptApp.getProjectTriggers().some(
+    t => t.getHandlerFunction() === LOG_CLEANUP_TRIGGER_HANDLER);
+  if (!hasDailyMaintenance) {
+    findings.push(['warn', 'ยังไม่มี trigger บำรุงรักษารายวัน — งานที่พ้นวันจะไม่เปลี่ยนเป็นเสร็จสิ้นอัตโนมัติ กรุณากดเมนู "ติดตั้ง/อัปเดตเวลาส่งอัตโนมัติ"']);
   }
 
   // สถานะสวิตช์ระบบลา

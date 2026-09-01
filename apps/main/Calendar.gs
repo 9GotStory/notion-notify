@@ -1,15 +1,19 @@
 /** ปฏิทินการปฏิบัติงาน (Notion): query รายวัน/ล่วงหน้า + ตัวขยายงานหลายวัน
  *  + API ให้หน้าเว็บ /web/schedule/ (apiAction: schedule) */
 
-function buildNotionQueryPayload_(todayStr, tomorrowStr) {
+function notionStatusFilters_(statuses) {
   if (!['select', 'status'].includes(NOTION_STATUS_PROPERTY_TYPE)) {
     throw new Error('NOTION_STATUS_PROPERTY_TYPE ต้องเป็น select หรือ status');
   }
-  const allowedStatusFilters = NOTION_SEND_STATUSES.map(status => {
+  return (statuses || NOTION_SEND_STATUSES).map(status => {
     const filter = { property: PROPS_NOTION.status };
     filter[NOTION_STATUS_PROPERTY_TYPE] = { equals: status };
     return filter;
   });
+}
+
+function buildNotionQueryPayload_(todayStr, tomorrowStr, statuses) {
+  const allowedStatusFilters = notionStatusFilters_(statuses);
   return {
     filter: {
       and: [
@@ -18,6 +22,19 @@ function buildNotionQueryPayload_(todayStr, tomorrowStr) {
         { or: allowedStatusFilters },
       ],
     },
+    sorts: [{ property: PROPS_NOTION.date, direction: 'ascending' }],
+    page_size: 100,
+  };
+}
+
+// งานยืนยันแล้วที่วันเริ่มอยู่ก่อนวันนี้ — กรองวันสิ้นสุดจริงอีกครั้งก่อนเปลี่ยนสถานะ
+function buildPastConfirmedSchedulePayload_(todayStr) {
+  const statusFilters = notionStatusFilters_(NOTION_SEND_STATUSES);
+  return {
+    filter: { and: [
+      { property: PROPS_NOTION.date, date: { before: todayStr + 'T00:00:00+07:00' } },
+      { or: statusFilters },
+    ] },
     sorts: [{ property: PROPS_NOTION.date, direction: 'ascending' }],
     page_size: 100,
   };
@@ -70,6 +87,28 @@ function itemOverlapsRange_(item, fromStr, toStr) {
   const startDay = item.start.slice(0, 10);
   const lastDay = (item.end || item.start).slice(0, 10);
   return startDay < toStr && lastDay >= fromStr;
+}
+
+// จบเมื่อ "วันสิ้นสุด" ผ่านไปแล้ว; งานหลายวันจึงไม่ถูกปิดตั้งแต่วันแรก
+function scheduleItemEndedBefore_(item, todayStr) {
+  if (!item || !item.start) return false;
+  return String(item.end || item.start).slice(0, 10) < todayStr;
+}
+
+/** เปลี่ยนเฉพาะงานยืนยันแล้วที่พ้นวันสิ้นสุดเป็นเสร็จสิ้น คืนจำนวนที่อัปเดต */
+function completePastScheduleItems_(now, databaseId) {
+  const id = String(databaseId || '').trim();
+  if (!id || id === 'your_notion_database_id') return 0;
+  const todayStr = Utilities.formatDate(now || new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  const pages = queryNotionPages_(resolveDataSourceId_(id), buildPastConfirmedSchedulePayload_(todayStr));
+  let updated = 0;
+  pages.forEach(page => {
+    const item = parseNotionPage_(page);
+    if (!scheduleItemEndedBefore_(item, todayStr)) return;
+    updateNotionWorkStatus_(item.pageId, 'เสร็จสิ้น');
+    updated++;
+  });
+  return updated;
 }
 
 // ---------- ตารางงานสำหรับหน้าเว็บ /schedule/ (apiAction: schedule) ----------
@@ -175,7 +214,8 @@ function apiSchedule_(body) {
   }
 
   // หน้าต่างย้อนหลัง 92 วันเพื่อเก็บงานแบบช่วงวันที่ที่เริ่มก่อนเดือนนี้แต่ยังครอบคลุมอยู่
-  const payload = buildNotionQueryPayload_(shiftDateStr_(bounds.from, -RANGE_PADDING_DAYS), bounds.to);
+  const payload = buildNotionQueryPayload_(
+    shiftDateStr_(bounds.from, -RANGE_PADDING_DAYS), bounds.to, NOTION_SCHEDULE_STATUSES);
   const dataSourceId = resolveDataSourceId_(settings.notion_database_id);
   const results = queryNotionPages_(dataSourceId, payload);
 
@@ -220,6 +260,7 @@ function parseNotionPage_(page) {
   const statusValue = statusProp.select || statusProp.status || null;
   const isDatetime = !!(dateProp && dateProp.start && dateProp.start.indexOf('T') !== -1);
   return {
+    pageId: String(page.id || ''),
     title: plainText_(props[PROPS_NOTION.title] && props[PROPS_NOTION.title].title) || '(ไม่มีชื่องาน)',
     start: dateProp ? dateProp.start : null,
     end: dateProp ? dateProp.end : null,

@@ -554,7 +554,15 @@ function cleanupLogsDaily() {
   if (!lock.tryLock(10000)) return;
   try {
     const settings = getSettings_();
-    cleanupOldLogs_(SpreadsheetApp.getActive().getSheetByName('Logs'), new Date(), settings.logs_retention_days);
+    const now = new Date();
+    cleanupOldLogs_(SpreadsheetApp.getActive().getSheetByName('Logs'), now, settings.logs_retention_days);
+    try {
+      const completed = completePastScheduleItems_(now, settings.notion_database_id);
+      if (completed) logResult_(now, 'schedule-status', 'เปลี่ยนงานที่พ้นวันสิ้นสุดเป็นเสร็จสิ้น ' + completed + ' รายการ');
+    } catch (err) {
+      logResult_(now, 'error', 'อัปเดตสถานะงานที่พ้นวันไม่สำเร็จ: ' + String(err));
+      throw err;
+    }
   } finally {
     lock.releaseLock();
   }
@@ -569,7 +577,9 @@ function ensureLogCleanupTrigger_() {
       .everyDays(1)
       .atHour(3)
       .create();
+    return true;
   }
+  return false;
 }
 
 function nextScheduledDate_(now, notifyTime) {
@@ -634,13 +644,13 @@ function installTrigger() {
     ensurePendingLeaveReminderTrigger_();
     const nextRun = syncNotificationTrigger_(new Date());
     if (!nextRun) {
-      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger ส่งข้อความเดิมแล้ว\n\nติดตั้ง trigger ลบ Logs รายวันและตรวจใบลาค้างทุกชั่วโมงแล้ว');
+      SpreadsheetApp.getUi().alert('ระบบแจ้งเตือนปิดอยู่ จึงลบ trigger ส่งข้อความเดิมแล้ว\n\nติดตั้ง trigger บำรุงรักษารายวันและตรวจใบลาค้างทุกชั่วโมงแล้ว');
       return;
     }
     const nextLabel = thaiDateLabel_(nextRun) + ' เวลา ' +
       Utilities.formatDate(nextRun, 'Asia/Bangkok', 'HH:mm');
     SpreadsheetApp.getUi().alert('ตั้งเวลาส่งอัตโนมัติแล้ว\n\nครั้งถัดไป: ' + nextLabel +
-      '\nติดตั้ง trigger ลบ Logs รายวันและตรวจใบลาค้างทุกชั่วโมงแล้ว');
+      '\nติดตั้ง trigger บำรุงรักษารายวันและตรวจใบลาค้างทุกชั่วโมงแล้ว');
   } catch (err) {
     SpreadsheetApp.getUi().alert('ติดตั้ง trigger ไม่สำเร็จ: ' + err);
   }

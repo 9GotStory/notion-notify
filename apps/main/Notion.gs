@@ -36,7 +36,9 @@ const PROPS_NOTION = {
   notes: 'หมายเหตุ',
 };
 const NOTION_VERSION = '2025-09-03'; // API version ที่รองรับ data sources — ดู developers.notion.com/docs/upgrade-faqs-2025-09-03
+// แยกสถานะตามหน้าที่: LINE แจ้งเฉพาะงานที่ยังยืนยันอยู่ ส่วนปฏิทินต้องเก็บประวัติงานที่เสร็จแล้วด้วย
 const NOTION_SEND_STATUSES = ['ยืนยันแล้ว'];
+const NOTION_SCHEDULE_STATUSES = ['ยืนยันแล้ว', 'เสร็จสิ้น'];
 const NOTION_STATUS_PROPERTY_TYPE = 'select'; // ใช้ 'status' หากเปลี่ยนชนิด property ใน Notion
 const NOTION_DATA_SOURCE_CACHE_ = {};
 const NOTION_MAX_ATTEMPTS_ = 4;
@@ -130,6 +132,29 @@ function queryNotionPages_(dataSourceId, payload, maxPages) {
     cursor = data.next_cursor;
   }
   throw new Error('ข้อมูล Notion มีมากกว่าเพดาน ' + limit * 100 + ' รายการ จึงหยุดเพื่อไม่คืนผลลัพธ์ที่ไม่ครบ');
+}
+
+/** อัปเดตสถานะของงานในปฏิทินแบบ idempotent — ใช้เฉพาะ page ID ที่ได้จาก Notion query */
+function updateNotionWorkStatus_(pageId, status) {
+  const id = String(pageId || '').trim();
+  const value = String(status || '').trim();
+  if (!/^[0-9a-f-]{32,36}$/i.test(id)) throw new Error('Notion page ID ของงานไม่ถูกต้อง');
+  if (!NOTION_SCHEDULE_STATUSES.includes(value)) throw new Error('สถานะงานปลายทางไม่ถูกต้อง');
+  const statusValue = {};
+  statusValue[NOTION_STATUS_PROPERTY_TYPE] = { name: value };
+  const properties = {};
+  properties[PROPS_NOTION.status] = statusValue;
+  const response = notionFetch_('https://api.notion.com/v1/pages/' + encodeURIComponent(id), {
+    method: 'patch',
+    contentType: 'application/json',
+    headers: notionHeaders_(),
+    payload: JSON.stringify({ properties: properties }),
+    muteHttpExceptions: true,
+  }, true);
+  if (response.getResponseCode() >= 300) {
+    throw new Error('อัปเดตสถานะงานใน Notion ไม่สำเร็จ (' + response.getResponseCode() + '): ' +
+      response.getContentText().substring(0, 200));
+  }
 }
 
 /** เตรียม property เสริมของใบลาเมื่อมีการใช้ครั้งแรก — ไม่แก้ property อื่นของฐานข้อมูล */
