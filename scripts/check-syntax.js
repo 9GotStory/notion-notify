@@ -269,6 +269,7 @@ function checkDesignSystemContracts() {
   [
     'id="hdDateTrigger"',
     'id="hdDateDisplay"',
+    'class="absolute inset-0 h-full w-full opacity-0 pointer-events-none"',
     "UI.$('hdDateTrigger').addEventListener('click'",
     "typeof input.showPicker === 'function'",
     'UI.formatThaiDate(input.value)',
@@ -280,6 +281,10 @@ function checkDesignSystemContracts() {
       process.exitCode = 1;
     }
   });
+  if (holidaysSource.includes('fixed bottom-0 right-0')) {
+    console.error('web/admin/js/views/holidays.js date picker anchor must stay on the visible date field');
+    process.exitCode = 1;
+  }
   try {
     let pickerCalls = 0;
     let clickCalls = 0;

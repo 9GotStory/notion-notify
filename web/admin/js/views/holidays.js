@@ -13,11 +13,11 @@ AdminViews.holidays = {
       '<div class="ui-card ui-card-body mb-4">' +
       '<p class="ui-section-title mb-3">เพิ่มวันหยุด</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
-      '<div><span class="ui-label">วันที่</span>' +
+      '<div><span class="ui-label">วันที่</span><div class="relative">' +
       '<button id="hdDateTrigger" type="button" aria-haspopup="dialog" aria-controls="hdDate" class="ui-field flex cursor-pointer items-center justify-between text-left">' +
       '<span id="hdDateDisplay">— เลือกวันที่ —</span>' +
       '<span class="text-xs font-semibold text-brand" aria-hidden="true">เลือก</span></button>' +
-      '<input id="hdDate" type="date" aria-label="วันที่" tabindex="-1" class="fixed bottom-0 right-0 h-px w-px opacity-0 pointer-events-none"></div>' +
+      '<input id="hdDate" type="date" aria-label="วันที่" tabindex="-1" class="absolute inset-0 h-full w-full opacity-0 pointer-events-none"></div></div>' +
       '<div><label for="hdType" class="ui-label">ประเภท</label>' +
       '<select id="hdType" class="ui-field">' +
       this.TYPES.map(t => '<option value="' + t + '">' + t + '</option>').join('') +
