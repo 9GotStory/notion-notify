@@ -17,28 +17,31 @@ AdminViews.reports = {
   async render(root, isStale) {
     this._isStale = isStale;
     root.innerHTML =
-      '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
-      '<div class="flex flex-wrap items-end gap-2">' +
-      '<div><label for="r-year" class="block text-xs font-semibold text-slate-500 mb-1.5">ปีงบประมาณ (พ.ศ.)</label>' +
-      '<select id="r-year" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"></select></div>' +
-      '<div><label for="r-month" class="block text-xs font-semibold text-slate-500 mb-1.5">เดือน</label>' +
-      '<select id="r-month" class="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">ทั้งปี</option></select></div>' +
-      '<button id="btnRunReport" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">แสดง</button>' +
-      '<button id="btnReportCsv" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-primary bg-primary-light disabled:opacity-50 disabled:cursor-default">ดาวน์โหลด CSV</button>' +
+      UI.pageHeader('ตรวจสอบข้อมูล', 'รายงานวันลา', 'สรุปการลาที่อนุมัติแล้วตามปีงบประมาณหรือเดือน และดาวน์โหลดข้อมูลไปใช้งานต่อ') +
+      '<div class="ui-card ui-card-body mb-4">' +
+      '<div class="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end">' +
+      '<div><label for="r-year" class="ui-label">ปีงบประมาณ (พ.ศ.)</label>' +
+      '<select id="r-year" class="ui-field"></select></div>' +
+      '<div><label for="r-month" class="ui-label">เดือน</label>' +
+      '<select id="r-month" class="ui-field"><option value="">ทั้งปี</option></select></div>' +
+      '<button id="btnRunReport" type="button" class="ui-btn-primary col-span-2 sm:w-auto">สร้างรายงาน</button>' +
+      '<button id="btnReportCsv" type="button" class="ui-btn-soft col-span-2 sm:w-auto">ดาวน์โหลด CSV</button>' +
       '</div>' +
-      '<p class="text-xs text-slate-500 mt-3">ปีงบประมาณเริ่ม 1 ตุลาคมและสิ้นสุด 30 กันยายน · สรุปเฉพาะใบลาสถานะ "อนุมัติ" เป็นวันทำการตามเดือนที่ใบเริ่ม (ใบคร่อมเดือนนับเดือนที่เริ่ม) ใช้ดูภาพกำลังคน ไม่ใช่เกณฑ์วินิจฉัยสิทธิ์คลอด/บวช</p>' +
+      '<p class="ui-help">ปีงบประมาณเริ่ม 1 ตุลาคมและสิ้นสุด 30 กันยายน · สรุปเฉพาะใบลาสถานะ "อนุมัติ" เป็นวันทำการตามเดือนที่ใบเริ่ม (ใบคร่อมเดือนนับเดือนที่เริ่ม) ใช้ดูภาพกำลังคน ไม่ใช่เกณฑ์วินิจฉัยสิทธิ์คลอด/บวช</p>' +
       '</div>' +
 
-      '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">' +
-      '<div class="overflow-x-auto"><table class="w-full text-sm">' +
+      '<section id="reportSummary" class="hidden grid-cols-3 gap-2 mb-4" aria-label="สรุปรายงาน"></section>' +
+      '<div class="ui-card overflow-hidden">' +
+      '<div id="reportCards" class="divide-y divide-slate-100 sm:hidden"></div>' +
+      '<div class="hidden overflow-x-auto sm:block"><table class="ui-data-table">' +
       '<thead><tr id="reportHead" class="text-left text-xs text-slate-500 font-semibold"></tr></thead>' +
       '<tbody id="reportBody" class="divide-y divide-slate-200"></tbody>' +
       '<tfoot id="reportFoot" class="divide-y divide-slate-200 border-t-2 border-slate-200 font-semibold"></tfoot>' +
       '</table></div>' +
-      '<p id="reportEmpty" class="hidden text-center text-slate-500 text-sm py-8"></p>' +
-      '<p id="reportError" class="hidden text-sm text-red-700 bg-red-50 border-t border-red-200 p-4"></p>' +
+      '<div id="reportEmpty" class="hidden"></div>' +
+      '<p id="reportError" class="ui-alert ui-alert-danger hidden rounded-none border-x-0 border-b-0"></p>' +
       '</div>' +
-      '<p class="text-xs text-slate-500 mt-3">ตารางนี้นับจากใบลาจริงเท่านั้น — ยอด "ยกมา/ใช้เพิ่ม" ของแต่ละคนอยู่ที่หน้า <b>สิทธิ์วันลา</b> (ระบบหน้า LIFF และคำเตือนสิทธิ์รวมรายการเหล่านั้นเข้ายอดแล้ว)</p>';
+      '<p class="ui-help mt-3">ตารางนี้นับจากใบลาจริงเท่านั้น — ยอด "ยกมา/ใช้เพิ่ม" ของแต่ละคนอยู่ที่หน้า <b>สิทธิ์วันลา</b> (ระบบหน้า LIFF และคำเตือนสิทธิ์รวมรายการเหล่านั้นเข้ายอดแล้ว)</p>';
 
     this.initControls();
     UI.$('btnRunReport').addEventListener('click', () => this.load());
@@ -95,7 +98,7 @@ AdminViews.reports = {
       if (this._isStale && this._isStale()) return;
       this.showError(e.message);
     } finally {
-      UI.setBusy(btn, false, 'แสดง');
+      UI.setBusy(btn, false, 'สร้างรายงาน');
     }
   },
 
@@ -106,6 +109,9 @@ AdminViews.reports = {
     UI.$('reportHead').innerHTML = '';
     UI.$('reportBody').innerHTML = '';
     UI.$('reportFoot').innerHTML = '';
+    UI.$('reportCards').innerHTML = '';
+    UI.$('reportSummary').classList.add('hidden');
+    UI.$('reportSummary').classList.remove('grid');
     const p = UI.$('reportError');
     p.textContent = message;
     p.classList.remove('hidden');
@@ -135,16 +141,47 @@ AdminViews.reports = {
       '<td class="px-4 py-2.5 text-right font-mono text-xs">' + this.reportDays_(res.grandTotal) + '</td>' +
       '</tr>';
 
+    const usedTypeCount = (res.columnTotals || []).filter(Number).length;
+    const summary = UI.$('reportSummary');
+    summary.innerHTML = [
+      ['บุคลากร', res.rows.length + ' คน'],
+      ['วันลารวม', this.reportDays_(res.grandTotal)],
+      ['ประเภทที่มีการลา', usedTypeCount + ' ประเภท'],
+    ].map(item =>
+      '<div class="ui-card p-3 text-center"><p class="text-lg font-bold text-text">' + UI.escapeHtml(item[1]) + '</p>' +
+      '<p class="mt-0.5 text-[11px] text-text-muted">' + UI.escapeHtml(item[0]) + '</p></div>'
+    ).join('');
+    summary.classList.toggle('hidden', !res.rows.length);
+    summary.classList.toggle('grid', !!res.rows.length);
+
+    UI.$('reportCards').innerHTML = res.rows.map(row => {
+      const used = res.types.map((type, index) => ({ type: type, value: Number(row.cells[index] || 0) }))
+        .filter(item => item.value > 0);
+      return '<article class="p-4">' +
+        '<div class="flex items-start justify-between gap-3"><div class="min-w-0">' +
+          '<p class="font-semibold text-text break-words">' + UI.escapeHtml(row.name) + '</p>' +
+          '<p class="mt-0.5 text-[13px] text-text-muted">' + UI.escapeHtml(row.group || 'ไม่ระบุกลุ่มงาน') + '</p>' +
+        '</div><span class="ui-badge ui-badge-info shrink-0">รวม ' + UI.escapeHtml(this.reportDays_(row.total)) + '</span></div>' +
+        '<div class="mt-3 grid grid-cols-2 gap-2 text-[13px]">' +
+          (used.length ? used.map(item =>
+            '<div class="rounded-control bg-surface-subtle px-3 py-2"><p class="text-text-muted">' + UI.escapeHtml(item.type) + '</p>' +
+            '<p class="mt-0.5 font-semibold text-text">' + UI.escapeHtml(this.reportDays_(item.value)) + ' วัน</p></div>'
+          ).join('') : '<p class="col-span-2 text-text-muted">ไม่มีวันลาในช่วงนี้</p>') +
+        '</div></article>';
+    }).join('');
+
     const empty = UI.$('reportEmpty');
     if (!res.rows.length) {
-      empty.textContent = 'ไม่มีข้อมูลวันลา ' + res.monthLabel + ' — ลองเลือกช่วงอื่น';
+      empty.innerHTML = UI.emptyState('ไม่มีข้อมูลวันลา ' + res.monthLabel, 'ลองเลือกเดือนหรือปีงบประมาณอื่น');
       empty.classList.remove('hidden');
+    } else {
+      empty.classList.add('hidden');
     }
   },
 
   downloadCsv() {
     const res = this.lastReport;
-    if (!res || !res.rows) { UI.showToast('ยังไม่มีรายงานให้บันทึก กด "แสดง" ก่อน', true); return; }
+    if (!res || !res.rows) { UI.showToast('ยังไม่มีรายงานให้บันทึก กด "สร้างรายงาน" ก่อน', true); return; }
     const rows = [];
     rows.push(['รายงานวันลา ' + res.monthLabel]);
     rows.push(['ชื่อ', 'กลุ่มงาน'].concat(res.types).concat(['รวม']));

@@ -88,8 +88,13 @@ const App = {
     root.innerHTML = '<div class="text-center text-slate-400 text-sm py-10">กำลังโหลด…</div>';
     document.querySelectorAll('.nav-btn').forEach(btn => {
       const active = btn.dataset.route === name || (!this.routes.includes(name) && btn.dataset.route === 'overview');
-      btn.className = 'nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ' +
+      btn.className = 'nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ' +
         (active ? 'bg-primary text-white' : 'text-slate-500');
+      if (active) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
+      if (active && window.innerWidth < 640) {
+        requestAnimationFrame(() => btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }));
+      }
     });
     // isStale ให้ view เช็คหลังทุก await: ถ้าผู้ใช้ไปหน้าอื่นแล้วให้หยุดเขียน DOM ทันที
     // (กันอาการ "render เก่าตื่นมาเขียนทับหน้าใหม่" และ null.innerHTML จาก element ที่ถูกแทนไปแล้ว)

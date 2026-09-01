@@ -49,10 +49,10 @@
 <div class="max-w-lg mx-auto min-h-screen px-4 pt-6 pb-10">
 
   <!-- แถบแท็บหลัก (แสดงเฉพาะหลังลงทะเบียนแล้ว — ควบคุมการแสดงผลด้วย JS ใน show()) -->
-  <nav id="mainTabs" style="display:none" class="gap-1 bg-white border border-slate-200 rounded-xl p-1 mb-4">
-    <button type="button" data-view="form" class="main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">ยื่นลา</button>
-    <button type="button" data-view="mine" class="main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">ของฉัน</button>
-    <button id="approvalTab" type="button" data-view="approvals" class="hidden main-tab flex-1 py-2 rounded-lg text-sm font-semibold text-slate-500">อนุมัติ</button>
+  <nav id="mainTabs" style="display:none" class="ui-card gap-1 p-1 mb-4" aria-label="เมนูระบบลา">
+    <button type="button" data-view="form" class="main-tab flex-1 min-h-11 py-2 rounded-lg text-sm font-semibold text-slate-500">ยื่นลา</button>
+    <button type="button" data-view="mine" class="main-tab flex-1 min-h-11 py-2 rounded-lg text-sm font-semibold text-slate-500">ของฉัน</button>
+    <button id="approvalTab" type="button" data-view="approvals" class="hidden main-tab flex-1 min-h-11 py-2 rounded-lg text-sm font-semibold text-slate-500">อนุมัติ</button>
   </nav>
 
   <!-- ===== กำลังโหลด ===== -->
@@ -77,20 +77,20 @@
       <h1 class="text-lg font-bold">ผูกบัญชีครั้งแรก</h1>
       <p class="text-sm text-slate-500 mt-1">กรอกรหัสบุคลากรจากหน่วยงาน ระบบจะส่งคำขอให้ผู้ดูแลตรวจสอบก่อนเริ่มใช้งาน</p>
     </header>
-    <p id="leaveOffReg" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
+    <p id="leaveOffReg" class="ui-alert ui-alert-warning hidden mb-4"></p>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-5">
+    <div class="ui-card ui-card-body">
       <div>
         <label for="regEmployeeId" class="block text-sm font-semibold text-slate-600 mb-1.5">รหัสบุคลากร</label>
         <input id="regEmployeeId" type="text" maxlength="50" autocomplete="off" autocapitalize="off"
                placeholder="กรอกรหัสที่ได้รับจากผู้ดูแล"
-               class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm">
+               class="ui-field">
         <p class="text-xs text-slate-400 mt-1.5">ชื่อ กลุ่มงาน ตำแหน่ง และประเภทบุคลากรจะใช้จากทำเนียบที่ผู้ดูแลรับรอง ไม่รับจากหน้าเว็บนี้</p>
       </div>
     </div>
 
-    <p id="regError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mt-4"></p>
-    <button id="btnRegNext" type="button" class="w-full mt-4 py-3.5 rounded-xl font-semibold text-white bg-primary">ส่งคำขอผูกบัญชี</button>
+    <p id="regError" class="ui-alert ui-alert-danger hidden mt-4"></p>
+    <button id="btnRegNext" type="button" class="ui-btn-primary w-full mt-4 py-3.5">ส่งคำขอผูกบัญชี</button>
   </section>
 
   <!-- ===== ยืนยันข้อมูลก่อนบันทึก ===== -->
@@ -99,17 +99,17 @@
       <h1 class="text-lg font-bold">ยืนยันรหัสบุคลากร</h1>
       <p class="text-sm text-slate-500 mt-1">ผู้ดูแลจะตรวจบัญชี LINE และข้อมูลในทำเนียบก่อนอนุมัติ</p>
     </header>
-    <div id="confirmSummary" class="bg-white border border-slate-200 rounded-2xl p-5 text-sm divide-y divide-slate-100"></div>
+    <div id="confirmSummary" class="ui-card ui-card-body text-sm divide-y divide-slate-100"></div>
     <div class="flex gap-2 mt-4">
-      <button id="btnRegBack" type="button" class="flex-1 py-3.5 rounded-xl font-semibold text-primary bg-primary-light">แก้ไข</button>
-      <button id="btnBind" type="button" class="flex-2 py-3.5 rounded-xl font-semibold text-white bg-primary">ยืนยันและส่งคำขอ</button>
+      <button id="btnRegBack" type="button" class="ui-btn-soft flex-1 py-3.5">แก้ไข</button>
+      <button id="btnBind" type="button" class="ui-btn-primary flex-2 py-3.5">ยืนยันและส่งคำขอ</button>
     </div>
   </section>
 
   <!-- ===== ฟอร์มยื่นลา ===== -->
   <section id="view-form" class="hidden">
-    <p id="leaveOffForm" class="hidden text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4"></p>
-    <div id="editBanner" class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4">
+    <p id="leaveOffForm" class="ui-alert ui-alert-warning hidden mb-4"></p>
+    <div id="editBanner" class="ui-alert ui-alert-info hidden mb-4">
       <p>✏️ กำลังแก้ไขใบลาที่ยื่นไว้ — บันทึกแล้วใบลาจะกลับไปรอผู้อนุมัติใหม่อีกครั้ง</p>
       <button type="button" id="btnCancelEdit" class="mt-1 text-xs font-semibold underline">ยกเลิกการแก้ไขและกลับไปรายการของฉัน</button>
     </div>
@@ -124,7 +124,7 @@
       <span class="font-semibold text-sky-700">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกและแจ้งกลุ่มหลักทันที
     </p>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
+    <div class="ui-card ui-card-body mb-4">
       <div class="flex items-baseline justify-between gap-2 mb-2.5">
         <p class="text-sm font-semibold text-slate-700">ประเภทการลา</p>
         <p class="text-xs text-slate-400">เลือก 1 ประเภท</p>
@@ -134,17 +134,17 @@
       <p id="usageLine" class="hidden mt-3 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2"></p>
     </div>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+    <div class="ui-card ui-card-body mb-4">
       <p class="text-sm font-semibold text-slate-600 mb-2.5">ช่วงวันที่ลา</p>
       <p id="calendarWarning" class="hidden mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2.5">โหลดรายการวันหยุดไม่สำเร็จ ตัวเลขตัวอย่างอาจคลาดเคลื่อน แต่ระบบจะตรวจซ้ำก่อนบันทึก</p>
       <div class="grid grid-cols-2 gap-2 mb-2.5">
         <div>
           <label for="dateStart" class="block text-xs text-slate-500 mb-1">ตั้งแต่</label>
-          <input id="dateStart" type="date" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+          <input id="dateStart" type="date" class="ui-field">
         </div>
         <div>
           <label for="dateEnd" class="block text-xs text-slate-500 mb-1">ถึง</label>
-          <input id="dateEnd" type="date" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+          <input id="dateEnd" type="date" class="ui-field">
         </div>
       </div>
       <div class="flex gap-2">
@@ -164,21 +164,21 @@
       <p id="advanceWarning" class="hidden mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3"></p>
     </div>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+    <div class="ui-card ui-card-body mb-4">
       <label for="reason" class="block text-sm font-semibold text-slate-600 mb-2.5">เหตุผล <span class="font-normal text-slate-400">(กรอกเพื่อผู้อนุมัติพิจารณา)</span></label>
       <textarea id="reason" rows="3" maxlength="500" placeholder="เช่น ไปทำธุระที่ธนาคาร / ไม่สบาย มีไข้"
-                class="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm resize-none"></textarea>
+                class="ui-field resize-none"></textarea>
       <label for="substitute" class="block text-sm font-semibold text-slate-600 mt-4 mb-1.5">ผู้ปฏิบัติงานแทน <span class="font-normal text-slate-400">(ถ้ามี)</span></label>
-      <select id="substitute" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+      <select id="substitute" class="ui-field">
         <option value="">— ไม่ระบุ —</option>
       </select>
       <p class="text-xs text-slate-400 mt-1.5">เลือกได้จากบุคลากรที่ลงทะเบียน LINE แล้วทั้งหมด</p>
     </div>
 
-    <p id="formError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
+    <p id="formError" class="ui-alert ui-alert-danger hidden mb-4"></p>
 
     <button id="btnSubmit" type="button"
-            class="w-full py-3.5 rounded-xl font-semibold text-white bg-primary disabled:opacity-40">ส่งใบลา</button>
+            class="ui-btn-primary w-full py-3.5">ส่งใบลา</button>
   </section>
 
   <!-- ===== ของฉัน: ยอดปีงบประมาณนี้ + รายการใบลาปีงบประมาณก่อนถึงปีถัดไป ===== -->
@@ -188,7 +188,7 @@
       <p class="text-sm text-slate-500 mt-1">ยอดวันลาของปีงบประมาณนี้ (1 ต.ค.–30 ก.ย.) และใบลาตั้งแต่ปีงบประมาณก่อนถึงปีถัดไป — ใบที่ยังรออนุมัติแก้ไขได้ และยกเลิกได้ก่อนถึงวันเริ่มลา</p>
     </header>
 
-    <div class="bg-white border border-slate-200 rounded-2xl p-5 mb-4">
+    <div class="ui-card ui-card-body mb-4">
       <p class="text-sm font-semibold text-slate-600 mb-1">ยอดวันลา ปีงบประมาณ <span id="mineYear"></span></p>
       <div id="mineUsage" class="divide-y divide-slate-100 text-sm"></div>
       <p class="text-xs text-slate-400 mt-3">* ยอด "ใช้ไปแล้ว" รวมใบที่กำลังรออนุมัติด้วย และแถวที่มี <span class="text-sky-700">*</span> รวมยอดยกมา/รายการปรับของผู้ดูแลแล้ว</p>
@@ -199,11 +199,9 @@
       <div class="w-7 h-7 border-[3px] border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
       <p class="text-sm text-slate-500 mt-3">กำลังโหลด…</p>
     </div>
-    <p id="mineSuccess" role="status" aria-live="polite"
-       class="hidden text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-4"></p>
-    <p id="mineActionStatus" role="status" aria-live="polite"
-       class="hidden text-sm text-sky-700 bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4"></p>
-    <p id="mineError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4"></p>
+    <p id="mineSuccess" role="status" aria-live="polite" class="ui-alert ui-alert-success hidden mb-4"></p>
+    <p id="mineActionStatus" role="status" aria-live="polite" class="ui-alert ui-alert-info hidden mb-4"></p>
+    <p id="mineError" class="ui-alert ui-alert-danger hidden mb-4"></p>
     <p id="mineEmpty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-2xl p-6 text-center">
       ยังไม่มีใบลาในช่วงปีที่แสดง — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
     <div id="mineList"></div>
@@ -215,7 +213,7 @@
       <p class="text-sm text-slate-500 mt-1">หัวหน้า สสอ. สามารถเปลี่ยนผู้อนุมัติสำรองเฉพาะใบได้ การ์ดของผู้อนุมัติเดิมจะใช้ไม่ได้ทันที</p>
     </header>
     <div id="approvalLoading" class="hidden py-10 text-center text-sm text-slate-500">กำลังโหลด…</div>
-    <p id="approvalError" class="hidden text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-3"></p>
+    <p id="approvalError" class="ui-alert ui-alert-danger hidden mb-3"></p>
     <div id="approvalList"></div>
   </section>
 
@@ -224,15 +222,15 @@
     <div class="w-16 h-16 rounded-full bg-primary-light text-primary flex items-center justify-center text-3xl mx-auto mb-4">✓</div>
     <h1 id="successTitle" class="text-lg font-bold mb-1">ส่งใบลาเรียบร้อย</h1>
     <p id="successMessage" class="text-sm text-slate-500 mb-5">ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้</p>
-    <div id="successCard" class="text-left bg-white border border-slate-200 rounded-2xl p-5 mb-5 text-sm space-y-2"></div>
-    <button id="btnAgain" type="button" class="w-full py-3.5 rounded-xl font-semibold text-primary bg-primary-light">ยื่นอีกใบ</button>
+    <div id="successCard" class="ui-card ui-card-body text-left mb-5 text-sm space-y-2"></div>
+    <button id="btnAgain" type="button" class="ui-btn-soft w-full py-3.5">ยื่นอีกใบ</button>
   </section>
 
   <!-- ===== ข้อผิดพลาด ===== -->
   <section id="view-error" class="hidden py-24 text-center">
     <div class="text-3xl mb-3">😟</div>
     <p id="errorMessage" class="text-red-700 font-medium mb-5 px-4"></p>
-    <button id="btnRetry" type="button" class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-primary">ลองใหม่</button>
+    <button id="btnRetry" type="button" class="ui-btn-primary">ลองใหม่</button>
   </section>
 
 </div>
@@ -687,7 +685,7 @@
           ? '<span class="w-3.5 h-3.5 border-2 border-red-300 border-t-red-700 rounded-full animate-spin" aria-hidden="true"></span>กำลังยกเลิก…'
           : 'ยกเลิก') + '</button>');
     }
-    return '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-2.5">' +
+    return '<div class="ui-card p-4 mb-2.5">' +
       '<div class="flex items-center justify-between gap-2">' +
         '<span class="font-semibold text-sm">' + escapeHtml(leaveTypeLabel_(leave.leaveType)) + '</span>' +
         '<span class="' + statusBadgeClasses_(leave.status) + ' flex-none">' + escapeHtml(leave.status) + '</span>' +
@@ -797,7 +795,7 @@
     if (state.approvals.loading || state.approvals.error) { $('approvalList').innerHTML = ''; return; }
     const leaves = state.approvals.leaves || [];
     if (!leaves.length) {
-      $('approvalList').innerHTML = '<div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">ไม่มีใบลารออนุมัติ</div>';
+      $('approvalList').innerHTML = '<div class="ui-empty-state"><p class="font-semibold text-slate-700">ไม่มีใบลารออนุมัติ</p><p class="mt-1 text-sm text-text-muted">เมื่อมีใบลาใหม่ รายการจะแสดงที่นี่</p></div>';
       return;
     }
     const options = '<option value="">— เลือกผู้อนุมัติสำรอง —</option>' +
@@ -806,16 +804,16 @@
     $('approvalList').innerHTML = leaves.map(leave => {
       const busy = state.approvals.pendingPageId === leave.pageId;
       const allBusy = !!state.approvals.pendingPageId;
-      return '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-3" data-approval-card="' + escapeHtml(leave.pageId) + '">' +
+      return '<div class="ui-card p-4 mb-3" data-approval-card="' + escapeHtml(leave.pageId) + '">' +
         '<div class="flex justify-between gap-3"><div><p class="font-semibold">' + escapeHtml(leave.fullName) + '</p>' +
         '<p class="text-xs text-slate-500">' + escapeHtml(leave.groupName + ' · ' + leave.leaveType + ' · ' + dateRangeLabel(leave.start, leave.end)) + '</p></div>' +
-        '<span class="text-xs text-amber-700 flex-none">' + escapeHtml(leave.status) + '</span></div>' +
+        '<span class="ui-badge ui-badge-warning flex-none">' + escapeHtml(leave.status) + '</span></div>' +
         '<p class="text-xs text-slate-600 mt-2">ผู้อนุมัติปัจจุบัน: ' + escapeHtml((leave.currentApproverNames || []).join(', ') || 'ไม่ระบุ') + '</p>' +
-        '<select data-role="target" class="w-full mt-3 px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white"' + (allBusy ? ' disabled' : '') + '>' + options + '</select>' +
-        '<textarea data-role="reason" rows="2" maxlength="500" placeholder="เหตุผลที่เปลี่ยนผู้อนุมัติ (5–500 ตัวอักษร)" class="w-full mt-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm"' + (allBusy ? ' disabled' : '') + '></textarea>' +
+        '<select data-role="target" class="ui-field mt-3"' + (allBusy ? ' disabled' : '') + '>' + options + '</select>' +
+        '<textarea data-role="reason" rows="2" maxlength="500" placeholder="เหตุผลที่เปลี่ยนผู้อนุมัติ (5–500 ตัวอักษร)" class="ui-field mt-2"' + (allBusy ? ' disabled' : '') + '></textarea>' +
         '<button type="button" data-act="reassign" data-page-id="' + escapeHtml(leave.pageId) + '"' +
         (allBusy ? ' disabled aria-disabled="true"' : '') + (busy ? ' aria-busy="true"' : '') +
-        ' class="w-full mt-2 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold disabled:opacity-50">' +
+        ' class="ui-btn-primary w-full mt-2">' +
         (busy ? 'กำลังเปลี่ยน…' : 'เปลี่ยนผู้อนุมัติเฉพาะใบ') + '</button></div>';
     }).join('');
   }

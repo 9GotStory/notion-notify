@@ -15,16 +15,16 @@
 
   <!-- ===== หน้า login (แสดงก่อนเมื่อยังไม่มี token) ===== -->
   <div id="loginView" class="hidden min-h-screen flex items-center justify-center px-4">
-    <div class="w-full max-w-sm bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+    <div class="ui-card w-full max-w-sm p-6">
       <h1 class="text-lg font-semibold mb-1">📅 ระบบแจ้งเตือนปฏิทิน</h1>
       <p class="text-sm text-slate-500 mb-5">หน้าจัดการสำหรับผู้ดูแลระบบ — กรอก token เพื่อเข้าใช้งาน (เก็บไว้ในเครื่องนี้จนกว่าจะออกจากระบบ)</p>
-      <label for="tokenInput" class="block text-sm font-semibold text-slate-600 mb-1.5">Token ผู้ดูแล</label>
+      <label for="tokenInput" class="ui-label">Token ผู้ดูแล</label>
       <input id="tokenInput" type="password" autocomplete="off" spellcheck="false"
-             class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono"
+             class="ui-field font-mono"
              placeholder="วาง token ที่ได้รับจากผู้ดูแลระบบ">
-      <p id="loginError" class="hidden mt-2 text-sm text-red-600"></p>
+      <p id="loginError" class="ui-alert ui-alert-danger hidden mt-2"></p>
       <button id="loginBtn" type="button"
-              class="w-full mt-4 h-11 rounded-xl font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">
+              class="ui-btn-primary w-full mt-4">
         เข้าสู่ระบบ
       </button>
     </div>
@@ -43,14 +43,14 @@
     </header>
 
     <div class="max-w-3xl mx-auto px-4 py-5 pb-16">
-      <nav class="flex gap-1 bg-white border border-slate-200 rounded-xl p-1 mb-5 overflow-x-auto">
-        <button type="button" data-route="overview" class="nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ภาพรวม</button>
-        <button type="button" data-route="staff" class="nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">บุคลากร</button>
-        <button type="button" data-route="leave" class="nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">สิทธิ์วันลา</button>
-        <button type="button" data-route="leave-manage" class="nav-btn flex-1 min-w-[82px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">จัดการใบลา</button>
-        <button type="button" data-route="holidays" class="nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">วันหยุด</button>
-        <button type="button" data-route="reports" class="nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">รายงาน</button>
-        <button type="button" data-route="system" class="nav-btn flex-1 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ระบบ</button>
+      <nav class="ui-card flex gap-1 p-1 mb-5 overflow-x-auto" aria-label="เมนูผู้ดูแล">
+        <button type="button" data-route="overview" class="nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ภาพรวม</button>
+        <button type="button" data-route="staff" class="nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">บุคลากร</button>
+        <button type="button" data-route="leave" class="nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">สิทธิ์วันลา</button>
+        <button type="button" data-route="leave-manage" class="nav-btn flex-1 min-h-11 min-w-[82px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">จัดการใบลา</button>
+        <button type="button" data-route="holidays" class="nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">วันหยุด</button>
+        <button type="button" data-route="reports" class="nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">รายงาน</button>
+        <button type="button" data-route="system" class="nav-btn flex-1 min-h-11 min-w-[72px] py-2.5 px-2 rounded-lg text-sm font-medium text-slate-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">ระบบ</button>
       </nav>
 
       <main id="view" aria-live="polite"></main>

@@ -221,6 +221,60 @@ function checkAdminStaffUxContracts() {
   }
 }
 
+function checkDesignSystemContracts() {
+  const stylesFile = 'web/liff-form/src/styles.css';
+  const styles = fs.readFileSync(path.join(root, stylesFile), 'utf8');
+  const requiredStyles = [
+    '--color-brand:', '--color-surface:', '--color-text:', '--color-success:', '--color-warning:',
+    '--color-danger:', '--radius-control:', '--radius-card:', '.ui-page-header', '.ui-card', '.ui-field',
+    '.ui-btn-primary', '.ui-btn-secondary', '.ui-btn-danger', '.ui-badge', '.ui-alert', '.ui-empty-state',
+  ];
+  const missingStyles = requiredStyles.filter(value => !styles.includes(value));
+  if (missingStyles.length) {
+    console.error(stylesFile + ' design-system contract failed; missing: ' + missingStyles.join(', '));
+    process.exitCode = 1;
+  }
+
+  const adminViews = [
+    'overview.js', 'staff.js', 'leave.js', 'leave-manage.js', 'holidays.js', 'reports.js', 'system.js',
+  ].map(name => 'web/admin/js/views/' + name);
+  adminViews.forEach(filename => {
+    const source = fs.readFileSync(path.join(root, filename), 'utf8');
+    const violations = [];
+    if (!source.includes('UI.pageHeader(')) violations.push('missing UI.pageHeader');
+    if (source.includes('h-[38px]')) violations.push('legacy 38px control');
+    if (source.includes('window.confirm(') || source.includes('if (!confirm(')) violations.push('native confirm dialog');
+    if (violations.length) {
+      console.error(filename + ' design-system contract failed; ' + violations.join(', '));
+      process.exitCode = 1;
+    }
+  });
+
+  const responsiveContracts = [
+    ['web/admin/js/views/holidays.js', 'id="hdCards"'],
+    ['web/admin/js/views/leave.js', 'id="quotaCards"'],
+    ['web/admin/js/views/leave.js', 'id="balanceCards"'],
+    ['web/admin/js/views/reports.js', 'id="reportCards"'],
+    ['web/admin/js/views/system.js', 'id="logCards"'],
+  ];
+  responsiveContracts.forEach(([filename, marker]) => {
+    const source = fs.readFileSync(path.join(root, filename), 'utf8');
+    if (!source.includes(marker)) {
+      console.error(filename + ' responsive data-view contract failed; missing: ' + marker);
+      process.exitCode = 1;
+    }
+  });
+
+  const uiSource = fs.readFileSync(path.join(root, 'web/admin/js/ui.js'), 'utf8');
+  ['confirm(options)', "setAttribute('aria-modal', 'true')", "event.key === 'Escape'", 'previousFocus.focus()']
+    .forEach(marker => {
+      if (!uiSource.includes(marker)) {
+        console.error('web/admin/js/ui.js accessible dialog contract failed; missing: ' + marker);
+        process.exitCode = 1;
+      }
+    });
+}
+
 function checkLogRetentionContracts() {
   const contracts = [
     {
@@ -410,6 +464,7 @@ checkAdminViewContracts();
 checkDirectModeContracts();
 checkLiffFormUxContracts();
 checkAdminStaffUxContracts();
+checkDesignSystemContracts();
 checkLogRetentionContracts();
 checkScheduleLifecycleContracts();
 checkThaiDateContracts();

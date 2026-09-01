@@ -20,6 +20,7 @@ AdminViews.leave = {
   editingBalanceVersion: null,
   balanceRequestId: null,
   balanceRequestKey: '',
+  activeSection: 'quotas',
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
   cache: { quotaProfiles: [], balances: [], employmentTypes: [], leaveTypes: [], staffKeys: [] },
 
@@ -44,70 +45,72 @@ AdminViews.leave = {
     }
 
     root.innerHTML =
-      '<!-- ===== โควตาตามประเภทบุคลากร ===== -->' +
-      '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
-      '<p class="text-sm font-semibold text-slate-600 mb-1">โควตาสิทธิ์ตามประเภทบุคลากร</p>' +
-      '<p class="text-xs text-slate-500 mb-3">ใช้ปีงบประมาณ 1 ต.ค.–30 ก.ย. ปีเว้นว่าง = ทุกปี ใส่ปี (เช่น 2570) = เฉพาะปีงบประมาณนั้น · โควตา <b>0 = ไม่มีสิทธิ์</b> · คลอด/บวชนับวันปฏิทิน ประเภทอื่นนับวันทำการ · ค่าเริ่มต้นต้องให้ HR ตรวจและลงวันที่ leave_policy_reviewed_at ก่อนใช้จริง</p>' +
-      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปีงบประมาณ (พ.ศ. ว่าง = ทุกปี)</label>' +
-      '<input id="q-year" type="number" inputmode="numeric" placeholder="เช่น 2570" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทบุคลากร</label>' +
-      '<select id="q-emptype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>' +
-      '<select id="q-leavetype" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">เกณฑ์วันใช้สิทธิ์</label>' +
-      '<input id="q-quota" type="number" step="0.5" min="0" placeholder="เช่น 10 หรือ 0 = ไม่มีสิทธิ์" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
-      '<div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1.5">หมายเหตุ</label>' +
-      '<input id="q-note" type="text" maxlength="200" placeholder="เช่น ตาม พ.ร.บ.คุ้มครองแรงงาน / เข้ากลางปี" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
+      UI.pageHeader('จัดการสิทธิ์', 'สิทธิ์วันลา', 'กำหนดโควตาตามประเภทบุคลากร และบันทึกรายการยกมาหรือยอดใช้เพิ่มเติม') +
+      '<section class="grid grid-cols-2 gap-2 mb-4" aria-label="สรุปสิทธิ์วันลา">' +
+        '<div class="ui-card p-3 text-center"><p id="leaveQuotaCount" class="text-xl font-bold text-text">' + this.cache.quotaProfiles.length + '</p><p class="text-[11px] text-text-muted">รายการโควตา</p></div>' +
+        '<div class="ui-card p-3 text-center"><p id="leaveBalanceCount" class="text-xl font-bold text-text">' + this.cache.balances.length + '</p><p class="text-[11px] text-text-muted">รายการปรับยอด</p></div>' +
+      '</section>' +
+      '<div class="ui-card grid grid-cols-2 gap-1 p-1 mb-4" role="tablist" aria-label="งานสิทธิ์วันลา">' +
+        '<button id="leaveTabQuotas" type="button" role="tab" aria-controls="leaveQuotaSection" data-leave-section="quotas" class="min-h-11 rounded-control px-3 text-sm font-semibold">โควตาสิทธิ์</button>' +
+        '<button id="leaveTabBalances" type="button" role="tab" aria-controls="leaveBalanceSection" data-leave-section="balances" class="min-h-11 rounded-control px-3 text-sm font-semibold">ปรับยอดวันลา</button>' +
       '</div>' +
-      '<div class="flex gap-2 mt-3">' +
-      '<button id="btnSaveQuota" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">เพิ่มโควตา</button>' +
-      '<button id="btnCancelEditQuota" type="button" class="hidden h-[38px] px-4 rounded-lg font-semibold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิกการแก้ไข</button>' +
+      '<section id="leaveQuotaSection" role="tabpanel" aria-labelledby="leaveTabQuotas">' +
+      '<!-- ===== โควตาตามประเภทบุคลากร ===== -->' +
+      '<div class="ui-card ui-card-body mb-4">' +
+      '<p class="ui-section-title">โควตาสิทธิ์ตามประเภทบุคลากร</p>' +
+      '<p class="ui-help mb-3">ใช้ปีงบประมาณ 1 ต.ค.–30 ก.ย. ปีเว้นว่าง = ทุกปี ใส่ปี (เช่น 2570) = เฉพาะปีงบประมาณนั้น · โควตา <b>0 = ไม่มีสิทธิ์</b> · คลอด/บวชนับวันปฏิทิน ประเภทอื่นนับวันทำการ · ค่าเริ่มต้นต้องให้ HR ตรวจและลงวันที่ leave_policy_reviewed_at ก่อนใช้จริง</p>' +
+      '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
+      '<div><label for="q-year" class="ui-label">ปีงบประมาณ (พ.ศ. ว่าง = ทุกปี)</label><input id="q-year" type="number" inputmode="numeric" placeholder="เช่น 2570" class="ui-field"></div>' +
+      '<div><label for="q-emptype" class="ui-label">ประเภทบุคลากร</label><select id="q-emptype" class="ui-field"><option value="">— เลือก —</option></select></div>' +
+      '<div><label for="q-leavetype" class="ui-label">ประเภทการลา</label><select id="q-leavetype" class="ui-field"><option value="">— เลือก —</option></select></div>' +
+      '<div><label for="q-quota" class="ui-label">เกณฑ์วันใช้สิทธิ์</label><input id="q-quota" type="number" step="0.5" min="0" placeholder="เช่น 10 หรือ 0 = ไม่มีสิทธิ์" class="ui-field"></div>' +
+      '<div class="sm:col-span-2"><label for="q-note" class="ui-label">หมายเหตุ</label><input id="q-note" type="text" maxlength="200" placeholder="เช่น ตาม พ.ร.บ.คุ้มครองแรงงาน / เข้ากลางปี" class="ui-field"></div>' +
+      '</div>' +
+      '<div class="grid grid-cols-2 gap-2 mt-3 sm:flex">' +
+      '<button id="btnSaveQuota" type="button" class="ui-btn-primary">เพิ่มโควตา</button>' +
+      '<button id="btnCancelEditQuota" type="button" class="ui-btn-secondary hidden">ยกเลิกการแก้ไข</button>' +
       '</div></div>' +
 
-      '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">' +
-      '<div class="overflow-x-auto"><table class="w-full text-sm">' +
+      '<div class="ui-card overflow-hidden">' +
+      '<div id="quotaCards" class="divide-y divide-slate-100 sm:hidden"></div>' +
+      '<div class="hidden overflow-x-auto sm:block"><table class="ui-data-table">' +
       '<thead><tr class="text-left text-xs text-slate-500 font-semibold">' +
       '<th class="px-4 py-2.5">ปีงบประมาณ</th><th class="px-4 py-2.5">ประเภทบุคลากร</th><th class="px-4 py-2.5">ประเภทการลา</th>' +
       '<th class="px-4 py-2.5 text-right">โควตา</th><th class="px-4 py-2.5">หมายเหตุ</th><th class="px-4 py-2.5"></th>' +
       '</tr></thead><tbody id="quotaBody" class="divide-y divide-slate-200"></tbody></table></div>' +
-      '<p id="quotaEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีโควตา — รันเมนู "เติมสิทธิ์วันลาตามระเบียบ" ใน Google Sheet ก่อน</p>' +
-      '</div>' +
+      '<div id="quotaEmpty" class="hidden">' + UI.emptyState('ยังไม่มีโควตา', 'รันเมนู “เติมสิทธิ์วันลาตามระเบียบ” ใน Google Sheet ก่อน') + '</div>' +
+      '</div></section>' +
 
       '<!-- ===== สมุดรายการปรับยอด ===== -->' +
-      '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4">' +
-      '<p class="text-sm font-semibold text-slate-600 mb-1">สมุดรายการปรับยอดวันลา (ยกมา / ใช้เพิ่ม)</p>' +
-      '<p class="text-xs text-slate-500 mb-3">ยอดที่แสดงทุกจุดของระบบ = ใบลาจริงใน Notion + รายการในสมุดนี้ — <b>ยกมา</b> เพิ่มสิทธิ์ (เช่น พักร้อนสะสมจากปีก่อน) · <b>ใช้เพิ่ม</b> เพิ่มยอดที่ใช้ไปแล้ว (เช่น ลาก่อนใช้ระบบ)</p>' +
+      '<section id="leaveBalanceSection" class="hidden" role="tabpanel" aria-labelledby="leaveTabBalances">' +
+      '<div class="ui-card ui-card-body mb-4">' +
+      '<p class="ui-section-title">สมุดรายการปรับยอดวันลา (ยกมา / ใช้เพิ่ม)</p>' +
+      '<p class="ui-help mb-3">ยอดที่แสดงทุกจุดของระบบ = ใบลาจริงใน Notion + รายการในสมุดนี้ — <b>ยกมา</b> เพิ่มสิทธิ์ (เช่น พักร้อนสะสมจากปีก่อน) · <b>ใช้เพิ่ม</b> เพิ่มยอดที่ใช้ไปแล้ว (เช่น ลาก่อนใช้ระบบ)</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ปีงบประมาณ (พ.ศ.)</label>' +
-      '<input id="b-year" type="number" inputmode="numeric" placeholder="เช่น 2570" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ชื่อ สกุล</label>' +
-      '<select id="b-name" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ประเภทการลา</label>' +
-      '<select id="b-type" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"><option value="">— เลือก —</option></select></div>' +
+      '<div><label for="b-year" class="ui-label">ปีงบประมาณ (พ.ศ.)</label><input id="b-year" type="number" inputmode="numeric" placeholder="เช่น 2570" class="ui-field"></div>' +
+      '<div><label for="b-name" class="ui-label">ชื่อ สกุล</label><select id="b-name" class="ui-field"><option value="">— เลือก —</option></select></div>' +
+      '<div><label for="b-type" class="ui-label">ประเภทการลา</label><select id="b-type" class="ui-field"><option value="">— เลือก —</option></select></div>' +
       '<div class="grid grid-cols-2 gap-2">' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ยกมา (+สิทธิ์)</label>' +
-      '<input id="b-carry" type="number" step="0.5" min="0" placeholder="0" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
-      '<div><label class="block text-xs font-semibold text-slate-500 mb-1.5">ใช้เพิ่ม (+ยอดใช้)</label>' +
-      '<input id="b-extra" type="number" step="0.5" min="0" placeholder="0" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
+      '<div><label for="b-carry" class="ui-label">ยกมา (+สิทธิ์)</label><input id="b-carry" type="number" step="0.5" min="0" placeholder="0" class="ui-field"></div>' +
+      '<div><label for="b-extra" class="ui-label">ใช้เพิ่ม (+ยอดใช้)</label><input id="b-extra" type="number" step="0.5" min="0" placeholder="0" class="ui-field"></div>' +
       '</div>' +
-      '<div class="sm:col-span-2"><label class="block text-xs font-semibold text-slate-500 mb-1.5">เหตุผล <span class="text-red-600">*</span></label>' +
-      '<input id="b-reason" type="text" maxlength="500" placeholder="อย่างน้อย 5 ตัวอักษร เช่น พักร้อนสะสมจากปีก่อน" class="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"></div>' +
+      '<div class="sm:col-span-2"><label for="b-reason" class="ui-label">เหตุผล <span class="text-red-600">*</span></label><input id="b-reason" type="text" maxlength="500" placeholder="อย่างน้อย 5 ตัวอักษร เช่น พักร้อนสะสมจากปีก่อน" class="ui-field"></div>' +
       '</div>' +
-      '<div class="flex gap-2 mt-3">' +
-      '<button id="btnSaveBalance" type="button" class="h-[38px] px-4 rounded-lg font-semibold text-sm text-white bg-primary hover:bg-primary-dark disabled:opacity-50">เพิ่มรายการ</button>' +
-      '<button id="btnCancelEditBalance" type="button" class="hidden h-[38px] px-4 rounded-lg font-semibold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200">ยกเลิกการแก้ไข</button>' +
+      '<div class="grid grid-cols-2 gap-2 mt-3 sm:flex">' +
+      '<button id="btnSaveBalance" type="button" class="ui-btn-primary">เพิ่มรายการ</button>' +
+      '<button id="btnCancelEditBalance" type="button" class="ui-btn-secondary hidden">ยกเลิกการแก้ไข</button>' +
       '</div></div>' +
 
-      '<div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">' +
-      '<div class="overflow-x-auto"><table class="w-full text-sm">' +
+      '<div class="ui-card overflow-hidden">' +
+      '<div id="balanceCards" class="divide-y divide-slate-100 sm:hidden"></div>' +
+      '<div class="hidden overflow-x-auto sm:block"><table class="ui-data-table">' +
       '<thead><tr class="text-left text-xs text-slate-500 font-semibold">' +
       '<th class="px-4 py-2.5">ปีงบประมาณ</th><th class="px-4 py-2.5">ชื่อ สกุล</th><th class="px-4 py-2.5">ประเภท</th>' +
       '<th class="px-4 py-2.5 text-right">ยกมา</th><th class="px-4 py-2.5 text-right">ใช้เพิ่ม</th>' +
       '<th class="px-4 py-2.5">เหตุผล</th><th class="px-4 py-2.5"></th>' +
       '</tr></thead><tbody id="balanceBody" class="divide-y divide-slate-200"></tbody></table></div>' +
-      '<p id="balanceEmpty" class="hidden text-center text-slate-500 text-sm py-8">ยังไม่มีรายการปรับยอด</p>' +
-      '</div>';
+      '<div id="balanceEmpty" class="hidden">' + UI.emptyState('ยังไม่มีรายการปรับยอด', 'เพิ่มรายการเมื่อมีสิทธิ์ยกมาหรือยอดใช้ก่อนเริ่มระบบ') + '</div>' +
+      '</div></section>';
 
     this.fillSelectOnce_('q-emptype', this.cache.employmentTypes);
     this.fillSelectOnce_('q-leavetype', this.cache.leaveTypes);
@@ -118,11 +121,26 @@ AdminViews.leave = {
     UI.$('btnCancelEditQuota').addEventListener('click', () => this.resetQuotaForm());
     UI.$('btnSaveBalance').addEventListener('click', () => this.saveBalance());
     UI.$('btnCancelEditBalance').addEventListener('click', () => this.resetBalanceForm());
+    root.querySelectorAll('[data-leave-section]').forEach(button =>
+      button.addEventListener('click', () => this.showSection_(button.dataset.leaveSection)));
 
     this.resetQuotaForm();
     this.resetBalanceForm();
     this.renderQuotas();
     this.renderBalances();
+    this.showSection_(this.activeSection);
+  },
+
+  showSection_(section) {
+    this.activeSection = section === 'balances' ? 'balances' : 'quotas';
+    UI.$('leaveQuotaSection').classList.toggle('hidden', this.activeSection !== 'quotas');
+    UI.$('leaveBalanceSection').classList.toggle('hidden', this.activeSection !== 'balances');
+    document.querySelectorAll('[data-leave-section]').forEach(button => {
+      const active = button.dataset.leaveSection === this.activeSection;
+      button.className = 'min-h-11 rounded-control px-3 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand ' +
+        (active ? 'bg-brand text-white' : 'text-text-muted hover:bg-surface-subtle');
+      button.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
   },
 
   fillSelectOnce_(id, options) {
@@ -149,34 +167,64 @@ AdminViews.leave = {
       '<td class="px-4 py-2.5 text-slate-500 text-xs">' + UI.escapeHtml(q.note) + '</td>' +
       '<td class="px-4 py-2.5 text-right whitespace-nowrap"></td>' +
       '</tr>').join('');
+    const cards = UI.$('quotaCards');
+    cards.innerHTML = list.map(q =>
+      '<article class="p-4">' +
+        '<div class="flex items-start justify-between gap-3"><div class="min-w-0">' +
+          '<p class="font-semibold text-text break-words">' + UI.escapeHtml(q.employmentType) + '</p>' +
+          '<p class="mt-0.5 text-[13px] text-text-muted">' + UI.escapeHtml(q.leaveType) + '</p>' +
+        '</div><span class="ui-badge ui-badge-info shrink-0">' + UI.escapeHtml(q.quota) + ' วัน</span></div>' +
+        '<div class="mt-3 grid grid-cols-2 gap-2 text-[13px]">' +
+          '<div class="rounded-control bg-surface-subtle px-3 py-2"><p class="text-text-muted">ปีงบประมาณ</p><p class="font-medium text-text">' + UI.escapeHtml(q.yearBE || 'ทุกปี') + '</p></div>' +
+          '<div class="rounded-control bg-surface-subtle px-3 py-2"><p class="text-text-muted">หมายเหตุ</p><p class="font-medium text-text break-words">' + UI.escapeHtml(q.note || '—') + '</p></div>' +
+        '</div><div data-role="quota-actions" class="mt-3 grid grid-cols-2 gap-2"></div>' +
+      '</article>').join('');
     UI.$('quotaEmpty').classList.toggle('hidden', list.length > 0);
     list.forEach((q, i) => {
       const td = body.children[i].lastElementChild;
-      td.appendChild(this.rowButton_('แก้ไข', 'text-primary hover:bg-slate-50', () => {
-        this.editingQuotaRow = q.row;
-        this.editingQuotaVersion = q.version;
-        UI.$('q-year').value = q.yearBE || '';
-        UI.$('q-emptype').value = q.employmentType;
-        UI.$('q-leavetype').value = q.leaveType;
-        UI.$('q-quota').value = q.quota;
-        UI.$('q-note').value = q.note || '';
-        UI.$('btnSaveQuota').textContent = 'บันทึกการแก้ไข';
-        UI.$('btnCancelEditQuota').classList.remove('hidden');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }));
-      const deleteButton = this.rowButton_('ลบ', 'text-red-700 hover:bg-red-50 ml-1', async () => {
-        if (!confirm('ลบโควตานี้?\n' + (q.yearBE || 'ทุกปี') + ' · ' + q.employmentType + ' · ' + q.leaveType + ' = ' + q.quota +
-          '\n(ถ้าต้องการ "ปิด" สิทธิ์ ให้ตั้งค่าเป็น 0 แทนการลบ — ลบแล้วระบบใช้ค่าเริ่มต้น)')) return;
-        UI.setBusy(deleteButton, true, 'กำลังลบ…');
-        try {
-          await AdminAPI.call('delete_quota_profile', { row: q.row, version: q.version });
-          UI.showToast('ลบแล้ว');
-          await this.reload();
-        } catch (e) { UI.showToast(e.message, true); }
-        finally { UI.setBusy(deleteButton, false); }
-      });
-      td.appendChild(deleteButton);
+      td.appendChild(this.quotaEditButton_(q, 'ui-btn-secondary px-3 text-xs'));
+      td.appendChild(this.quotaDeleteButton_(q, 'ui-btn-danger ml-1 px-3 text-xs'));
+      const actions = cards.children[i].querySelector('[data-role="quota-actions"]');
+      actions.appendChild(this.quotaEditButton_(q, 'ui-btn-secondary'));
+      actions.appendChild(this.quotaDeleteButton_(q, 'ui-btn-danger'));
     });
+  },
+
+  quotaEditButton_(quota, className) {
+    return this.rowButton_('แก้ไขโควตา', className, () => {
+      this.activeSection = 'quotas';
+      this.editingQuotaRow = quota.row;
+      this.editingQuotaVersion = quota.version;
+      UI.$('q-year').value = quota.yearBE || '';
+      UI.$('q-emptype').value = quota.employmentType;
+      UI.$('q-leavetype').value = quota.leaveType;
+      UI.$('q-quota').value = quota.quota;
+      UI.$('q-note').value = quota.note || '';
+      UI.$('btnSaveQuota').textContent = 'บันทึกโควตา';
+      UI.$('btnCancelEditQuota').classList.remove('hidden');
+      UI.$('leaveQuotaSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  },
+
+  quotaDeleteButton_(quota, className) {
+    let button;
+    button = this.rowButton_('ลบโควตา', className, async () => {
+      const accepted = await UI.confirm({
+        title: 'ลบโควตานี้?',
+        message: (quota.yearBE || 'ทุกปี') + ' · ' + quota.employmentType + ' · ' + quota.leaveType + ' = ' + quota.quota +
+          '\nหากต้องการปิดสิทธิ์ ให้ตั้งโควตาเป็น 0 แทน เพราะเมื่อลบ ระบบอาจกลับไปใช้ค่าเริ่มต้น',
+        confirmText: 'ลบโควตา', danger: true,
+      });
+      if (!accepted) return;
+      UI.setBusy(button, true, 'กำลังลบ…');
+      try {
+        await AdminAPI.call('delete_quota_profile', { row: quota.row, version: quota.version });
+        UI.showToast('ลบโควตาแล้ว');
+        await this.reload();
+      } catch (e) { UI.showToast(e.message, true); }
+      finally { UI.setBusy(button, false); }
+    });
+    return button;
   },
 
   resetQuotaForm() {
@@ -231,35 +279,66 @@ AdminViews.leave = {
       '<td class="px-4 py-2.5 text-slate-500 text-xs">' + UI.escapeHtml(b.reason) + '</td>' +
       '<td class="px-4 py-2.5 text-right whitespace-nowrap"></td>' +
       '</tr>').join('');
+    const cards = UI.$('balanceCards');
+    cards.innerHTML = list.map(b =>
+      '<article class="p-4">' +
+        '<div class="flex items-start justify-between gap-3"><div class="min-w-0">' +
+          '<p class="font-semibold text-text break-words">' + UI.escapeHtml(b.name) + '</p>' +
+          '<p class="mt-0.5 text-[13px] text-text-muted">' + UI.escapeHtml(b.leaveType) + ' · ปีงบประมาณ ' + UI.escapeHtml(b.yearBE) + '</p>' +
+        '</div></div>' +
+        '<div class="mt-3 grid grid-cols-2 gap-2 text-[13px]">' +
+          '<div class="rounded-control bg-success-soft px-3 py-2"><p class="text-success">ยกมา (+สิทธิ์)</p><p class="font-semibold text-text">' + (UI.escapeHtml(b.carryIn) || '—') + '</p></div>' +
+          '<div class="rounded-control bg-warning-soft px-3 py-2"><p class="text-warning">ใช้เพิ่ม (+ยอดใช้)</p><p class="font-semibold text-text">' + (UI.escapeHtml(b.usedExtra) || '—') + '</p></div>' +
+        '</div><p class="mt-2 text-[13px] text-text-muted break-words">เหตุผล: ' + UI.escapeHtml(b.reason || '—') + '</p>' +
+        '<div data-role="balance-actions" class="mt-3 grid grid-cols-2 gap-2"></div>' +
+      '</article>').join('');
     UI.$('balanceEmpty').classList.toggle('hidden', list.length > 0);
     list.forEach((b, i) => {
       const td = body.children[i].lastElementChild;
-      td.appendChild(this.rowButton_('แก้ไข', 'text-primary hover:bg-slate-50', () => {
-        this.editingBalanceRow = b.row;
-        this.editingBalanceVersion = b.version;
-        UI.$('b-year').value = b.yearBE;
-        UI.$('b-name').value = b.name;
-        UI.$('b-type').value = b.leaveType;
-        UI.$('b-carry').value = b.carryIn || '';
-        UI.$('b-extra').value = b.usedExtra || '';
-        UI.$('b-reason').value = b.reason || '';
-        UI.$('btnSaveBalance').textContent = 'บันทึกการแก้ไข';
-        UI.$('btnCancelEditBalance').classList.remove('hidden');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }));
-      const deleteButton = this.rowButton_('ลบ', 'text-red-700 hover:bg-red-50 ml-1', async () => {
-        if (!confirm('ลบรายการปรับยอดนี้?\n' + b.yearBE + ' · ' + b.name + ' · ' + b.leaveType +
-          (b.carryIn ? ' · ยกมา ' + b.carryIn : '') + (b.usedExtra ? ' · ใช้เพิ่ม ' + b.usedExtra : ''))) return;
-        UI.setBusy(deleteButton, true, 'กำลังลบ…');
-        try {
-          await AdminAPI.call('delete_balance', { row: b.row, version: b.version });
-          UI.showToast('ลบแล้ว');
-          await this.reload();
-        } catch (e) { UI.showToast(e.message, true); }
-        finally { UI.setBusy(deleteButton, false); }
-      });
-      td.appendChild(deleteButton);
+      td.appendChild(this.balanceEditButton_(b, 'ui-btn-secondary px-3 text-xs'));
+      td.appendChild(this.balanceDeleteButton_(b, 'ui-btn-danger ml-1 px-3 text-xs'));
+      const actions = cards.children[i].querySelector('[data-role="balance-actions"]');
+      actions.appendChild(this.balanceEditButton_(b, 'ui-btn-secondary'));
+      actions.appendChild(this.balanceDeleteButton_(b, 'ui-btn-danger'));
     });
+  },
+
+  balanceEditButton_(balance, className) {
+    return this.rowButton_('แก้ไขรายการ', className, () => {
+      this.activeSection = 'balances';
+      this.editingBalanceRow = balance.row;
+      this.editingBalanceVersion = balance.version;
+      UI.$('b-year').value = balance.yearBE;
+      UI.$('b-name').value = balance.name;
+      UI.$('b-type').value = balance.leaveType;
+      UI.$('b-carry').value = balance.carryIn || '';
+      UI.$('b-extra').value = balance.usedExtra || '';
+      UI.$('b-reason').value = balance.reason || '';
+      UI.$('btnSaveBalance').textContent = 'บันทึกรายการปรับยอด';
+      UI.$('btnCancelEditBalance').classList.remove('hidden');
+      UI.$('leaveBalanceSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  },
+
+  balanceDeleteButton_(balance, className) {
+    let button;
+    button = this.rowButton_('ลบรายการ', className, async () => {
+      const detail = balance.yearBE + ' · ' + balance.name + ' · ' + balance.leaveType +
+        (balance.carryIn ? ' · ยกมา ' + balance.carryIn : '') + (balance.usedExtra ? ' · ใช้เพิ่ม ' + balance.usedExtra : '');
+      const accepted = await UI.confirm({
+        title: 'ลบรายการปรับยอดนี้?', message: detail + '\nยอดสิทธิ์ของบุคลากรจะถูกคำนวณใหม่ทันที',
+        confirmText: 'ลบรายการ', danger: true,
+      });
+      if (!accepted) return;
+      UI.setBusy(button, true, 'กำลังลบ…');
+      try {
+        await AdminAPI.call('delete_balance', { row: balance.row, version: balance.version });
+        UI.showToast('ลบรายการปรับยอดแล้ว');
+        await this.reload();
+      } catch (e) { UI.showToast(e.message, true); }
+      finally { UI.setBusy(button, false); }
+    });
+    return button;
   },
 
   resetBalanceForm() {
@@ -310,7 +389,7 @@ AdminViews.leave = {
   },
 
   rowButton_(text, extraClass, onClick) {
-    const btn = UI.el('button', 'px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium ' + extraClass, text);
+    const btn = UI.el('button', extraClass, text);
     btn.type = 'button';
     btn.addEventListener('click', onClick);
     return btn;
@@ -324,6 +403,8 @@ AdminViews.leave = {
     if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
     this.cache.quotaProfiles = quotaRes.profiles || [];
     this.cache.balances = balanceRes.balances || [];
+    if (UI.$('leaveQuotaCount')) UI.$('leaveQuotaCount').textContent = this.cache.quotaProfiles.length;
+    if (UI.$('leaveBalanceCount')) UI.$('leaveBalanceCount').textContent = this.cache.balances.length;
     this.renderQuotas();
     this.renderBalances();
   },

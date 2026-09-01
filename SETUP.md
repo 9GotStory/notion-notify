@@ -230,6 +230,8 @@ npm install        # ครั้งแรกเท่านั้น
 npm run build:css  # สร้าง styles.css สำหรับเปิดผ่าน local server (ไฟล์นี้ถูก gitignore)
 ```
 
+มาตรฐาน token, component recipe, mobile/desktop pattern และ quality gate ของทั้ง Admin, LIFF และ Schedule อยู่ใน [`DESIGN-SYSTEM.md`](DESIGN-SYSTEM.md) — หน้าใหม่ต้องใช้ semantic token และ component กลางก่อนเพิ่ม utility pattern เฉพาะหน้า
+
 ### 11.6 ปุ่ม "ยื่นลา" บน OA (Rich Menu)
 
 ไปที่ [LINE Official Account Manager](https://manager.line.biz/) > channel ของ OA > **Rich Menu** สร้างเมนูใหม่: พื้นที่แตะเต็มความกว้าง 1 ปุ่ม ข้อความ "ยื่นลา 🗓️" Action เลือก **ลิงก์** แล้ววาง URL ของ LIFF (`https://liff.line.me/<LIFF_ID>`) จากนั้นตั้งเป็น default rich menu — ทำผ่านหน้าเว็บทั้งหมด ไม่ต้องเขียนโค้ด (จะแชร์ลิงก์ปักหมุดในกลุ่มแทนก็ได้ ใช้งานได้เหมือนกัน)

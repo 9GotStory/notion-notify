@@ -28,14 +28,16 @@ AdminViews.overview = {
     }
 
     const tile = (label, value, route) =>
-      '<button type="button" data-route="' + route + '" class="nav-jump text-left bg-white border border-slate-200 rounded-xl p-3.5 hover:border-primary">' +
+      '<button type="button" data-route="' + route + '" class="nav-jump ui-card min-h-24 p-3.5 text-left transition-colors hover:border-brand focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">' +
       '<p class="text-xs text-slate-500 mb-1">' + label + '</p>' +
       '<p class="text-xl font-semibold text-slate-900">' + value + '</p></button>';
 
     root.innerHTML =
-      '<div class="bg-white border border-slate-200 rounded-2xl p-4 mb-4 flex items-center gap-2.5">' +
+      UI.pageHeader('ศูนย์ควบคุม', 'ภาพรวม', 'ตรวจสถานะระบบและเข้าถึงงานดูแลที่สำคัญจากจุดเดียว') +
+      '<div class="ui-card ui-card-body mb-4 flex items-start gap-2.5" role="status" aria-live="polite">' +
       '<span class="w-2 h-2 rounded-full flex-none ' + dotClass + '"></span>' +
-      '<span class="text-sm text-slate-700">' + UI.escapeHtml(statusText) + '</span>' +
+      '<div><p class="text-sm font-semibold text-slate-700">สถานะระบบ</p><p class="mt-0.5 text-[13px] text-text-muted">' + UI.escapeHtml(statusText) + '</p>' +
+      ((res.runtimeHealth && !res.runtimeHealth.healthy) ? '<button type="button" data-route="system" class="nav-jump mt-2 text-sm font-semibold text-brand hover:underline">ไปตรวจการตั้งค่าระบบ</button>' : '') + '</div>' +
       '</div>' +
 
       '<div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">' +
@@ -47,8 +49,8 @@ AdminViews.overview = {
       tile('วันหยุดที่กำลังจะมาถึง', c.upcomingHolidays, 'holidays') +
       '</div>' +
 
-      '<div class="bg-white border border-slate-200 rounded-2xl p-4">' +
-      '<p class="text-sm font-semibold text-slate-600 mb-2">การตั้งค่าหลัก</p>' +
+      '<div class="ui-card ui-card-body">' +
+      '<p class="ui-section-title mb-2">การตั้งค่าหลัก</p>' +
       '<dl class="text-sm divide-y divide-slate-100">' +
       '<div class="flex justify-between py-2"><dt class="text-slate-500">ระบบแจ้งเตือน</dt><dd class="font-medium">' +
       (String(res.settings.enabled).toUpperCase() === 'FALSE' ? '🔴 ปิดอยู่' : '🟢 เปิดใช้งาน') + '</dd></div>' +

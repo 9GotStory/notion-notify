@@ -1,4 +1,5 @@
-/* ธีมของหน้าฟอร์ม — ประกาศแบบ Tailwind v4 (CSS-first ผ่าน @theme ไม่ใช่ custom CSS)
+/* ธีมร่วมของฟอร์มลา ตารางงาน และหน้าผู้ดูแล — ประกาศแบบ Tailwind v4
+   (CSS-first ผ่าน @theme ไม่ใช่ custom CSS)
    แก้สี/ฟอนต์ที่นี่ที่เดียว แล้ว push ให้ GitHub Actions คอมไพล์ให้อัตโนมัติ
    (คอมไพล์ด้วย: npx @tailwindcss/cli@4 -i src/styles.css -o styles.css --minify รันจากในโฟลเดอร์ web/liff-form) */
 @import "tailwindcss";
@@ -10,10 +11,129 @@
 @source "../../admin";
 
 @theme {
+  /* Brand aliases เดิมคงไว้เพื่อไม่ให้หน้าปัจจุบันเปลี่ยนสีระหว่าง migration */
   --color-primary: #0F6E56;
   --color-primary-dark: #0B5643;
   --color-primary-light: #E6F2EF;
   --color-canvas: #F6F8F7;
 
+  /* Semantic tokens: views อ้างความหมายของสี แทนการผูกกับ palette โดยตรง */
+  --color-brand: #0F6E56;
+  --color-brand-strong: #0B5643;
+  --color-brand-soft: #E6F2EF;
+  --color-surface: #FFFFFF;
+  --color-surface-subtle: #F8FAFC;
+  --color-text: #0F172A;
+  --color-text-muted: #64748B;
+  --color-border: #E2E8F0;
+  --color-info: #0369A1;
+  --color-info-soft: #F0F9FF;
+  --color-success: #047857;
+  --color-success-soft: #ECFDF5;
+  --color-warning: #B45309;
+  --color-warning-soft: #FFFBEB;
+  --color-danger: #B91C1C;
+  --color-danger-soft: #FEF2F2;
+
+  --radius-control: 0.75rem;
+  --radius-card: 1rem;
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-dialog: 0 20px 25px -5px rgb(15 23 42 / 0.12), 0 8px 10px -6px rgb(15 23 42 / 0.08);
+
   --font-sans: "IBM Plex Sans Thai", sans-serif;
+}
+
+/* Component recipes ชุดเล็กที่ทั้ง Admin, LIFF และ Schedule ใช้ร่วมกันได้
+   business-specific layout ยังคงอยู่ในแต่ละ view เพื่อไม่สร้าง abstraction เกินจำเป็น */
+@layer components {
+  .ui-page-header {
+    @apply mb-4;
+  }
+
+  .ui-page-eyebrow {
+    @apply text-xs font-semibold tracking-wide text-brand;
+  }
+
+  .ui-page-title {
+    @apply mt-1 text-xl font-bold text-text;
+  }
+
+  .ui-page-description {
+    @apply mt-1 text-sm text-text-muted;
+  }
+
+  .ui-card {
+    @apply rounded-card border border-border bg-surface shadow-card;
+  }
+
+  .ui-card-body {
+    @apply p-4 sm:p-5;
+  }
+
+  .ui-section-title {
+    @apply text-sm font-semibold text-slate-700;
+  }
+
+  .ui-label {
+    @apply mb-1.5 block text-[13px] font-semibold text-slate-600;
+  }
+
+  .ui-field {
+    @apply min-h-11 w-full rounded-control border border-border bg-white px-3 py-2.5 text-sm text-text outline-none transition-colors motion-reduce:transition-none focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500;
+  }
+
+  .ui-help {
+    @apply mt-1.5 text-[13px] leading-relaxed text-text-muted;
+  }
+
+  .ui-btn-primary {
+    @apply inline-flex min-h-11 items-center justify-center rounded-control bg-brand px-4 py-2.5 text-sm font-semibold text-white transition-colors motion-reduce:transition-none hover:bg-brand-strong focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-btn-secondary {
+    @apply inline-flex min-h-11 items-center justify-center rounded-control border border-border bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors motion-reduce:transition-none hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-btn-soft {
+    @apply inline-flex min-h-11 items-center justify-center rounded-control bg-brand-soft px-4 py-2.5 text-sm font-semibold text-brand-strong transition-colors motion-reduce:transition-none hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-btn-danger {
+    @apply inline-flex min-h-11 items-center justify-center rounded-control border border-red-200 bg-danger-soft px-4 py-2.5 text-sm font-semibold text-danger transition-colors motion-reduce:transition-none hover:bg-red-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .ui-badge {
+    @apply inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .ui-badge-neutral { @apply border-slate-200 bg-slate-100 text-slate-600; }
+  .ui-badge-info { @apply border-sky-200 bg-info-soft text-info; }
+  .ui-badge-success { @apply border-emerald-200 bg-success-soft text-success; }
+  .ui-badge-warning { @apply border-amber-200 bg-warning-soft text-warning; }
+  .ui-badge-danger { @apply border-red-200 bg-danger-soft text-danger; }
+
+  .ui-alert {
+    @apply rounded-control border p-3 text-sm leading-relaxed;
+  }
+
+  .ui-alert-info { @apply border-sky-200 bg-info-soft text-info; }
+  .ui-alert-success { @apply border-emerald-200 bg-success-soft text-success; }
+  .ui-alert-warning { @apply border-amber-200 bg-warning-soft text-warning; }
+  .ui-alert-danger { @apply border-red-200 bg-danger-soft text-danger; }
+
+  .ui-empty-state {
+    @apply rounded-card border border-border bg-surface px-4 py-10 text-center;
+  }
+
+  .ui-data-table {
+    @apply w-full text-sm;
+  }
+
+  .ui-data-table thead {
+    @apply bg-surface-subtle text-left text-xs font-semibold text-text-muted;
+  }
+
+  .ui-data-table tbody {
+    @apply divide-y divide-slate-100;
+  }
 }

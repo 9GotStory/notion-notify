@@ -14,6 +14,7 @@ AdminViews.staff = {
   staffPage: 1,
   staffPageSize: 10,
   reviewTarget: null,
+  reviewPreviousFocus: null,
   _isStale: null, // ตัวเช็คจาก app.js — ใช้หลัง await กันเขียน DOM หน้าที่เปลี่ยนไปแล้ว
 
   async render(root, isStale) {
@@ -38,11 +39,7 @@ AdminViews.staff = {
     const pendingCount = staff.filter(s => this.isReviewable_(s)).length;
     const registeredCount = staff.filter(s => s.registered).length;
     let html =
-      '<section class="mb-4">' +
-        '<p class="text-xs font-semibold tracking-wide text-primary">จัดการบุคลากร</p>' +
-        '<h2 class="mt-1 text-xl font-bold text-slate-900">บุคลากร</h2>' +
-        '<p class="mt-1 text-sm text-slate-500">ค้นหา แก้ไขข้อมูล และตรวจสอบการผูกบัญชี โดยไม่ปะปนกับการอนุมัติใบลา</p>' +
-      '</section>' +
+      UI.pageHeader('จัดการบุคลากร', 'บุคลากร', 'ค้นหา แก้ไขข้อมูล และตรวจสอบการผูกบัญชี โดยไม่ปะปนกับการอนุมัติใบลา') +
       '<section class="grid grid-cols-3 gap-2 mb-4" aria-label="สรุปบุคลากร">' +
         this.summaryCard_('บุคลากรทั้งหมด', staff.length, 'text-slate-800') +
         this.summaryCard_('รอตรวจสอบ', pendingCount, pendingCount ? 'text-amber-700' : 'text-slate-800') +
@@ -93,7 +90,7 @@ AdminViews.staff = {
           '<div class="flex items-center justify-between gap-3 mb-1">' +
             '<div><p class="font-semibold text-slate-800">ผู้อนุมัติการลา</p>' +
             '<p class="text-xs text-slate-500">กำหนดผู้รับผิดชอบแยกตามกลุ่มงาน</p></div>' +
-            '<button id="apAddRow" type="button" class="min-h-10 shrink-0 px-3 rounded-lg text-sm text-primary font-semibold hover:bg-primary-light">+ เพิ่มกลุ่ม</button>' +
+            '<button id="apAddRow" type="button" class="min-h-11 shrink-0 px-3 rounded-lg text-sm text-primary font-semibold hover:bg-primary-light">+ เพิ่มกลุ่ม</button>' +
           '</div>' +
           '<p class="text-xs text-slate-500 mb-3">เลือกกลุ่มงานและผู้อนุมัติจากทำเนียบ Staff โดยตรง ผู้อนุมัติต้องผูก LINE และได้รับอนุมัติแล้ว — บันทึกแบบแทนที่ทั้งตาราง</p>' +
           '<div id="apRows" class="space-y-2"></div>' +
@@ -106,7 +103,7 @@ AdminViews.staff = {
           '<div class="flex items-start justify-between gap-3">' +
             '<div><p id="staffReviewEyebrow" class="text-xs font-semibold tracking-wide text-primary"></p>' +
             '<h3 id="staffReviewTitle" class="mt-1 text-lg font-bold text-slate-900"></h3></div>' +
-            '<button id="staffReviewClose" type="button" class="w-10 h-10 shrink-0 rounded-full text-slate-500 hover:bg-slate-100" aria-label="ปิดหน้าต่าง">✕</button>' +
+            '<button id="staffReviewClose" type="button" class="w-11 h-11 shrink-0 rounded-full text-slate-500 hover:bg-slate-100" aria-label="ปิดหน้าต่าง">✕</button>' +
           '</div>' +
           '<div id="staffReviewDetails" class="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700"></div>' +
           '<label for="staffReviewReason" class="block mt-4 text-sm font-semibold text-slate-700">หลักฐานหรือเหตุผล <span class="font-normal text-slate-400">(5–500 ตัวอักษร)</span></label>' +
@@ -135,7 +132,7 @@ AdminViews.staff = {
   },
 
   summaryCard_(label, value, valueClass) {
-    return '<div class="min-w-0 bg-white border border-slate-200 rounded-xl p-3 text-center">' +
+    return '<div class="ui-card min-w-0 p-3 text-center">' +
       '<p class="text-xl font-bold ' + valueClass + '">' + value + '</p>' +
       '<p class="mt-0.5 text-[11px] text-slate-500 break-words">' + label + '</p>' +
     '</div>';
@@ -232,8 +229,8 @@ AdminViews.staff = {
       '<div class="flex items-center justify-between gap-3">' +
         '<p class="text-xs text-slate-500">หน้า ' + this.staffPage + ' จาก ' + this.staffPageCount_() + ' · ' + filtered.length + ' คน</p>' +
         '<div class="flex gap-2">' +
-          '<button id="staffPrev" type="button" class="min-h-10 px-3 rounded-lg border border-slate-200 text-sm font-medium disabled:opacity-40">ก่อนหน้า</button>' +
-          '<button id="staffNext" type="button" class="min-h-10 px-3 rounded-lg border border-slate-200 text-sm font-medium disabled:opacity-40">ถัดไป</button>' +
+          '<button id="staffPrev" type="button" class="min-h-11 px-3 rounded-lg border border-slate-200 text-sm font-medium disabled:opacity-40">ก่อนหน้า</button>' +
+          '<button id="staffNext" type="button" class="min-h-11 px-3 rounded-lg border border-slate-200 text-sm font-medium disabled:opacity-40">ถัดไป</button>' +
         '</div>' +
       '</div>';
     const prev = UI.$('staffPrev');
@@ -376,11 +373,17 @@ AdminViews.staff = {
       if (event.target === UI.$('staffReviewDialog')) this.closeReviewDialog_();
     });
     UI.$('staffReviewDialog').addEventListener('keydown', event => {
-      if (event.key === 'Escape') this.closeReviewDialog_();
+      if (event.key === 'Escape') { event.preventDefault(); this.closeReviewDialog_(); return; }
+      if (event.key !== 'Tab') return;
+      const focusable = [UI.$('staffReviewClose'), UI.$('staffReviewReason'), UI.$('staffReviewCancel'), UI.$('staffReviewSubmit')];
+      const current = focusable.indexOf(document.activeElement);
+      if (event.shiftKey && current <= 0) { event.preventDefault(); focusable[focusable.length - 1].focus(); }
+      else if (!event.shiftKey && current === focusable.length - 1) { event.preventDefault(); focusable[0].focus(); }
     });
   },
 
   openReviewDialog_(staff, action) {
+    this.reviewPreviousFocus = document.activeElement;
     this.reviewTarget = { staff: staff, action: action };
     const approve = action === 'approve';
     UI.$('staffReviewEyebrow').textContent = approve ? 'อนุมัติการผูกบัญชี' : 'ปฏิเสธคำขอผูกบัญชี';
@@ -413,6 +416,10 @@ AdminViews.staff = {
     const dialog = UI.$('staffReviewDialog');
     dialog.classList.add('hidden');
     dialog.classList.remove('flex');
+    if (this.reviewPreviousFocus && typeof this.reviewPreviousFocus.focus === 'function') {
+      this.reviewPreviousFocus.focus();
+    }
+    this.reviewPreviousFocus = null;
   },
 
   async submitReview_() {
@@ -592,8 +599,8 @@ AdminViews.staff = {
 
     const del = document.createElement('button');
     del.type = 'button';
-    del.className = 'text-xs text-red-500 hover:underline';
-    del.textContent = 'ลบ';
+    del.className = 'ui-btn-danger sm:col-span-2 sm:justify-self-start';
+    del.textContent = 'ลบกลุ่มผู้อนุมัติ';
     del.addEventListener('click', () => row.remove());
 
     row.appendChild(groupControl);
@@ -615,7 +622,12 @@ AdminViews.staff = {
   async saveApprovers() {
     const rows = this.collectApproverRows();
     const btn = UI.$('apSave');
-    if (!confirm('บันทึกผู้อนุมัติทั้งหมด ' + rows.length + ' กลุ่มงาน?\n(แทนที่ตารางเดิมทั้งหมด)')) return;
+    const accepted = await UI.confirm({
+      title: 'บันทึกผู้อนุมัติทั้งหมด?',
+      message: rows.length + ' กลุ่มงาน\nการบันทึกครั้งนี้จะแทนที่ตารางผู้อนุมัติเดิมทั้งหมด',
+      confirmText: 'บันทึกผู้อนุมัติ',
+    });
+    if (!accepted) return;
     UI.setBusy(btn, true, 'กำลังบันทึก…');
     try {
       await AdminAPI.call('save_approvers', {

@@ -55,19 +55,19 @@
   </header>
 
   <!-- แถบเชิญเจ้าหน้าที่ล็อกอิน (โชว์เฉพาะมุมมองทั่วไปที่มี LIFF ให้ใช้) -->
-  <div id="loginCta" class="hidden bg-sky-50 border border-sky-200 rounded-xl p-3 mb-4 text-sm">
+  <div id="loginCta" class="ui-alert ui-alert-info hidden mb-4">
     <p class="text-sky-800">เจ้าหน้าที่ที่เข้าสู่ระบบด้วย LINE จะเห็นผู้รับผิดชอบ รายละเอียด และผู้ลาเพิ่มเติม</p>
-    <button id="btnLogin" type="button" class="mt-2 px-4 py-2 rounded-xl font-semibold text-xs text-white bg-primary">เข้าสู่ระบบด้วย LINE</button>
+    <button id="btnLogin" type="button" class="ui-btn-primary mt-2 w-full sm:w-auto">เข้าสู่ระบบด้วย LINE</button>
   </div>
 
   <!-- ===== เลือกเดือน ===== -->
-  <nav class="flex items-center justify-between bg-white border border-slate-200 rounded-2xl px-3 py-2.5 mb-4">
-    <button id="btnPrev" type="button" aria-label="เดือนก่อนหน้า" class="w-9 h-9 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent">‹</button>
+  <nav class="ui-card flex items-center justify-between px-3 py-2.5 mb-4" aria-label="เลือกเดือน">
+    <button id="btnPrev" type="button" aria-label="เดือนก่อนหน้า" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">‹</button>
     <div class="text-center">
       <p id="monthLabel" class="font-bold">—</p>
       <button id="btnToday" type="button" class="text-xs text-primary font-semibold mt-0.5">ไปเดือนนี้</button>
     </div>
-    <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-9 h-9 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent">›</button>
+    <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">›</button>
   </nav>
 
   <!-- ===== รายการ ===== -->
@@ -81,7 +81,7 @@
   <div id="viewError" class="hidden py-16 text-center">
     <div class="text-3xl mb-3">😟</div>
     <p id="errorMessage" class="text-red-700 font-medium mb-5 px-4"></p>
-    <button id="btnRetry" type="button" class="px-5 py-2.5 rounded-xl font-semibold text-sm text-white bg-primary">ลองใหม่</button>
+    <button id="btnRetry" type="button" class="ui-btn-primary">ลองใหม่</button>
   </div>
 
 </div>
@@ -198,7 +198,7 @@
       escapeHtml(r[0]) + ':</span><span class="text-xs text-amber-800 min-w-0">' + escapeHtml(r[1]) + '</span></div>'
     ).join('');
     return (
-      '<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 mt-2">' +
+      '<div class="ui-card border-amber-200 bg-warning-soft p-4 mt-2">' +
         '<div class="flex items-baseline gap-2">' +
           '<span class="text-xs font-bold text-amber-700 shrink-0">🏖️ ลา</span>' +
           '<span class="text-sm font-bold text-slate-800 min-w-0">' + escapeHtml(row.name) + ' — ' + escapeHtml(row.type) + '</span>' +
@@ -224,7 +224,7 @@
           escapeHtml(item.assigneesOnLeave.join(', ')) + '</div>'
       : '';
     return (
-      '<div class="bg-white border border-slate-200 rounded-2xl p-4 mt-2">' +
+      '<div class="ui-card p-4 mt-2">' +
         '<div class="flex items-baseline gap-2">' +
           '<span class="text-xs font-bold text-primary shrink-0">' + escapeHtml(item.time || 'ทั้งวัน') + '</span>' +
           '<span class="text-sm font-bold text-slate-800 min-w-0">' + escapeHtml(item.title) + '</span>' +
@@ -282,10 +282,10 @@
     const badge = $('modeBadge');
     if (state.full) {
       badge.textContent = '✓ มุมมองเจ้าหน้าที่';
-      badge.className = 'inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800';
+        badge.className = 'ui-badge ui-badge-success mt-2';
     } else {
       badge.textContent = 'มุมมองทั่วไป';
-      badge.className = 'inline-block mt-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-600';
+      badge.className = 'ui-badge ui-badge-neutral mt-2';
     }
     // ปุ่มล็อกอินโชว์เฉพาะ: ไม่เต็มโหมด + มี LIFF ของหน้านี้ให้ล็อกอิน
     $('loginCta').classList.toggle('hidden', state.full || !state.liffReady);

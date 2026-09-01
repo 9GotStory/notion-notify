@@ -71,9 +71,72 @@ const UI = {
 
   badgeClasses(status) {
     const s = String(status || '');
-    if (s.indexOf('success') === 0) return 'bg-emerald-50 text-emerald-700';
-    if (s.indexOf('error') === 0) return 'bg-red-50 text-red-700';
-    return 'bg-slate-100 text-slate-500';
+    if (s.indexOf('success') === 0) return 'ui-badge ui-badge-success';
+    if (s.indexOf('error') === 0) return 'ui-badge ui-badge-danger';
+    return 'ui-badge ui-badge-neutral';
+  },
+
+  pageHeader(eyebrow, title, description) {
+    return '<section class="ui-page-header">' +
+      (eyebrow ? '<p class="ui-page-eyebrow">' + UI.escapeHtml(eyebrow) + '</p>' : '') +
+      '<h2 class="ui-page-title">' + UI.escapeHtml(title) + '</h2>' +
+      (description ? '<p class="ui-page-description">' + UI.escapeHtml(description) + '</p>' : '') +
+      '</section>';
+  },
+
+  emptyState(title, description) {
+    return '<div class="ui-empty-state">' +
+      '<p class="font-semibold text-slate-700">' + UI.escapeHtml(title) + '</p>' +
+      (description ? '<p class="mt-1 text-sm text-text-muted">' + UI.escapeHtml(description) + '</p>' : '') +
+      '</div>';
+  },
+
+  /** dialog ยืนยันกลางสำหรับคำสั่งที่มีผลต่อข้อมูล — รองรับ keyboard และคืน focus */
+  confirm(options) {
+    const opts = Object.assign({
+      title: 'ยืนยันรายการ', message: '', confirmText: 'ยืนยัน', cancelText: 'ยกเลิก', danger: false,
+    }, options || {});
+    const previousFocus = document.activeElement;
+    return new Promise(resolve => {
+      const overlay = UI.el('div', 'fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4');
+      overlay.setAttribute('role', 'presentation');
+      const dialog = UI.el('div', 'w-full max-w-md rounded-card bg-white p-5 shadow-dialog');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      const title = UI.el('h2', 'text-lg font-bold text-text', opts.title);
+      const message = UI.el('p', 'mt-2 whitespace-pre-line text-sm leading-relaxed text-text-muted', opts.message);
+      const actions = UI.el('div', 'mt-5 grid grid-cols-2 gap-2');
+      const cancel = UI.el('button', 'ui-btn-secondary', opts.cancelText);
+      const confirm = UI.el('button', opts.danger ? 'ui-btn-danger' : 'ui-btn-primary', opts.confirmText);
+      cancel.type = 'button'; confirm.type = 'button';
+      const titleId = 'ui-confirm-' + Date.now();
+      title.id = titleId;
+      dialog.setAttribute('aria-labelledby', titleId);
+      actions.appendChild(cancel); actions.appendChild(confirm);
+      dialog.appendChild(title); dialog.appendChild(message); dialog.appendChild(actions);
+      overlay.appendChild(dialog);
+
+      const close = value => {
+        document.removeEventListener('keydown', onKeydown);
+        overlay.remove();
+        if (previousFocus && typeof previousFocus.focus === 'function') previousFocus.focus();
+        resolve(value);
+      };
+      const onKeydown = event => {
+        if (event.key === 'Escape') { event.preventDefault(); close(false); return; }
+        if (event.key !== 'Tab') return;
+        const focusable = [cancel, confirm];
+        const current = focusable.indexOf(document.activeElement);
+        if (event.shiftKey && current <= 0) { event.preventDefault(); confirm.focus(); }
+        else if (!event.shiftKey && current === focusable.length - 1) { event.preventDefault(); cancel.focus(); }
+      };
+      cancel.addEventListener('click', () => close(false));
+      confirm.addEventListener('click', () => close(true));
+      overlay.addEventListener('click', event => { if (event.target === overlay) close(false); });
+      document.addEventListener('keydown', onKeydown);
+      document.body.appendChild(overlay);
+      confirm.focus();
+    });
   },
 
   /** สร้างปุ่ม/element พร้อมผูก event แบบปลอดภัย — ใช้แทนการฝัง payload ลง HTML string
