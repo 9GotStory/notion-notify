@@ -117,20 +117,28 @@ function checkAdminStaffUxContracts() {
   const required = [
     'id="staffCards"',
     'this.renderStaffCards(this.staffPageItems_())',
+    'id="staffSearch"',
+    'id="staffStatusFilter"',
+    "this.tabButton_('directory'",
+    "this.tabButton_('bindings'",
+    "this.tabButton_('approvers'",
+    'id="staffBindingCards"',
+    'id="staffReviewDialog"',
+    'this.openReviewDialog_(staff, action)',
     'data-role="binding-actions"',
     'data-role="position-control"',
     'data-role="employment-control"',
     'id="staffPagination"',
     'staffPageSize: 10',
-    'this.staffList.slice(start, start + this.staffPageSize)',
-    'ตำแหน่ง:',
+    'this.filteredStaff_().slice(start, start + this.staffPageSize)',
     'HR เตรียมข้อมูลทำเนียบและรหัสบุคลากรโดยเว้นสถานะทั้งสองช่อง',
-    "s.employmentStatus || 'รอระบบยืนยัน'",
+    "if (staff.employmentStatus === 'ACTIVE') return 'พร้อมใช้งาน'",
+    "if (this.isReviewable_(staff)) return 'รอตรวจสอบ LINE'",
     "'set_staff_position', 'position', 'ตำแหน่ง'",
     "'set_staff_employment_type', 'employmentType', 'ประเภทบุคลากร'",
     "button.classList.toggle('hidden', !select.value)",
-    "reviewButton.textContent = action === 'approve' ? 'อนุมัติผูก' : 'ปฏิเสธ'",
-    "'min-h-11 flex-1 sm:flex-none",
+    "reviewButton.textContent = action === 'approve' ? 'ตรวจสอบและอนุมัติ' : 'ปฏิเสธ'",
+    "if (reason.length < 5)",
     "approversRes.staffOptions",
     "approversRes.groupOptions",
     "groupSelect.dataset.role = 'approver-group'",
@@ -141,6 +149,7 @@ function checkAdminStaffUxContracts() {
   const forbidden = [
     'id="staffBody"',
     'renderStaffTable(staff)',
+    'window.prompt(',
     "namesInput.type = 'text'",
     "document.createElement('datalist')",
   ];
@@ -162,6 +171,22 @@ function checkAdminStaffUxContracts() {
     if (staff.staffPageCount_() !== 3 || staff.staffPageItems_().length !== 3 ||
         staff.staffPageItems_()[0].index !== 20) {
       throw new Error('Staff pagination must split 23 records into 10, 10, and 3');
+    }
+    staff.staffPage = 1;
+    staff.staffList = [
+      { name: 'สมชาย ทดสอบ', employeeId: 'EMP01', bindingStatus: 'PENDING' },
+      { name: 'สมหญิง พร้อมใช้', employeeId: 'EMP02', bindingStatus: 'APPROVED', registered: true,
+        position: 'พยาบาล', employmentType: 'ข้าราชการ' },
+    ];
+    staff.staffQuery = 'EMP02';
+    staff.staffFilter = 'all';
+    if (staff.filteredStaff_().length !== 1 || staff.filteredStaff_()[0].name !== 'สมหญิง พร้อมใช้') {
+      throw new Error('Staff search must match employee ID');
+    }
+    staff.staffQuery = '';
+    staff.staffFilter = 'pending';
+    if (staff.filteredStaff_().length !== 1 || staff.filteredStaff_()[0].name !== 'สมชาย ทดสอบ') {
+      throw new Error('Staff pending filter must use the binding review state');
     }
   } catch (err) {
     console.error(err.stack || err);
