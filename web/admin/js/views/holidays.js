@@ -13,8 +13,10 @@ AdminViews.holidays = {
       '<div class="ui-card ui-card-body mb-4">' +
       '<p class="ui-section-title mb-3">เพิ่มวันหยุด</p>' +
       '<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">' +
-      '<div><label for="hdDate" class="ui-label">วันที่</label>' +
-      '<input id="hdDate" type="date" class="ui-field"></div>' +
+      '<div><span class="ui-label">วันที่</span>' +
+      '<label class="relative block min-h-11 cursor-pointer rounded-control border border-border bg-white px-3 py-2.5 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">' +
+      '<span id="hdDateDisplay" class="block text-sm text-text">— เลือกวันที่ —</span>' +
+      '<input id="hdDate" type="date" aria-label="วันที่" class="absolute inset-0 h-full w-full cursor-pointer opacity-0"></label></div>' +
       '<div><label for="hdType" class="ui-label">ประเภท</label>' +
       '<select id="hdType" class="ui-field">' +
       this.TYPES.map(t => '<option value="' + t + '">' + t + '</option>').join('') +
@@ -29,13 +31,22 @@ AdminViews.holidays = {
       '<div class="ui-card overflow-hidden">' +
       '<div id="hdCards" class="divide-y divide-slate-100 sm:hidden"></div>' +
       '<table class="ui-data-table hidden sm:table"><thead>' +
-      '<tr><th class="px-4 py-2.5">วันที่</th><th class="px-4 py-2.5">ชื่อวันหยุด</th><th class="px-4 py-2.5">ประเภท</th><th class="px-4 py-2.5 w-16"></th></tr>' +
+      '<tr><th class="px-4 py-2.5">วันที่</th><th class="px-4 py-2.5">ชื่อวันหยุด</th><th class="px-4 py-2.5">ประเภท</th><th class="min-w-[132px] whitespace-nowrap px-4 py-2.5 text-right">การทำงาน</th></tr>' +
       '</thead><tbody id="hdBody"></tbody></table>' +
       '<div id="hdEmpty" class="hidden">' + UI.emptyState('ยังไม่มีวันหยุดในระบบ', 'เพิ่มวันหยุดรายการแรกจากแบบฟอร์มด้านบน') + '</div>' +
       '</div>';
 
     UI.$('hdAddBtn').addEventListener('click', () => this.add());
+    UI.$('hdDate').addEventListener('change', () => this.refreshDateDisplay_());
+    this.refreshDateDisplay_();
     await this.reload();
+  },
+
+  refreshDateDisplay_() {
+    const input = UI.$('hdDate');
+    const display = UI.$('hdDateDisplay');
+    if (!input || !display) return;
+    display.textContent = input.value ? UI.formatThaiDate(input.value) : '— เลือกวันที่ —';
   },
 
   async reload() {
@@ -56,8 +67,8 @@ AdminViews.holidays = {
         '<td class="px-4 py-2.5 text-xs whitespace-nowrap">' + UI.escapeHtml(UI.formatThaiDate(h.date)) + '</td>' +
         '<td class="px-4 py-2.5">' + UI.escapeHtml(h.name) + '</td>' +
         '<td class="px-4 py-2.5 text-slate-500 text-xs">' + UI.escapeHtml(h.type) + '</td>';
-      const td = UI.el('td', 'px-4 py-2.5 text-right');
-      td.appendChild(this.deleteButton_(h, 'ui-btn-danger px-3'));
+      const td = UI.el('td', 'whitespace-nowrap px-4 py-2.5 text-right');
+      td.appendChild(this.deleteButton_(h, 'ui-btn-danger whitespace-nowrap px-3'));
       tr.appendChild(td);
       body.appendChild(tr);
 
@@ -68,7 +79,7 @@ AdminViews.holidays = {
           '<p class="mt-1 text-[13px] text-text-muted">' + UI.escapeHtml(UI.formatThaiDate(h.date)) + '</p></div>' +
           '<span class="ui-badge ui-badge-neutral shrink-0">' + UI.escapeHtml(h.type) + '</span>' +
         '</div>';
-      card.appendChild(this.deleteButton_(h, 'ui-btn-danger mt-3 w-full'));
+      card.appendChild(this.deleteButton_(h, 'ui-btn-danger mt-3 w-full whitespace-nowrap'));
       cards.appendChild(card);
     });
   },
@@ -108,6 +119,7 @@ AdminViews.holidays = {
     try {
       await AdminAPI.call('add_holiday', { date: date, name: name, type: type });
       UI.$('hdDate').value = '';
+      this.refreshDateDisplay_();
       UI.$('hdName').value = '';
       UI.showToast('เพิ่มวันหยุดแล้ว');
       await this.reload();

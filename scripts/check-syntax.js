@@ -265,6 +265,39 @@ function checkDesignSystemContracts() {
     }
   });
 
+  const holidaysSource = fs.readFileSync(path.join(root, 'web/admin/js/views/holidays.js'), 'utf8');
+  [
+    'id="hdDateDisplay"',
+    'UI.formatThaiDate(input.value)',
+    'min-w-[132px] whitespace-nowrap',
+    'ui-btn-danger whitespace-nowrap',
+  ].forEach(marker => {
+    if (!holidaysSource.includes(marker)) {
+      console.error('web/admin/js/views/holidays.js responsive date/action contract failed; missing: ' + marker);
+      process.exitCode = 1;
+    }
+  });
+  try {
+    const elements = { hdDate: { value: '2026-09-01' }, hdDateDisplay: { textContent: '' } };
+    const context = vm.createContext({
+      AdminViews: {},
+      UI: { $: id => elements[id], formatThaiDate: value => value === '2026-09-01' ? '1 ก.ย. 2569' : '' },
+    });
+    vm.runInContext(holidaysSource, context, { filename: 'web/admin/js/views/holidays.js' });
+    context.AdminViews.holidays.refreshDateDisplay_();
+    if (elements.hdDateDisplay.textContent !== '1 ก.ย. 2569') {
+      throw new Error('holiday date field did not render the Thai display value');
+    }
+    elements.hdDate.value = '';
+    context.AdminViews.holidays.refreshDateDisplay_();
+    if (elements.hdDateDisplay.textContent !== '— เลือกวันที่ —') {
+      throw new Error('holiday date field did not restore the empty label');
+    }
+  } catch (err) {
+    console.error(err.stack || err);
+    process.exitCode = 1;
+  }
+
   const uiSource = fs.readFileSync(path.join(root, 'web/admin/js/ui.js'), 'utf8');
   ['confirm(options)', "setAttribute('aria-modal', 'true')", "event.key === 'Escape'", 'previousFocus.focus()']
     .forEach(marker => {
