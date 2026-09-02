@@ -299,10 +299,13 @@ function testTextMessage_() {
     'text'
   );
   assertEqual_(message.type, 'text');
+  assertContains_(message.text, 'ปฏิทินการปฏิบัติงาน');
+  assertContains_(message.text, 'วันนี้ · พฤหัสบดี 6 สิงหาคม 2569');
   assertContains_(message.text, 'พฤหัสบดี 6 สิงหาคม 2569');
   assertContains_(message.text, '08:30');
   assertContains_(message.text, 'ประชุมทีม');
   assertContains_(message.text, 'ผู้รับผิดชอบ: สมชาย');
+  assertFalse_(/[📅🔭🏖️📊]/u.test(message.text));
 }
 
 function testFlexMessage_() {
@@ -315,10 +318,17 @@ function testFlexMessage_() {
   assertEqual_(message.type, 'flex');
   assertContains_(message.altText, 'พฤหัสบดี 6 สิงหาคม 2569');
   assertContains_(message.altText, '(1 รายการ)');
+  assertFalse_(/[📅🔭🏖️📊]/u.test(message.altText));
   assertEqual_(message.contents.type, 'bubble');
-  assertEqual_(message.contents.body.contents[1].contents.length, 1);
-  const heading = message.contents.body.contents[1].contents[0].contents[0];
+  assertEqual_(message.contents.header.contents.length, 1);
+  assertEqual_(message.contents.header.contents[0].text, 'ปฏิทินการปฏิบัติงานประจำวัน');
+  const body = message.contents.body.contents;
+  assertEqual_(body[1].backgroundColor, TODAY_SECTION_THEME.bg);
+  assertEqual_(body[1].contents[0].text, 'วันนี้ · พฤหัสบดี 6 สิงหาคม 2569');
+  assertEqual_(body[2].contents.length, 1);
+  const heading = body[2].contents[0].contents[0];
   assertEqual_(heading.contents[0].text, '08:30–16:00');
+  assertEqual_(heading.contents[0].color, TODAY_SECTION_THEME.text);
   assertEqual_(heading.contents[0].flex, 0);
   assertEqual_(heading.contents[0].adjustMode, 'shrink-to-fit');
   assertEqual_(heading.contents[1].flex, 1);
@@ -1061,19 +1071,21 @@ function testFlexMessageWithLeaves_() {
   assertContains_(leaveOnly.altText, 'ผู้ลา 1 คน');
 
   const body = leaveOnly.contents.body.contents;
-  // body = [เส้นคาด, กล่องผู้ลา] เมื่อไม่มีรายการงาน (ไม่มี separator คั่น)
-  assertEqual_(body.length, 2);
-  const leaveBox = body[1];
-  assertEqual_(leaveBox.contents[0].text, '🏖️ ผู้ลาวันนี้ (1 คน)');
+  // body = [เส้นคาด, หัวข้อวันนี้, กล่องผู้ลา] เมื่อไม่มีรายการงาน
+  assertEqual_(body.length, 3);
+  assertEqual_(body[1].backgroundColor, TODAY_SECTION_THEME.bg);
+  const leaveBox = body[2];
+  assertEqual_(leaveBox.contents[0].text, 'ผู้ลาวันนี้ (1 คน)');
   // แถวผู้ลา: บรรทัดชื่อเฉพาะ (หนา) + บรรทัดรายละเอียด (ประเภท + ถ้อยคำทางการ)
   assertContains_(JSON.stringify(leaveBox), 'สมศักดิ์');
   assertContains_(JSON.stringify(leaveBox), 'ลากิจ');
 
-  // มีงาน + ผู้ลา → มี separator เต็มความกว้างคั่นกลาง
+  // มีงาน + ผู้ลา → มีหัวข้อวันนี้และ separator เต็มความกว้างคั่นกลาง
   const both = buildLineMessage_(date, [createTestItem_()], [leave], 'flex');
   const bothBody = both.contents.body.contents;
-  assertEqual_(bothBody.length, 4); // [เส้นคาด, กล่องงาน, separator, กล่องผู้ลา]
-  assertEqual_(bothBody[2].type, 'separator');
+  assertEqual_(bothBody.length, 5); // [เส้นคาด, หัวข้อวันนี้, กล่องงาน, separator, กล่องผู้ลา]
+  assertEqual_(bothBody[3].type, 'separator');
+  assertFalse_(/[📅🔭🏖️📊]/u.test(JSON.stringify(both)));
 }
 
 // ส่วน "ล่วงหน้า" ที่ต่อท้ายข้อความเช้า (advance_notice_days ใน Settings)
@@ -1086,30 +1098,43 @@ function testAdvanceNoticeSection_() {
     leaves: [enrichLeaveForDisplay_(createTestLeave_(), '2026-08-21', new Set())],
   };
 
-  // text: ส่วนของวันนี้ครบตามเดิม + ส่วนล่วงหน้าแยกหัวข้อ มีวันเป้าหมายกำกับชัดเจน
+  // text: วันนี้และวันพรุ่งนี้มีหัวข้อวันที่ชัดเจน โดยไม่มี emoji ตกแต่ง
   const both = buildLineMessage_(date, [createTestItem_()], [leave], 'text', advance);
+  assertContains_(both.text, 'วันนี้ · พฤหัสบดี 20 สิงหาคม 2569');
   assertContains_(both.text, 'ผู้ลาวันนี้ (1 คน)');
-  assertContains_(both.text, '🔭 วันพรุ่งนี้ · ศุกร์ 21 สิงหาคม 2569');
+  assertContains_(both.text, 'วันพรุ่งนี้ · ศุกร์ 21 สิงหาคม 2569');
   assertContains_(both.text, 'ผู้ลา (1 คน)');
   assertEqual_(both.text.split('ประชุมทีม').length - 1, 2); // งานเดียวกันโผล่ทั้งวันนี้และล่วงหน้า
+  assertFalse_(/[📅🔭🏖️📊]/u.test(both.text));
 
   // text: วันนี้ว่างเปล่าแต่วันล่วงหน้ามีข้อมูล → ยังส่งได้ มีแค่ส่วนล่วงหน้า
   const advOnly = buildLineMessage_(date, [], [], 'text', advance);
-  assertContains_(advOnly.text, '🔭 วันพรุ่งนี้ · ศุกร์ 21 สิงหาคม 2569');
+  assertContains_(advOnly.text, 'วันพรุ่งนี้ · ศุกร์ 21 สิงหาคม 2569');
+  assertFalse_(advOnly.text.indexOf('วันนี้ · พฤหัสบดี 20 สิงหาคม 2569') !== -1);
   assertFalse_(advOnly.text.indexOf('ผู้ลาวันนี้') !== -1);
 
   // ไม่ส่ง advance มา → ไม่มีส่วนล่วงหน้า (พฤติกรรมเดิมก่อนมีฟีเจอร์นี้)
   const noAdvance = buildLineMessage_(date, [createTestItem_()], [], 'text');
-  assertFalse_(noAdvance.text.indexOf('🔭') !== -1);
+  assertFalse_(noAdvance.text.indexOf('วันพรุ่งนี้ ·') !== -1);
 
-  // flex: ส่วนล่วงหน้าอยู่ท้ายการ์ด [เส้นคาด, กล่องงาน, separator, กล่องผู้ลา, separator, กล่องล่วงหน้า]
+  // flex: วันนี้ใช้เขียว วันพรุ่งนี้ใช้ฟ้า/น้ำเงิน และยังคงรายการครบ
   const flex = buildLineMessage_(date, [createTestItem_()], [leave], 'flex', advance);
   assertContains_(flex.altText, 'ล่วงหน้า 2 รายการ');
   const body = flex.contents.body.contents;
-  assertEqual_(body.length, 6);
-  assertContains_(JSON.stringify(body[5]), '🔭 วันพรุ่งนี้ · ศุกร์ 21 สิงหาคม 2569');
-  assertContains_(JSON.stringify(body[5]), 'ประชุมทีม');
-  assertContains_(JSON.stringify(body[5]), 'ลากิจ');
+  assertEqual_(body.length, 7);
+  assertEqual_(body[1].backgroundColor, TODAY_SECTION_THEME.bg);
+  const advanceBox = body[6];
+  assertEqual_(advanceBox.backgroundColor, ADVANCE_SECTION_THEME.bg);
+  assertEqual_(advanceBox.contents[0].color, ADVANCE_SECTION_THEME.text);
+  assertEqual_(advanceBox.contents[1].contents[0].contents[0].color, ADVANCE_SECTION_THEME.text);
+  assertContains_(JSON.stringify(advanceBox), 'วันพรุ่งนี้ · ศุกร์ 21 สิงหาคม 2569');
+  assertContains_(JSON.stringify(advanceBox), 'ประชุมทีม');
+  assertContains_(JSON.stringify(advanceBox), 'ลากิจ');
+  assertFalse_(/[📅🔭🏖️📊]/u.test(JSON.stringify(flex)));
+
+  const flexAdvanceOnly = buildLineMessage_(date, [], [], 'flex', advance);
+  assertEqual_(flexAdvanceOnly.contents.body.contents.length, 2);
+  assertEqual_(flexAdvanceOnly.contents.body.contents[1].backgroundColor, ADVANCE_SECTION_THEME.bg);
 
   // ค่า advance_notice_days นอกช่วง 1-7 (รวมเว้นว่าง) → collectAdvanceNotice_ คืน null โดยไม่ต้องยิง Notion
   const now = new Date();
@@ -1124,7 +1149,7 @@ function testAdvanceNoticeSection_() {
     leaves: [],
   };
   const far = buildLineMessage_(date, [], [], 'text', farAdvance);
-  assertContains_(far.text, '🔭 ล่วงหน้า · จันทร์ 24 สิงหาคม 2569');
+  assertContains_(far.text, 'ล่วงหน้า · จันทร์ 24 สิงหาคม 2569');
 }
 
 // ตัวช่วยของ apiSchedule_ (หน้าเว็บ /schedule/)
@@ -1398,7 +1423,7 @@ function testBuildMonthlyLeaveSummary_() {
     { name: 'นายสมศักดิ์ ใจดี', byType: { 'ลากิจ': 1, 'ลาป่วย': 0.5 }, total: 1.5 },
     { name: 'นางสาวสมหญิง ใจงาม', byType: { 'ลาพักร้อน': 2 }, total: 2 },
   ]);
-  assertEqual_(summary.title, '📊 สรุปวันลาประจำเดือนกรกฎาคม 2569'); // เดือนเต็ม + ปี พ.ศ.
+  assertEqual_(summary.title, 'สรุปวันลาประจำเดือนกรกฎาคม 2569'); // เดือนเต็ม + ปี พ.ศ.
   assertEqual_(summary.lines.length, 2);
   assertContains_(summary.lines[0], 'นายสมศักดิ์ ใจดี');
   assertContains_(summary.lines[0], 'ลากิจ 1 วัน');
@@ -1517,11 +1542,12 @@ function testConflictWarningInMessages_() {
   const conflicts = [{ title: 'ประชุมวิชาการ UTH', timeLabel: '08:30–16:00', names: ['ธนกร'] }];
 
   const text = buildLineMessage_(date, [createTestItem_()], [], 'text', undefined, undefined, conflicts);
-  assertContains_(text.text, 'งานที่ผู้รับผิดชอบกำลังลา (1 งาน)');
+  assertContains_(text.text, '⚠ งานที่ผู้รับผิดชอบกำลังลา (1 งาน)');
   assertContains_(text.text, 'ประชุมวิชาการ UTH — ธนกร ลาอยู่');
 
   const flex = buildLineMessage_(date, [createTestItem_()], [], 'flex', undefined, undefined, conflicts);
   assertContains_(flex.altText, 'งานชนผู้ลา 1');
+  assertContains_(JSON.stringify(flex.contents.body), '⚠ งานที่ผู้รับผิดชอบกำลังลา (1 งาน)');
   assertContains_(JSON.stringify(flex.contents.body), 'ธนกร ลาอยู่');
 
   // ไม่ส่ง conflicts (เหมือนผู้เรียกเดิม) → ไม่มีส่วนเตือน

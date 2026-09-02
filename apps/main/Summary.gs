@@ -38,6 +38,11 @@ const DAY_THEMES = [
   { bg: '#6B4C7A', text: '#FFFFFF', eyebrow: '#DCC8E0' }, // เสาร์ - ม่วง (date 7.14:1, eyebrow 4.55:1)
 ];
 
+// สีคงที่สำหรับแยกวันนี้ออกจากข้อมูลล่วงหน้า โดยไม่พึ่งสี header ประจำวัน
+// contrast ของ text/bg = 5.56:1 และ 6.27:1 ตามลำดับ ผ่าน WCAG AA สำหรับข้อความปกติ
+const TODAY_SECTION_THEME = { bg: '#EAF5F1', text: '#0F6E56' };
+const ADVANCE_SECTION_THEME = { bg: '#EAF3F8', text: '#1F5F7A' };
+
 const THAI_WEEKDAY_NAMES = [
   'อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์',
 ];
@@ -206,7 +211,7 @@ function cleanupOldFailCounts_(props, todayStr) {
 function buildLineMessage_(date, items, leaves, format, advance, monthly, conflicts) {
   if (String(format).trim().toLowerCase() === 'flex') {
     const dateLabel = thaiDateLabel_(date);
-    let altText = `📅 ปฏิทินงานวันที่ ${dateLabel} (${items.length} รายการ)`;
+    let altText = `ปฏิทินการปฏิบัติงาน · ${dateLabel} (${items.length} รายการ)`;
     if (leaves.length) altText += ` — ผู้ลา ${leaves.length} คน`;
     if (advance) altText += ` — ล่วงหน้า ${advance.items.length + advance.leaves.length} รายการ`;
     if (monthly) altText += ' — สรุปใบลาเดือนที่แล้ว';
@@ -225,7 +230,11 @@ function buildLineMessage_(date, items, leaves, format, advance, monthly, confli
 function advanceSectionTitle_(date, advanceDate) {
   const nextDayStr = Utilities.formatDate(new Date(date.getTime() + 86400000), 'Asia/Bangkok', 'yyyy-MM-dd');
   const targetStr = Utilities.formatDate(advanceDate, 'Asia/Bangkok', 'yyyy-MM-dd');
-  return (nextDayStr === targetStr ? '🔭 วันพรุ่งนี้ · ' : '🔭 ล่วงหน้า · ') + thaiDateLabel_(advanceDate);
+  return (nextDayStr === targetStr ? 'วันพรุ่งนี้ · ' : 'ล่วงหน้า · ') + thaiDateLabel_(advanceDate);
+}
+
+function todaySectionTitle_(date) {
+  return 'วันนี้ · ' + thaiDateLabel_(date);
 }
 
 // แปลงงานหนึ่งรายการเป็นบล็อกบูลเล็ต (พร้อมฟิลด์ย่อยแบบย่อหน้า) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
@@ -238,20 +247,24 @@ function textItemBlock_(item) {
 }
 
 function buildTextMessage_(date, items, leaves, advance, monthly, conflicts) {
-  const dateLabel = thaiDateLabel_(date);
   const sections = [];
+  const todayParts = [];
 
-  if (items.length) sections.push(items.map(textItemBlock_).join('\n\n'));
+  if (items.length) todayParts.push(items.map(textItemBlock_).join('\n\n'));
 
   if (leaves && leaves.length) {
-    sections.push(`🏖️ ผู้ลาวันนี้ (${leaves.length} คน)\n` +
+    todayParts.push(`ผู้ลาวันนี้ (${leaves.length} คน)\n` +
       leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
   }
 
   // งานวันนี้ที่ผู้รับผิดชอบกำลังลา — ให้กลุ่มเห็นตั้งแต่เช้าเพื่อจัดคนไปแทนได้ทัน
   if (conflicts && conflicts.length) {
-    sections.push(`⚠ งานที่ผู้รับผิดชอบกำลังลา (${conflicts.length} งาน)\n` +
+    todayParts.push(`⚠ งานที่ผู้รับผิดชอบกำลังลา (${conflicts.length} งาน)\n` +
       conflicts.map(c => '• ' + c.timeLabel + ' ' + c.title + ' — ' + c.names.join(', ') + ' ลาอยู่').join('\n'));
+  }
+
+  if (todayParts.length) {
+    sections.push(todaySectionTitle_(date) + `\n\n${todayParts.join('\n\n')}`);
   }
 
   // ส่วนล่วงหน้า: งาน+ผู้ลาของอีก N วันถัดไป — มีหัวข้อกำกับวันเป้าหมายชัดๆ กันสับสนกับของวันนี้
@@ -259,7 +272,7 @@ function buildTextMessage_(date, items, leaves, advance, monthly, conflicts) {
     const parts = [];
     if (advance.items.length) parts.push(advance.items.map(textItemBlock_).join('\n\n'));
     if (advance.leaves.length) {
-      parts.push(`🏖️ ผู้ลา (${advance.leaves.length} คน)\n` +
+      parts.push(`ผู้ลา (${advance.leaves.length} คน)\n` +
         advance.leaves.map(leave => '• ' + (leave.firstName || '') + ' ' + leaveSummaryLabel_(leave)).join('\n'));
     }
     sections.push(advanceSectionTitle_(date, advance.date) + `\n\n${parts.join('\n\n')}`);
@@ -270,12 +283,13 @@ function buildTextMessage_(date, items, leaves, advance, monthly, conflicts) {
     sections.push(monthly.title + '\n' + monthly.lines.join('\n') + '\n' + monthly.totalLine);
   }
 
-  return `📅 ปฏิทินงานวันที่ ${dateLabel}\n\n${sections.join('\n\n')}`;
+  return `ปฏิทินการปฏิบัติงาน\n\n${sections.join('\n\n')}`;
 }
 
-// กล่องรายการงาน (เวลาสีเขียวหนา + ชื่องาน + ฟิลด์ย่อย) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
-function flexItemBoxes_(items) {
+// กล่องรายการงาน (เวลาใช้สี accent ของส่วนวันนั้น + ชื่องาน + ฟิลด์ย่อย) — ใช้ทั้งวันนี้และล่วงหน้า
+function flexItemBoxes_(items, accentColor) {
   const boxes = [];
+  const accent = accentColor || TODAY_SECTION_THEME.text;
   items.forEach((item, i) => {
     if (i > 0) boxes.push({ type: 'separator', margin: 'lg' });
 
@@ -288,7 +302,7 @@ function flexItemBoxes_(items) {
             type: 'text',
             text: itemTimeLabel_(item),
             size: 'sm',
-            color: '#0F6E56',
+            color: accent,
             weight: 'bold',
             flex: 0,
             adjustMode: 'shrink-to-fit',
@@ -361,16 +375,28 @@ function flexLeaveRows_(leaves) {
 // + หัวข้อผู้ลาวันนี้ (ถ้ามี) + footer ชื่อหน่วยงาน
 // items อาจว่างได้ในวันที่มีแต่ผู้ลา — โครงการ์ดยังเหมือนเดิม แค่ไม่มีกล่องรายการงาน
 function buildFlexBubble_(date, items, leaves, advance, monthly, conflicts) {
-  const dateLabel = thaiDateLabel_(date);
   const theme = dayThemeFor_(date);
 
   const itemBoxes = flexItemBoxes_(items);
+  const hasTodayContent = itemBoxes.length || (leaves && leaves.length) || (conflicts && conflicts.length);
 
   const bodyContents = [
     // เส้นคาดบางๆ คั่นระหว่าง header กับเนื้อหา ใช้ filler เป็น content ของกล่อง (กล่องว่างเปล่าอาจไม่ผ่าน validation)
     // เป็นเทากลาง ไม่ใช่สีทอง เพราะทองชนกับ header สีเหลือง(จันทร์)จนแทบมองไม่เห็นเส้น เทาเข้ากับ header ได้ทุกสี
     { type: 'box', layout: 'vertical', height: '3px', backgroundColor: '#9AA6A1', contents: [{ type: 'filler' }] },
   ];
+
+  if (hasTodayContent) {
+    bodyContents.push({
+      type: 'box',
+      layout: 'vertical',
+      backgroundColor: TODAY_SECTION_THEME.bg,
+      paddingAll: '12px',
+      contents: [
+        { type: 'text', text: todaySectionTitle_(date), size: 'sm', weight: 'bold', color: TODAY_SECTION_THEME.text, wrap: true },
+      ],
+    });
+  }
 
   if (itemBoxes.length) {
     bodyContents.push({ type: 'box', layout: 'vertical', paddingAll: '16px', contents: itemBoxes });
@@ -384,7 +410,7 @@ function buildFlexBubble_(date, items, leaves, advance, monthly, conflicts) {
       layout: 'vertical',
       paddingAll: '16px',
       contents: [
-        { type: 'text', text: '🏖️ ผู้ลาวันนี้ (' + leaves.length + ' คน)', size: 'sm', weight: 'bold', color: '#0F6E56' },
+        { type: 'text', text: 'ผู้ลาวันนี้ (' + leaves.length + ' คน)', size: 'sm', weight: 'bold', color: TODAY_SECTION_THEME.text },
       ].concat(flexLeaveRows_(leaves)),
     });
   }
@@ -406,19 +432,22 @@ function buildFlexBubble_(date, items, leaves, advance, monthly, conflicts) {
     });
   }
 
-  // ส่วนล่วงหน้า: งาน+ผู้ลาของอีก N วันถัดไป อยู่ท้ายการ์ด — หัวข้อกำกับวันเป้าหมายชัดๆ กันสับสนกับของวันนี้
-  // (โครงย่อของเนื้อหาหลัก: หัวข้อหนาสีเขียว แล้วรายการงาน แล้วผู้ลาโดยใช้หัวข้อรองตัวเล็กกว่า)
+  // ส่วนล่วงหน้า: งาน+ผู้ลาของอีก N วันถัดไป อยู่ท้ายการ์ด — ใช้พื้นฟ้าและ accent น้ำเงินคงที่
+  // พร้อมหัวข้อวันที่ เพื่อให้แยกจากวันนี้ได้ทั้งด้วยสีและข้อความ
   if (advance) {
     const advContents = [
-      { type: 'text', text: advanceSectionTitle_(date, advance.date), size: 'sm', weight: 'bold', color: '#0F6E56' },
-    ].concat(flexItemBoxes_(advance.items));
+      { type: 'text', text: advanceSectionTitle_(date, advance.date), size: 'sm', weight: 'bold', color: ADVANCE_SECTION_THEME.text, wrap: true },
+    ].concat(flexItemBoxes_(advance.items, ADVANCE_SECTION_THEME.text));
     if (advance.leaves.length) {
       if (advance.items.length) advContents.push({ type: 'separator', margin: 'lg' });
-      advContents.push({ type: 'text', text: '🏖️ ผู้ลา (' + advance.leaves.length + ' คน)', size: 'xs', weight: 'bold', color: '#717875', margin: 'md' });
+      advContents.push({ type: 'text', text: 'ผู้ลา (' + advance.leaves.length + ' คน)', size: 'xs', weight: 'bold', color: ADVANCE_SECTION_THEME.text, margin: 'md' });
       flexLeaveRows_(advance.leaves).forEach(row => advContents.push(row));
     }
-    bodyContents.push({ type: 'separator' });
-    bodyContents.push({ type: 'box', layout: 'vertical', paddingAll: '16px', contents: advContents });
+    if (hasTodayContent) bodyContents.push({ type: 'separator' });
+    bodyContents.push({
+      type: 'box', layout: 'vertical', backgroundColor: ADVANCE_SECTION_THEME.bg,
+      paddingAll: '16px', contents: advContents,
+    });
   }
 
   // สรุปวันลารายเดือน (วันทำการแรกของเดือนเท่านั้น) — กล่องสุดท้าย โครงเดียวกับส่วนผู้ลา:
@@ -444,8 +473,10 @@ function buildFlexBubble_(date, items, leaves, advance, monthly, conflicts) {
       backgroundColor: theme.bg,
       paddingAll: '16px',
       contents: [
-        { type: 'text', text: 'ปฏิทินการปฏิบัติงานประจำวัน', color: theme.eyebrow, size: 'xxs' },
-        { type: 'text', text: dateLabel, color: theme.text, weight: 'bold', size: 'lg', wrap: true, margin: 'sm' },
+        {
+          type: 'text', text: 'ปฏิทินการปฏิบัติงานประจำวัน',
+          color: theme.text, weight: 'bold', size: 'md', wrap: true,
+        },
       ],
     },
     body: {

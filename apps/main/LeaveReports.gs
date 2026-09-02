@@ -260,7 +260,7 @@ function workDaysShortLabel_(days) {
 function buildMonthlyLeaveSummary_(monthKey, aggregates) {
   if (!aggregates || !aggregates.length) return null;
   const parts = String(monthKey).split('-').map(Number);
-  const title = '📊 สรุปวันลาประจำเดือน' + THAI_MONTH_NAMES[parts[1] - 1] + ' ' + (parts[0] + 543);
+  const title = 'สรุปวันลาประจำเดือน' + THAI_MONTH_NAMES[parts[1] - 1] + ' ' + (parts[0] + 543);
   let grandTotal = 0;
   const lines = aggregates.map(row => {
     grandTotal += row.total;
