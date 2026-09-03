@@ -14,24 +14,36 @@ const ADMIN_CONFIG = {
 const AdminAPI = {
 
   TOKEN_KEY: 'nn-admin-token',
-  LINE_TOKEN_KEY: 'nn-admin-line-token',
+  // โหมด LINE เก็บแค่ flag ไม่เก็บสตริง token — ตัว token จริงอ่านสดจาก liff SDK ทุกคำขอ
+  // (LIFF token อายุ 12 ชม. และถูกเพิกถอนเมื่อปิดหน้า — จำตั้งแต่ login แล้วแท็บค้างนานจะส่งตัวตายวนไป)
+  LINE_MODE_KEY: 'nn-admin-line',
 
   getToken() { return sessionStorage.getItem(this.TOKEN_KEY) || ''; },
-  getLineToken() { return sessionStorage.getItem(this.LINE_TOKEN_KEY) || ''; },
+  getLineSession() { return !!sessionStorage.getItem(this.LINE_MODE_KEY); },
   // เซสชันเดียวโหมดเดียว: ตั้งโหมดใหม่ต้องล้างอีกโหมดด้วย — กันส่ง token สองแบบปนกัน
   // (เซิร์ฟเวอร์ prefer accessToken เมื่อมี ถ้า LINE token หมดอายุแต่ยังติดไป
   //  รหัส ADMIN_TOKEN ที่ยังใช้ได้ก็จะโดนปฏิเสธไปด้วย)
   setToken(token) {
     sessionStorage.setItem(this.TOKEN_KEY, token);
-    sessionStorage.removeItem(this.LINE_TOKEN_KEY);
+    sessionStorage.removeItem(this.LINE_MODE_KEY);
   },
-  setLineToken(token) {
-    sessionStorage.setItem(this.LINE_TOKEN_KEY, token);
+  setLineSession() {
+    sessionStorage.setItem(this.LINE_MODE_KEY, '1');
     sessionStorage.removeItem(this.TOKEN_KEY);
   },
   clearToken() {
     sessionStorage.removeItem(this.TOKEN_KEY);
-    sessionStorage.removeItem(this.LINE_TOKEN_KEY);
+    sessionStorage.removeItem(this.LINE_MODE_KEY);
+  },
+
+  /** token LINE สดจาก liff SDK สำหรับคำขอนี้ — '' เมื่อไม่ได้อยู่โหมด LINE / SDK ยังไม่ init /
+   *  ยังไม่ล็อกอิน (pattern เดียวกับ currentToken() ของหน้าตารางงาน — อ่านใหม่ทุกครั้ง) */
+  currentLineToken() {
+    if (!this.getLineSession()) return '';
+    try {
+      if (typeof liff === 'undefined' || typeof liff.isLoggedIn !== 'function' || !liff.isLoggedIn()) return '';
+      return liff.getAccessToken() || '';
+    } catch (err) { return ''; }
   },
 
   /** เรียก action หนึ่ง — คืน Promise<data เมื่อ ok> / throw Error(ข้อความไทย)
@@ -39,7 +51,8 @@ const AdminAPI = {
    *  → ล้าง token แล้วส่ง event ให้ app.js พากลับหน้า login */
   async call(action, params) {
     const payload = Object.assign({}, params || {}, { token: this.getToken() });
-    if (this.getLineToken()) payload.accessToken = this.getLineToken();
+    const lineToken = this.currentLineToken();
+    if (lineToken) payload.accessToken = lineToken;
     const data = await this._fetch(action, payload);
     if (data && data.ok === false && (data.code === 'UNAUTHORIZED' || data.code === 'UNCONFIGURED')) {
       this.clearToken();
@@ -54,7 +67,8 @@ const AdminAPI = {
   /** คำสั่งจัดการใบลาต้องวิ่ง Apps Script หลัก เพราะมีสิทธิ์เขียน Notion และส่ง LINE */
   async callMain(action, params) {
     const payload = Object.assign({}, params || {}, { token: this.getToken() });
-    if (this.getLineToken()) payload.accessToken = this.getLineToken();
+    const lineToken = this.currentLineToken();
+    if (lineToken) payload.accessToken = lineToken;
     const data = await this._fetchAt(ADMIN_CONFIG.MAIN_API_URL, action, payload);
     if (data && data.ok === false && (data.code === 'UNAUTHORIZED' || data.code === 'UNCONFIGURED')) {
       this.clearToken();
@@ -75,11 +89,13 @@ const AdminAPI = {
     return data;
   },
 
-  /** ตรวจสิ่งที่ล็อกอินค้างไว้ในเครื่องตอนเปิดหน้า — รหัสหรือ LINE token อันไหนมีส่งอันนั้น
-   *  (mirror call()) — LINE admin refresh หน้าแล้วต้องเข้าต่อได้ ไม่โดนเตะกลับหน้า login */
+  /** ตรวจสิ่งที่ล็อกอินค้างไว้ในเครื่องตอนเปิดหน้า — รหัสหรือโหมด LINE อันไหนมีส่งอันนั้น
+   *  (mirror call()) — LINE admin refresh หน้าแล้วต้องเข้าต่อได้ ไม่โดนเตะกลับหน้า login
+   *  (โหมด LINE: app.js ต้อง ensureLiffReady_ ก่อน — currentLineToken อ่านได้เมื่อ init แล้ว) */
   async verifySession() {
     const payload = { token: this.getToken() };
-    if (this.getLineToken()) payload.accessToken = this.getLineToken();
+    const lineToken = this.currentLineToken();
+    if (lineToken) payload.accessToken = lineToken;
     const data = await this._fetch('get_overview', payload);
     if (data && data.ok === false && data.code === 'UNAUTHORIZED') {
       this.clearToken(); // เซิร์ฟเวอร์ยืนยันตัวรับรองไม่ผ่าน — ล้างกันวนซ้ำ (เคสเน็ตหลุด/HTTP error ไม่ล้าง)

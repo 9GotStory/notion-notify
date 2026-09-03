@@ -8,9 +8,11 @@ const App = {
 
   _renderSeq: 0, // เลขกำกับการ render แต่ละครั้ง — ใช้ตรวจว่า render เก่ายัง "เป็นปัจจุบัน" อยู่ไหม
 
+  _liffReady: false, // init liff สำเร็จแล้วในหน้านี้ — กันเรียก init ซ้ำ (เรียกใช้ผ่าน ensureLiffReady_)
+
   routes: ['overview', 'staff', 'leave', 'leave-manage', 'holidays', 'reports', 'system'],
 
-  boot() {
+  async boot() {
     // token หมดอายุ/ผิดกลางการใช้งาน → api.js ล้าง token แล้วส่ง event มาที่นี่
     window.addEventListener('admin-auth-failed', e => {
       App.showLogin((e.detail && e.detail.error) || 'เซสชันหมดอายุ — กรุณาเข้าสู่ระบบอีกครั้ง');
@@ -37,7 +39,7 @@ const App = {
       UI.$('loginDivider').classList.remove('hidden');
     }
 
-    if (!AdminAPI.getToken() && !AdminAPI.getLineToken()) {
+    if (!AdminAPI.getToken() && !AdminAPI.getLineSession()) {
       App.showLogin();
       // เพิ่งเด้งกลับจากหน้าล็อกอินของ LINE (มี code/state ติด URL มา) หรือเปิดในแอป LINE อยู่แล้ว
       // → ลองเข้าให้เอง ผู้ใช้ไม่ต้องกดปุ่มซ้ำหลัง "แตะดำเนินการต่อ"
@@ -45,11 +47,28 @@ const App = {
       if (liffReady) App.loginLine(true);
       return;
     }
+    // โหมด LINE: ต้อง init liff ก่อนเสมอ — token สำหรับ verifySession อ่านจาก SDK ได้ก็ต่อเมื่อ init แล้ว
+    // (เดิม init เกิดแค่ใน loginLine ซึ่ง boot ไม่เรียกเมื่อมี session ค้าง → refresh ทุกครั้งโดนเตะ)
+    // init ล้ม = best-effort ปล่อยต่อ ให้ verifySession เตะกลับหน้า login เอง
+    if (AdminAPI.getLineSession() && liffReady) await App.ensureLiffReady_();
     // มีข้อมูลล็อกอินในเครื่อง (รหัสหรือ LINE) → ตรวจกับเซิร์ฟเวอร์ก่อนเข้า
     // (ถอนสิทธิ์/เปลี่ยนรหัส/เซสชัน LINE หมดอายุ = เตะออกทันที)
     AdminAPI.verifySession()
       .then(() => App.showShell())
       .catch(err => App.showLogin(err.message));
+  },
+
+  /** init liff + จับเวลา 5 วินาที (เคส init ค้างเคยเกิดกับหน้าฟอร์มลา/ตารางงาน ต้องไม่ค้างตลอดไป)
+   *  คืน true เมื่อพร้อมใช้ — สำเร็จแล้วครั้งหนึ่งจำไว้ ไม่ init ซ้ำ; หมดเวลาไม่จำ (กดใหม่ = ลองใหม่) */
+  async ensureLiffReady_() {
+    if (this._liffReady) return true;
+    if (typeof liff === 'undefined') return false;
+    const ready = await Promise.race([
+      liff.init({ liffId: String(ADMIN_CONFIG.ADMIN_LIFF_ID).trim() }).then(() => true),
+      new Promise(resolve => { setTimeout(() => resolve(false), 5000); }),
+    ]);
+    if (ready) this._liffReady = true;
+    return ready;
   },
 
   /** ล็อกอินด้วยบัญชี LINE ของผู้ได้รับสิทธิ์ (Settings > admin_staff) — ไม่ต้องจำรหัสกลางอีกต่อไป
@@ -63,11 +82,7 @@ const App = {
     UI.setBusy(btn, true, 'กำลังเชื่อมต่อ LINE…');
     try {
       if (typeof liff === 'undefined') throw new Error('โหลด LINE SDK ไม่สำเร็จ — ลองรีเฟรชหน้า');
-      // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา/ตารางงาน) ต้องไม่ปล่อยปุ่มค้างตลอดไป
-      const ready = await Promise.race([
-        liff.init({ liffId: String(ADMIN_CONFIG.ADMIN_LIFF_ID).trim() }).then(() => true),
-        new Promise(resolve => { setTimeout(() => resolve(false), 5000); }),
-      ]);
+      const ready = await App.ensureLiffReady_();
       if (!ready) throw new Error('เชื่อมต่อ LINE ช้าเกินไป — ลองกดอีกครั้ง หรือเปิดหน้านี้ในแอป LINE');
       if (!liff.isLoggedIn()) {
         if (auto) return; // ยังไม่ได้ล็อกอิน — รอผู้ใช้กดปุ่ม (ตอนนั้นจะพาไปหน้าล็อกอินของ LINE แล้วเด้งกลับ)
@@ -77,7 +92,7 @@ const App = {
       const accessToken = liff.getAccessToken();
       if (!accessToken) throw new Error('ยังไม่ได้รับการยืนยันจาก LINE — กรุณากดเข้าสู่ระบบอีกครั้ง');
       const res = await AdminAPI.loginLine(accessToken);
-      AdminAPI.setLineToken(accessToken);
+      AdminAPI.setLineSession(); // ไม่เก็บสตริง token — คำขอถัดไปอ่านสดจาก SDK ทุกครั้ง
       App.showShell();
       UI.showToast('เข้าสู่ระบบสำเร็จ' + (res && res.actor ? ' — ' + res.actor : ''));
     } catch (e) {
@@ -86,9 +101,9 @@ const App = {
         // เซสชัน LINE หมดอายุ (token LIFF อายุ 12 ชม.) — ล้างตัวเก่าแล้วขอใหม่ให้เองเลย
         // ผู้ใช้กดปุ่มครั้งเดียว ไม่ต้องมากดซ้ำหลังเจอ error (pattern หน้าตารางงาน)
         try { liff.logout(); } catch (_) { /* ไปต่อได้ */ }
+        // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน (ทั้งโหมด auto/manual)
+        if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
         if (!auto) {
-          // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน
-          if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
           try { liff.login(); return; } catch (_) { /* redirect ไม่เกิด — ไปแสดง notice ด้านล่างต่อ */ }
         }
       }

@@ -659,8 +659,10 @@ function checkAdminLineLoginContracts() {
       required: [
         'ADMIN_LIFF_ID',
         "loginLine(accessToken)",
-        'LINE_TOKEN_KEY',
-        "payload.accessToken = this.getLineToken()",
+        'LINE_MODE_KEY',
+        // token อ่านสดจาก liff SDK ทุกคำขอ (LIFF token อายุ 12 ชม.) — เก็บแค่ flag ไม่เก็บสตริง
+        'currentLineToken() {',
+        'if (lineToken) payload.accessToken = lineToken',
       ],
     },
     {
@@ -670,6 +672,11 @@ function checkAdminLineLoginContracts() {
         'async loginLine(auto)',
         'Promise.race', // จับเวลา liff.init 5 วิ — init ค้างต้องไม่ทำปุ่มค้างตลอดไป (เคยเกิดกับหน้าอื่น)
         'App.loginLine(true)', // เด้งกลับจากหน้าล็อกอิน LINE แล้วลองเข้าเอง ไม่ต้องกดปุ่มซ้ำ
+        // โหมด LINE ต้อง init ก่อนทุกครั้งที่เปิดหน้า (รวม refresh ที่มี session ค้าง) ไม่งั้น
+        // currentLineToken อ่านไม่ได้ = verifySession โดนเตะทุกครั้ง
+        'AdminAPI.setLineSession()',
+        'AdminAPI.getLineSession()',
+        'ensureLiffReady_',
       ],
     },
     {
