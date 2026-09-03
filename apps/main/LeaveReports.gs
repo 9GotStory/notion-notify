@@ -59,7 +59,7 @@ function getApprovedLeavesForDay_(now, leaveDatabaseId) {
  * คืน [] เงียบๆ ถ้ายังไม่ตั้ง leave_database_id หรืออ่านไม่สำเร็จ (หน้าตารางงานต้องไม่พังเพราะระบบลา)
  * ใบแต่ละใบจะมี firstName ติดมาด้วย (จากชีต Staff ตาม userId — เหมือนส่วน "ผู้ลาวันนี้")
  */
-function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr) {
+function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr, rosterFromCaller) {
   const dbId = String(leaveDatabaseId || '').trim();
   if (!dbId || dbId === 'your_leave_database_id') return [];
   try {
@@ -76,8 +76,12 @@ function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr) {
       page_size: 100,
     };
     const leaves = queryNotionPages_(resolveLeaveDataSourceId_(dbId), payload).map(parseLeavePage_);
-    let roster = null;
-    try { roster = readStaffRoster_(); } catch (err) { /* ไม่มีชีต Staff → ใช้ชื่อเต็มแทน */ }
+    // roster ส่งต่อจากผู้เรียกได้ (apiSchedule_ อ่านไว้แล้วในมือ — กันอ่านซ้ำแล้วพังเฉพาะกลางทาง)
+    // ไม่ได้ส่งมาค่อยอ่านเอง ทั้งสองทางถ้าไม่มีชีต Staff ก็ใช้ชื่อเต็มแทนเหมือนเดิม
+    let roster = rosterFromCaller || null;
+    if (!roster) {
+      try { roster = readStaffRoster_(); } catch (err) { /* ไม่มีชีต Staff → ใช้ชื่อเต็มแทน */ }
+    }
     return leaves
       .filter(leave => leave.start)
       .map(leave => Object.assign({}, leave, { firstName: leaveFirstName_(leave, roster) }));

@@ -63,12 +63,14 @@
   <!-- ===== เลือกเดือน ===== -->
   <nav class="ui-card flex items-center justify-between px-3 py-2.5 mb-4" aria-label="เลือกเดือน">
     <button id="btnPrev" type="button" aria-label="เดือนก่อนหน้า" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">‹</button>
-    <div class="text-center relative">
+    <div class="relative flex items-center">
       <button id="btnMonth" type="button" aria-haspopup="true" aria-expanded="false"
               class="rounded-control px-2 py-1 font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
         <span id="monthLabel">—</span> <span aria-hidden="true" class="text-slate-400 text-xs">▾</span>
       </button>
-      <!-- รายการเดือนที่ระบบให้ดู: ย้อน 1 ถึงล่วงหน้า 6 เดือน = สูงสุด 8 เดือน จึงไม่ต้องมีตัวเลือกปี -->
+      <button id="btnRefresh" type="button" aria-label="รีเฟรชตารางงาน"
+              class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-500 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">⟳</button>
+      <!-- รายการเดือนที่ระบบให้ดู: ย้อน 1 ถึงล่วงหน้า 6 เดือน (เจ้าหน้าที่ ±12) ตามวงที่เซิร์ฟเวอร์ส่งมา -->
       <div id="monthPicker" class="hidden absolute left-1/2 -translate-x-1/2 top-full mt-2 z-20 w-60 max-h-[60vh] overflow-y-auto ui-card p-1.5" aria-label="เลือกเดือน"></div>
     </div>
     <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">›</button>
@@ -123,9 +125,14 @@
   function $(id) { return document.getElementById(id); }
 
   function pad(n) { return String(n).padStart(2, '0'); }
+  // "วันนี้" ต้องอิดเวลาไทยเสมอ (ตารางเป็นของสำนักงานในไทย) — ผู้ใช้เปิดจากต่างประเทศต้องไม่เห็น
+  // ป้ายวันนี้/ขอบเขตเดือนเพี้ยน ใช้ Intl แบบเดียวกับ bangkokYearMonth_ ฝั่ง admin (reports.js)
   function todayStr() {
-    const d = new Date();
-    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    const parts = {};
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Bangkok', year: 'numeric', month: 'numeric', day: 'numeric',
+    }).formatToParts(new Date()).forEach(p => { parts[p.type] = p.value; });
+    return parts.year + '-' + pad(Number(parts.month)) + '-' + pad(Number(parts.day));
   }
   function todayMonth() { return todayStr().slice(0, 7); }
   function shiftMonth(month, delta) {
@@ -161,8 +168,15 @@
 
   // ---------- อ่านตารางจาก Apps Script โดยตรง ----------
 
+  // cache ฝั่งหน้าเว็บแยกตามโหมดที่ใช้ยิง (มี/ไม่มี token) เหมือน cache key ฝั่งเซิร์ฟเวอร์
+  // กันข้อมูลเต็มโหมดค้างปนตอน token ตายกลางทางแล้วสลับเดือนไป-กลับ (badge สลับมุมมองมั่วๆ)
+  function cacheKey(month) {
+    return month + (state.token ? '_full' : '_pub');
+  }
+
   async function fetchMonth(month) {
-    if (state.cache[month]) return state.cache[month];
+    const key = cacheKey(month);
+    if (state.cache[key]) return state.cache[key];
     const params = new URLSearchParams(Object.assign(
       { apiAction: 'schedule', month: month }, state.token ? { accessToken: state.token } : {}));
     let res;
@@ -184,7 +198,10 @@
     if (!res.ok || !data || data.ok === false) {
       throw new Error((data && data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง');
     }
-    state.cache[month] = data;
+    // ส่ง token ไปแต่เซิร์ฟเวอร์ตอบกลับเป็นสาธารณะ = token ตายแล้ว — ทิ้งเลย
+    // ให้ทั้งหน้า (cache key/viewer/badge) เปลี่ยนเป็นสาธารณะอย่างเดียวสมบูรณ์ ไม่สลับกระพริบ
+    if (state.token && data.full === false) state.token = '';
+    state.cache[cacheKey(month)] = data; // เก็บใต้ key ของโหมด "หลัง" เคลียร์ token — ตรงกับที่จะค้นครั้งหน้า
     return data;
   }
 
@@ -203,13 +220,16 @@
     return state.viewMonths || { back: MONTH_BACK, fwd: MONTH_FWD };
   }
 
-  // สถานะปุ่มนำทาง: ปิดทุกปุ่มระหว่างโหลด (กันกดซ้อน) และปิดปุ่มที่ชนขอบเขตเดือนอยู่แล้ว
+  // สถานะปุ่มนำทาง: ปิดทุกปุ่มระหว่างโหลด (กันกดซ้อน — กดเลือกเดือนใหม่ระหว่างโหลดเดิม
+  // แล้ว response ช้าของเดือนเก่ามาทับ render ทีหลังได้) และปิดปุ่มที่ชนขอบเขตเดือนอยู่แล้ว
   function updateNavState(loading) {
     const bounds = viewBounds();
     const atOldest = monthDiff(todayMonth(), state.month) <= bounds.back;
     const atNewest = monthDiff(todayMonth(), state.month) >= bounds.fwd;
     $('btnPrev').disabled = loading || atOldest;
     $('btnNext').disabled = loading || atNewest;
+    $('btnMonth').disabled = loading;
+    $('btnRefresh').disabled = loading;
   }
 
   // การ์ดผู้ลา (มุมมองเจ้าหน้าที่เท่านั้น) — โทนอำพันแยกจากการ์ดงานทันทีที่เห็น
@@ -390,7 +410,7 @@
   // ให้กดไป-กลับได้ทันทีจาก cache (ล้มเหลวก็ไม่เป็นไร — กดปุ่มปกติจะดึงเอง)
   function prefetchNeighbors(month) {
     [shiftMonth(month, -1), shiftMonth(month, 1)].forEach(m => {
-      if (monthAllowed(m) && !state.cache[m]) fetchMonth(m).catch(function () {});
+      if (monthAllowed(m) && !state.cache[cacheKey(m)]) fetchMonth(m).catch(function () {});
     });
   }
 
@@ -439,6 +459,13 @@
 
   $('btnPrev').addEventListener('click', function () { loadMonth(shiftMonth(state.month, -1)); });
   $('btnNext').addEventListener('click', function () { loadMonth(shiftMonth(state.month, 1)); });
+  // รีเฟรช: ล้างเฉพาะ cache "ฝั่งหน้าเว็บ" ของเดือนที่ดูอยู่แล้วดึงใหม่ — ไม่มีพารามิเตอร์ขอให้
+  // เซิร์ฟเวอร์ข้าม cache ของเขา (กันถูกยิงรัวกระทบโควตา) ข้อมูลสดที่สุดที่ได้จึงเท่ากับ
+  // อายุ cache ฝั่งเซิร์ฟเวอร์ (≤5 นาที) — ต้องการของสดกว่านั้นให้เป็นฟีเจอร์ฝั่งผู้ดูแลเท่านั้น
+  $('btnRefresh').addEventListener('click', function () {
+    delete state.cache[cacheKey(state.month)];
+    loadMonth(state.month);
+  });
   $('btnMonth').addEventListener('click', function () { toggleMonthPicker(); });
   $('monthPicker').addEventListener('click', function (e) {
     const btn = e.target.closest('[data-month]');
@@ -460,7 +487,7 @@
   $('btnMine').addEventListener('click', function () {
     state.mine = !state.mine;
     syncMineChip();
-    const data = state.cache[state.month];
+    const data = state.cache[cacheKey(state.month)];
     if (data) renderMonth(data); // กรองจากข้อมูลที่โหลดแล้ว ไม่ยิง API ซ้ำ
   });
   $('btnRetry').addEventListener('click', function () { location.replace(location.origin + location.pathname); });

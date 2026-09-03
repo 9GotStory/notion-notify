@@ -131,6 +131,11 @@ const SCHEDULE_VIEW_FWD_PUBLIC = 6;
 const SCHEDULE_VIEW_BACK_FULL = -12;
 const SCHEDULE_VIEW_FWD_FULL = 12;
 
+// หน้าต่างย้อนหลังสำหรับ query งานแบบช่วงวันที่ของหน้าเว็บ — แยกจาก RANGE_PADDING_DAYS (92) ของ
+// ข้อความเช้า/เตือนงานตอนลา เพราะหน้าเว็บให้ดูถึง ±12 เดือน งานยาวข้ามปีต้องไม่ตกจากผลลัพธ์
+// (แลกกับหน้าต่าง query กว้างขึ้น — ยังอยู่ใต้เพดาน pagination 2,000 รายการของ queryNotionPages_)
+const SCHEDULE_RANGE_PADDING_DAYS = 366;
+
 // เดือนอยู่ในวง [back, fwd] นับจากเดือนปัจจุบันไหม — pure (รับเดือนแบบ 'YYYY-MM')
 function scheduleMonthAllowed_(currentMonth, month, back, fwd) {
   const [cy, cm] = currentMonth.split('-').map(Number);
@@ -202,11 +207,13 @@ function apiSchedule_(body) {
   // ตรวจก่อนเพราะ "วงเดือนที่ดูได้" ขึ้นกับโหมด / token หมดอายุ-ไม่ถูกต้อง → เงียบๆ ให้ดูแบบสาธารณะไปก่อน
   let full = false;
   let viewer = '';
+  let roster = null; // เก็บไว้ส่งต่อให้ส่วนดึงใบลา — ไม่ต้องอ่านชีตซ้ำ (และพ้นช่วงที่อ่านได้แล้วตอนตรวจ token)
   const token = String((body && body.accessToken) || '').trim();
   if (token) {
     try {
       const profile = verifyLineToken_(token);
-      const staff = findStaffByUserId_(readStaffRoster_(), profile.userId);
+      roster = readStaffRoster_();
+      const staff = findStaffByUserId_(roster, profile.userId);
       if (staff) {
         full = true;
         // ชื่อต้นของผู้ดู — key เดียวกับผู้รับผิดชอบใน Notion ให้หน้าเว็บกรอง "เฉพาะงานที่ฉันรับผิดชอบ"
@@ -243,9 +250,9 @@ function apiSchedule_(body) {
     } catch (err) { /* ค่าใน cache เสีย → ดึงใหม่ด้านล่าง */ }
   }
 
-  // หน้าต่างย้อนหลัง 92 วันเพื่อเก็บงานแบบช่วงวันที่ที่เริ่มก่อนเดือนนี้แต่ยังครอบคลุมอยู่
+  // หน้าต่างย้อนหลัง 366 วันเพื่อเก็บงานแบบช่วงวันที่ที่เริ่มก่อนเดือนนี้แต่ยังครอบคลุมอยู่
   const payload = buildNotionQueryPayload_(
-    shiftDateStr_(bounds.from, -RANGE_PADDING_DAYS), bounds.to, NOTION_SCHEDULE_STATUSES);
+    shiftDateStr_(bounds.from, -SCHEDULE_RANGE_PADDING_DAYS), bounds.to, NOTION_SCHEDULE_STATUSES);
   const dataSourceId = resolveDataSourceId_(settings.notion_database_id);
   const results = queryNotionPages_(dataSourceId, payload);
 
@@ -262,7 +269,7 @@ function apiSchedule_(body) {
   // เหมือนผู้รับผิดชอบ/รายละเอียด/หมายเหตุ (โหมดสาธารณะได้ items เท่านั้น จึงไม่ต้องกังวลเรื่อง cache รั่ว)
   const leaves = [];
   if (full) {
-    getApprovedLeavesForRange_(new Date(), settings.leave_database_id, bounds.from, bounds.to)
+    getApprovedLeavesForRange_(new Date(), settings.leave_database_id, bounds.from, bounds.to, roster)
       .forEach(leave => expandScheduleLeaveRows_(leave, bounds.from, bounds.to, readHolidaySet_()).forEach(row => leaves.push(row)));
     leaves.sort((a, b) => a.date === b.date
       ? a.name.localeCompare(b.name, 'th')

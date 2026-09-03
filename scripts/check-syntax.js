@@ -483,7 +483,7 @@ function checkScheduleMineContracts() {
     "names.indexOf(state.viewer) !== -1 || names.indexOf('ทุกคน') !== -1",
     'row.name === state.viewer',
     'function prefetchNeighbors(month)',
-    'monthAllowed(m) && !state.cache[m]',
+    'monthAllowed(m) && !state.cache[cacheKey(m)]',
   ];
   const pageMissing = pageRequired.filter(value => !page.includes(value));
   if (pageMissing.length) {
@@ -517,6 +517,7 @@ function checkScheduleMonthPickerContracts() {
     'id="btnMonth"',
     'id="monthPicker"',
     "setAttribute('aria-expanded', willOpen ? 'true' : 'false')",
+    "$('btnMonth').disabled = loading",
     'function allowedMonths()',
     'for (let d = bounds.back; d <= bounds.fwd; d++)',
     'if (data.viewMonths) state.viewMonths = data.viewMonths',
@@ -532,6 +533,60 @@ function checkScheduleMonthPickerContracts() {
     console.error(pageFile + ' month-picker contract failed' +
       (missing.length ? '; missing: ' + missing.join(', ') : '') +
       (present.length ? '; forbidden: ' + present.join(', ') : ''));
+    process.exitCode = 1;
+  }
+}
+
+function checkSchedulePhase1Contracts() {
+  const pageFile = 'web/schedule/index.html';
+  const page = fs.readFileSync(path.join(root, pageFile), 'utf8');
+  const required = [
+    "timeZone: 'Asia/Bangkok'", // "วันนี้"/เดือนปัจจุบันอิดเวลาไทย ไม่ใช่เวลาเครื่องผู้ใช้
+    'function cacheKey(month)', // cache แยกโหมด มี/ไม่มี token เหมือนฝั่งเซิร์ฟเวอร์
+    "if (state.token && data.full === false) state.token = ''", // token ตาย → self-heal เป็นสาธารณะ
+    'id="btnRefresh"',
+    "$('btnRefresh').disabled = loading",
+    'delete state.cache[cacheKey(state.month)]',
+  ];
+  // รีเฟรชต้องล้าง cache ฝั่งหน้าเว็บเท่านั้น — ห้ามมีพารามิเตอร์ขอให้เซิร์ฟเวอร์ข้าม cache
+  // (กันผู้ใช้นอกยิงรัวจนกระทบโควตา UrlFetch/Notion ที่ทั้งระบบใช้ร่วมกัน)
+  const forbidden = ['bypass', 'nocache'];
+  const missing = required.filter(value => !page.includes(value));
+  const present = forbidden.filter(value => page.toLowerCase().includes(value));
+  if (missing.length || present.length) {
+    console.error(pageFile + ' phase-1 contract failed' +
+      (missing.length ? '; missing: ' + missing.join(', ') : '') +
+      (present.length ? '; forbidden: ' + present.join(', ') : ''));
+    process.exitCode = 1;
+  }
+}
+
+function checkSchedulePhase2Contracts() {
+  const calendarFile = 'apps/main/Calendar.gs';
+  const calendar = fs.readFileSync(path.join(root, calendarFile), 'utf8');
+  const calendarRequired = [
+    // หน้าเว็บดูได้ ±12 เดือน → หน้าต่าง query ของ apiSchedule_ ต้องกว้างกว่าของ digest (92 วัน)
+    'const SCHEDULE_RANGE_PADDING_DAYS = 366',
+    'shiftDateStr_(bounds.from, -SCHEDULE_RANGE_PADDING_DAYS)',
+    // roster ที่อ่านไว้ตอนตรวจ token ต้องส่งต่อให้ส่วนดึงใบลา — กันการ์ดลาเพี้ยนเป็นชื่อเต็ม
+    'roster = readStaffRoster_();',
+    'getApprovedLeavesForRange_(new Date(), settings.leave_database_id, bounds.from, bounds.to, roster)',
+  ];
+  const calendarMissing = calendarRequired.filter(value => !calendar.includes(value));
+  if (calendarMissing.length) {
+    console.error(calendarFile + ' phase-2 contract failed; missing: ' + calendarMissing.join(', '));
+    process.exitCode = 1;
+  }
+
+  const reportsFile = 'apps/main/LeaveReports.gs';
+  const reports = fs.readFileSync(path.join(root, reportsFile), 'utf8');
+  const reportsRequired = [
+    'function getApprovedLeavesForRange_(now, leaveDatabaseId, fromStr, toStr, rosterFromCaller)',
+    'let roster = rosterFromCaller || null;',
+  ];
+  const reportsMissing = reportsRequired.filter(value => !reports.includes(value));
+  if (reportsMissing.length) {
+    console.error(reportsFile + ' phase-2 contract failed; missing: ' + reportsMissing.join(', '));
     process.exitCode = 1;
   }
 }
@@ -654,6 +709,8 @@ checkAdminLogPaginationContracts();
 checkScheduleLifecycleContracts();
 checkScheduleMineContracts();
 checkScheduleMonthPickerContracts();
+checkSchedulePhase1Contracts();
+checkSchedulePhase2Contracts();
 checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');
