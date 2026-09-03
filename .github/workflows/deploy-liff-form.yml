@@ -132,6 +132,10 @@ jobs:
           mkdir -p site/web/schedule
           cp web/schedule/index.html site/web/schedule/index.html
           sed -i "s|__SCHEDULE_LIFF_ID__|${SCHEDULE_LIFF_ID:-}|g; s|__API_URL__|$API_URL|g" site/web/schedule/index.html
+          if grep -q '__SCHEDULE_LIFF_ID__\|__API_URL__' site/web/schedule/index.html; then
+            echo "::error::ยังมี placeholder ค้างในหน้าตารางงาน"
+            exit 1
+          fi
           # หน้าผู้ดูแล /web/admin/ — SPA ไฟล์เปล่า (ไม่มี build ของตัวเอง) ใช้ CSS ชุดเดียวกัน
           # token ผู้ดูแลไม่ผ่านขั้น build — ผู้ดูแลพิมพ์เองในหน้าเว็บ
           mkdir -p site/web/admin/js/views

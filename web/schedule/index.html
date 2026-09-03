@@ -119,7 +119,7 @@
     today: '',        // 'yyyy-MM-dd' ตามเวลาท้องถิ่น
     cache: {},        // เก็บผลต่อเดือน เลื่อนไป-กลับไม่ต้องดึงซ้ำ
     viewMonths: null, // วงเดือนที่ดูได้ {back, fwd} ตามโหมด — null = ยังไม่มี response ใช้ค่าเริ่มต้นสาธารณะ
-    token: '',        // LIFF access token (ถ้าล็อกอินแล้ว)
+    deadToken: '',    // token ที่เซิร์ฟเวอร์ปฏิเสธไปแล้ว — ห้ามส่งซ้ำจนกว่า liff จะออกค่าใหม่ (ต่างค่า) มา
     full: false,      // โหมดเจ้าหน้าที่ (เห็นครบทุกฟิลด์)
     viewer: '',       // ชื่อต้นของผู้ดูจากเซิร์ฟเวอร์ (เฉพาะโหมดเจ้าหน้าที่) — ใช้กรองงานของตัวเอง
     mine: false,      // เปิดกรองเฉพาะงานที่ตัวเองรับผิดชอบ (+ใบลาของตัวเอง)
@@ -172,15 +172,29 @@
 
   // ---------- อ่านตารางจาก Apps Script โดยตรง ----------
 
+  // LIFF access token อายุ 12 ชั่วโมงและออกให้ตอน init (เอกสาร LINE) — อ่านใหม่จาก liff ทุกครั้งที่จะยิง
+  // ไม่จำสตริงไว้ตั้งแต่ boot ไม่งั้นแท็บที่เปิดค้างนานจะส่ง token หมดอายุวนไปเรื่อยๆ
+  // คืน '' เมื่อยังไม่พร้อม/ไม่ได้ล็อกอิน หรือเป็น token ที่เซิร์ฟเวอร์ปฏิเสธไปแล้ว (state.deadToken)
+  // ถ้า liff ออกค่าใหม่มาให้เอง (ต่างจากตัวที่ตาย) ก็ส่งค่าใหม่นั้น — เข้าโหมดเจ้าหน้าที่กลับเอง
+  function currentToken() {
+    if (!state.liffReady) return '';
+    try {
+      if (!(typeof liff.isLoggedIn === 'function' && liff.isLoggedIn())) return '';
+      const token = liff.getAccessToken() || '';
+      return token && token !== state.deadToken ? token : '';
+    } catch (err) { return ''; }
+  }
+
   // cache ฝั่งหน้าเว็บแยกตามโหมดที่ใช้ยิง (มี/ไม่มี token) เหมือน cache key ฝั่งเซิร์ฟเวอร์
   // กันข้อมูลเต็มโหมดค้างปนตอน token ตายกลางทางแล้วสลับเดือนไป-กลับ (badge สลับมุมมองมั่วๆ)
   function cacheKey(month) {
-    return month + (state.token ? '_full' : '_pub');
+    return month + (currentToken() ? '_full' : '_pub');
   }
 
   async function fetchMonth(month) {
     const key = cacheKey(month);
     if (state.cache[key]) return state.cache[key];
+    const token = currentToken(); // token ของคำขอนี้ — ใช้เทียบตอนเซิร์ฟเวอร์ปฏิเสธด้านล่าง
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(function () { controller.abort(); }, 20000);
@@ -191,7 +205,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(Object.assign(
-          { apiAction: 'schedule', month: month }, state.token ? { accessToken: state.token } : {})),
+          { apiAction: 'schedule', month: month }, token ? { accessToken: token } : {})),
         signal: controller.signal,
       });
     } catch (err) {
@@ -206,10 +220,11 @@
     if (!res.ok || !data || data.ok === false) {
       throw new Error((data && data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง');
     }
-    // ส่ง token ไปแต่เซิร์ฟเวอร์ตอบกลับเป็นสาธารณะ = token ตายแล้ว — ทิ้งเลย
+    // ส่ง token ไปแต่เซิร์ฟเวอร์ตอบกลับเป็นสาธารณะ = token นี้ตายแล้ว — จำไว้ไม่ส่งซ้ำ
     // ให้ทั้งหน้า (cache key/viewer/badge) เปลี่ยนเป็นสาธารณะอย่างเดียวสมบูรณ์ ไม่สลับกระพริบ
-    if (state.token && data.full === false) state.token = '';
-    state.cache[cacheKey(month)] = data; // เก็บใต้ key ของโหมด "หลัง" เคลียร์ token — ตรงกับที่จะค้นครั้งหน้า
+    // (ถ้า liff ออก token ใหม่ให้ภายหลัง currentToken จะส่งค่าใหม่นั้น แล้วกลับสู่โหมดเจ้าหน้าที่เอง)
+    if (token && data.full === false) state.deadToken = token;
+    state.cache[cacheKey(month)] = data; // เก็บใต้ key ของโหมด "หลัง" ปฏิเสธ token — ตรงกับที่จะค้นครั้งหน้า
     return data;
   }
 
@@ -461,6 +476,7 @@
   }
 
   async function loadMonth(month) {
+    state.today = todayStr(); // คำนวณใหม่ทุกครั้ง — เปิดค้างข้ามเที่ยงคืนแล้วป้าย "วันนี้"/จุด scroll ต้องตามเวลาจริง
     state.month = month;
     toggleMonthPicker(false);
     $('monthLabel').textContent = monthLabel(month);
@@ -482,23 +498,19 @@
   // ---------- เริ่มทำงาน ----------
 
   async function boot() {
-    state.today = todayStr();
-
     // LIFF ของหน้านี้เป็นตัวเลือก: ยังไม่สร้าง (ค่าว่าง) ก็ทำงานแบบสาธารณะได้เลย
     // และไม่ใส่ withLoginOnExternalBrowser — หน้าสาธารณะต้องไม่ดันผู้ชมไปหน้า login ก่อนเห็นข้อมูล
     const liffId = (CONFIG.SCHEDULE_LIFF_ID || '').trim();
     if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
-      let initReady = false;
       try {
         // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา) ต้องไม่ลากหน้าสาธารณะ
-        // ให้ค้างตามไปด้วย: หมดเวลาแล้วเดินหน้าแบบสาธารณะก่อน รีเฟรชใหม่ภายหลังก็อัปเกรดเอง
-        initReady = await Promise.race([
-          liff.init({ liffId: liffId }).then(function () { return true; }),
-          new Promise(function (resolve) { setTimeout(function () { resolve(false); }, 5000); }),
+        // ให้ค้างตามไปด้วย: หมดเวลาแล้วเดินหน้าแบบสาธารณะก่อน แล้วปลุก liffReady เองเมื่อ init
+        // สำเร็จทีหลัง (ตัวจับเวลาไม่ cancel การปลุก) — คำขอเดือนถัดไปเลยใช้ token ได้โดยไม่ต้องรีเฟรชหน้า
+        await Promise.race([
+          liff.init({ liffId: liffId }).then(function () { state.liffReady = true; }, function () {}),
+          new Promise(function (resolve) { setTimeout(resolve, 5000); }),
         ]);
       } catch (err) { /* LIFF พัง → ดูแบบสาธารณะ ไม่บล็อกเนื้อหา */ }
-      state.liffReady = initReady;
-      if (initReady && liff.isLoggedIn && liff.isLoggedIn()) state.token = liff.getAccessToken() || '';
     }
     await loadMonth(todayMonth());
   }
