@@ -1234,15 +1234,17 @@ function testScheduleHelpers_() {
   assertContains_(JSON.stringify(digestFlex.contents), 'ต่อเนื่อง 6–7 ส.ค. 2569');
 }
 
-// รายชื่อผู้ดูแลจาก Settings (isAdminStaffName_) — ใช้ทั้งล็อกอินหน้า admin ด้วย LINE และ callMain
+// รายชื่อผู้ดูแลจาก Settings (isAdminStaffKey_) — ใช้ทั้งล็อกอินหน้า admin ด้วย LINE และ callMain
+// คีย์เป็น "ชื่อ สกุล" เพราะชื่อต้นซ้ำกันได้ (เคสชื่อซ้ำต้องไม่ผ่าน)
 function testAdminStaffNames_() {
-  assertTrue_(isAdminStaffName_('สมชาย', { admin_staff: 'สมชาย, สมหญิง' }), 'ชื่อหนึ่งในรายการต้องผ่าน');
-  assertTrue_(isAdminStaffName_('สมหญิง', { admin_staff: ' สมชาย , สมหญิง ' }), 'เว้นวรรครอบชื่อต้องตัดแล้วผ่าน');
-  assertTrue_(isAdminStaffName_('สมชาย', { admin_staff: 'สมชาย\nสมหญิง' }), 'ขึ้นบรรทัดใหม่คั่นได้');
-  assertFalse_(isAdminStaffName_('สม', { admin_staff: 'สมชาย' }), 'จับแบบ substring ไม่ได้ ต้องตรงทั้งชื่อ');
-  assertFalse_(isAdminStaffName_('สมศักดิ์', { admin_staff: 'สมชาย ทดสอบ, สมหญิง' }), 'ชื่อต้องตรงทั้ง token ไม่ใช่บางส่วน');
-  assertFalse_(isAdminStaffName_('สมชาย', { admin_staff: '' }), 'ไม่ตั้งค่า admin_staff = ไม่มีใครผ่าน');
-  assertFalse_(isAdminStaffName_('', { admin_staff: 'สมชาย' }), 'ไม่มีชื่อเลย = ไม่ผ่าน');
+  assertTrue_(isAdminStaffKey_('สมชาย ใจดี', { admin_staff: 'สมชาย ใจดี, สมหญิง มีสุข' }), 'ชื่อ-สกุลตรงรายการต้องผ่าน');
+  assertTrue_(isAdminStaffKey_('สมชาย  ใจดี', { admin_staff: 'สมชาย ใจดี' }), 'ช่องว่างซ้ำต้องยุบแล้วตรงกัน');
+  assertTrue_(isAdminStaffKey_('สมหญิง มีสุข', { admin_staff: ' สมชาย ใจดี , สมหญิง มีสุข ' }), 'เว้นวรรครอบรายชื่อต้องตัดแล้วผ่าน');
+  assertTrue_(isAdminStaffKey_('สมชาย ใจดี', { admin_staff: 'สมชาย ใจดี\nสมหญิง มีสุข' }), 'ขึ้นบรรทัดใหม่คั่นได้');
+  assertFalse_(isAdminStaffKey_('สมชาย มั่งมี', { admin_staff: 'สมชาย ใจดี' }), 'ชื่อต้นซ้ำแต่คนละสกุลต้องไม่ผ่าน — เคสชื่อซ้ำ');
+  assertFalse_(isAdminStaffKey_('สมชาย', { admin_staff: 'สมชาย ใจดี' }), 'แค่ชื่อต้นต้องไม่ตรงกับคีย์เต็ม');
+  assertFalse_(isAdminStaffKey_('สมชาย ใจดี', { admin_staff: '' }), 'ไม่ตั้งค่า admin_staff = ไม่มีใครผ่าน');
+  assertFalse_(isAdminStaffKey_('', { admin_staff: 'สมชาย ใจดี' }), 'ไม่มีชื่อเลย = ไม่ผ่าน');
 }
 
 // การจับคู่ผู้รับผิดชอบกับชื่อ (assigneeMatches_) — แนติกเดียวกับชิป "เฉพาะงานที่ฉันรับผิดชอบ" หน้า /schedule/

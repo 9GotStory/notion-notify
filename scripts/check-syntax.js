@@ -634,9 +634,9 @@ function checkAdminLineLoginContracts() {
     {
       file: 'apps/main/LeaveManagement.gs',
       required: [
-        'function isAdminStaffName_',
+        'function isAdminStaffKey_',
         'function requireMainAdminToken_',
-        'isAdminStaffName_(staff.firstName, getSettings_())',
+        'isAdminStaffKey_(staffKey_(staff), getSettings_())',
       ],
     },
     {

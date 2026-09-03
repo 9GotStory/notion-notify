@@ -2,13 +2,14 @@
 
 const LEAVE_PENDING_REMINDER_HANDLER = 'pendingLeaveReminderJob';
 
-// ชื่อต้นนี้อยู่ในรายชื่อผู้ดูแลใน Settings (คีย์ admin_staff คั่นลูกน้ำ/ไปป์/บรรทัด) ไหม — pure
+// "ชื่อ สกุล" นี้อยู่ในรายชื่อผู้ดูแลใน Settings (คีย์ admin_staff คั่นลูกน้ำ/ไปป์/บรรทัด) ไหม — pure
+// ใช้คีย์เต็มแบบเดียวกับ second_approvers เพราะชื่อต้นซ้ำกันได้ (คนละคนจะได้สิทธิ์กันมั่ว)
 // เซมแนติก adminStaffNameSet_ ฝั่ง webapp — แก้ฝั่งไหนต้องแก้อีกฝั่งให้ตรงกันด้วย
-function isAdminStaffName_(firstName, settings) {
-  const wanted = String(firstName || '').trim();
+function isAdminStaffKey_(staffKey, settings) {
+  const wanted = String(staffKey || '').trim().replace(/\s+/g, ' ');
   if (!wanted) return false;
   return String((settings && settings.admin_staff) || '')
-    .split(/[,|\n]/).map(s => s.trim()).filter(Boolean).includes(wanted);
+    .split(/[,|\n]/).map(s => s.trim().replace(/\s+/g, ' ')).filter(Boolean).includes(wanted);
 }
 
 function requireMainAdminToken_(body) {
@@ -19,7 +20,7 @@ function requireMainAdminToken_(body) {
     try {
       const profile = verifyLineToken_(accessToken);
       const staff = findStaffByUserId_(readStaffRoster_(), profile.userId);
-      if (staff && isAdminStaffName_(staff.firstName, getSettings_())) return true;
+      if (staff && isAdminStaffKey_(staffKey_(staff), getSettings_())) return true;
     } catch (err) { /* ตกไปที่การตรวจรหัสกลางตามปกติด้านล่าง */ }
   }
   const expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '').trim();

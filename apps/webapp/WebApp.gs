@@ -176,13 +176,17 @@ function verifyAdminLineToken_(accessToken) {
   return { userId: String(profile.userId || ''), displayName: String(profile.displayName || '') };
 }
 
-// ชื่อแอดมินจาก Settings คีย์ admin_staff (คั่นลูกน้ำ/ไปป์/บรรทัด) — เซมแนติก isAdminStaffName_ ฝั่ง main
+// รายชื่อผู้ดูแลจาก Settings คีย์ admin_staff — เก็บแบบ "ชื่อ สกุล" คั่นลูกน้ำ/ไปป์/บรรทัด
+// (ตาม convention เดียวกับ second_approvers; ใช้ชื่อเต็มเพราะชื่อต้นซ้ำกันได้ = คนละคนได้สิทธิ์กันมั่ว)
+// ยุบช่องว่างซ้ำในแต่ละรายชื่อให้เหลือช่องเดียวเหมือน staffKey_ ฝั่ง main — เซมแนติก isAdminStaffKey_
 function adminStaffNameSet_(raw) {
-  return new Set(String(raw || '').split(/[,|\n]/).map(s => s.trim()).filter(Boolean));
+  return new Set(String(raw || '').split(/[,|\n]/)
+    .map(s => s.trim().replace(/\s+/g, ' ')).filter(Boolean));
 }
 
-// หาเจ้าของ LINE userId ในทำเนียบ Staff: ต้องผูกแล้ว (APPROVED) และยัง ACTIVE — คืนชื่อต้นหรือ null
-// (layout คอลัมน์เดียวกับ readReportStaff_ / readStaffRoster_ ฝั่ง main: ชื่อต้น=คอลัมน์ 2,
+// หาเจ้าของ LINE userId ในทำเนียบ Staff: ต้องผูกแล้ว (APPROVED) และยัง ACTIVE
+// คืนคีย์ตัวตน "ชื่อ สกุล" ของคนนั้น หรือ null
+// (layout คอลัมน์เดียวกับ readReportStaff_ / readStaffRoster_ ฝั่ง main: คำนำหน้า=1, ชื่อต้น=2, สกุล=3,
 //  userId=6, สถานะบุคลากร=11, สถานะการผูก=12 — นับแบบ 1-based)
 function findAdminStaffByLineUserId_(userId) {
   const sheet = getSheet_('Staff');
@@ -192,12 +196,12 @@ function findAdminStaffByLineUserId_(userId) {
     String(r[5]).trim() === String(userId || '').trim() &&
     String(r[10] || '').trim().toUpperCase() === 'ACTIVE' &&
     String(r[11] || '').trim().toUpperCase() === 'APPROVED' &&
-    String(r[1]).trim());
-  return row ? String(row[1]).trim() : null;
+    String(r[1]).trim() && String(r[2]).trim());
+  return row ? (String(row[1]).trim() + ' ' + String(row[2]).trim()).replace(/\s+/g, ' ') : null;
 }
 
 // apiAction: admin_login — ล็อกอินด้วย LINE token (ผ่านด่าน requireAdminToken_ โดยเฉพาะ)
-// คืนชื่อผู้ใช้ให้หน้าเว็บแสดงว่าล็อกอินเป็นใคร
+// คืนชื่อ-สกุลผู้ใช้ให้หน้าเว็บแสดงว่าล็อกอินเป็นใคร
 function api_adminLogin_(params) {
   const accessToken = String((params && params.accessToken) || '').trim();
   if (!accessToken) return { ok: false, code: 'INVALID_REQUEST', error: 'ไม่ได้แนบข้อมูลยืนยันจาก LINE' };
@@ -207,11 +211,11 @@ function api_adminLogin_(params) {
   } catch (err) {
     return { ok: false, code: err.publicCode || 'UNAUTHORIZED', error: err.message };
   }
-  const firstName = findAdminStaffByLineUserId_(profile.userId);
-  if (!firstName || !adminStaffNameSet_(api_getSettings().admin_staff).has(firstName)) {
+  const staffKey = findAdminStaffByLineUserId_(profile.userId);
+  if (!staffKey || !adminStaffNameSet_(api_getSettings().admin_staff).has(staffKey)) {
     return { ok: false, code: 'UNAUTHORIZED', error: 'บัญชี LINE นี้ยังไม่ได้รับสิทธิ์ผู้ดูแลระบบ' };
   }
-  return { ok: true, actor: firstName, via: 'line' };
+  return { ok: true, actor: staffKey, via: 'line' };
 }
 
 // ตรวจสิทธิ์ทุกคำขอ — fail-closed ทุกกรณี (คืน error object ถ้าไม่ผ่าน, null ถ้าผ่าน)
@@ -221,8 +225,8 @@ function requireAdminToken_(params) {
   if (accessToken) {
     try {
       const profile = verifyAdminLineToken_(accessToken);
-      const firstName = findAdminStaffByLineUserId_(profile.userId);
-      if (firstName && adminStaffNameSet_(api_getSettings().admin_staff).has(firstName)) return null;
+      const staffKey = findAdminStaffByLineUserId_(profile.userId);
+      if (staffKey && adminStaffNameSet_(api_getSettings().admin_staff).has(staffKey)) return null;
     } catch (err) { /* ตกไปที่ปฏิเสธด้านล่าง */ }
     return { ok: false, code: 'UNAUTHORIZED', error: 'เซสชัน LINE หมดอายุหรือไม่มีสิทธิ์ผู้ดูแล — กรุณาเข้าสู่ระบบใหม่' };
   }

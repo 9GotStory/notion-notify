@@ -59,9 +59,9 @@ AdminViews.system = {
       '<section class="ui-card ui-card-body mb-4 space-y-5" aria-labelledby="systemAdminTitle">' +
       '<div><p id="systemAdminTitle" class="ui-section-title">สิทธิ์ผู้ดูแลระบบ</p>' +
       '<p class="ui-help">ใครอยู่ในรายชื่อนี้ (และผูก LINE กับทำเนียบแล้ว) ล็อกอินหน้านี้ด้วยปุ่ม "เข้าสู่ระบบด้วย LINE" ได้</p></div>' +
-      '<div><label for="f-admin-staff" class="ui-label">รายชื่อผู้ดูแล (ชื่อต้น คั่นลูกน้ำ)</label>' +
-      '<input type="text" id="f-admin-staff" placeholder="เช่น สมชาย, สมหญิง" class="ui-field">' +
-      '<p class="ui-help">เว้นว่าง = ใช้รหัสผู้ดูแล (ADMIN_TOKEN) อย่างเดียว · เพิ่มชื่อแล้วผู้นั้นใช้งานได้ทันที ไม่ต้องแจกรหัส</p></div>' +
+      '<div><label for="f-admin-staff" class="ui-label">รายชื่อผู้ดูแล (ชื่อ สกุล คั่นลูกน้ำ)</label>' +
+      '<input type="text" id="f-admin-staff" placeholder="เช่น สมชาย ใจดี, สมหญิง มีสุข" class="ui-field">' +
+      '<p class="ui-help">เว้นว่าง = ใช้รหัสผู้ดูแล (ADMIN_TOKEN) อย่างเดียว · ต้องใส่ทั้งชื่อและสกุล (ตรงกับทำเนียบ Staff) เพราะชื่อต้นซ้ำกันได้ · เพิ่มแล้วใช้งานได้ทันที ไม่ต้องแจกรหัส</p></div>' +
       '</section>' +
 
       '<button type="button" id="btnSaveSettings" class="ui-btn-primary w-full sm:w-auto">บันทึกการตั้งค่าระบบ</button>' +
