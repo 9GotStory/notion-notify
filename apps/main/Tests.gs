@@ -14,6 +14,7 @@ function runUnitTests() {
     testNotionStatusWhitelist_,
     testScheduleStatusCompletion_,
     testParseNotionPage_,
+    testAssigneeMatches_,
     testTimeLabels_,
     testItemSubFields_,
     testTextMessage_,
@@ -1226,6 +1227,17 @@ function testScheduleHelpers_() {
   // การ์ด flex: งานหลายวันมีบรรทัด "ต่อเนื่อง ..." ใต้ชื่องาน
   const digestFlex = buildLineMessage_(new Date('2026-08-06T08:30:00+07:00'), [spanForDigest], [], 'flex');
   assertContains_(JSON.stringify(digestFlex.contents), 'ต่อเนื่อง 6–7 ส.ค. 2569');
+}
+
+// การจับคู่ผู้รับผิดชอบกับชื่อ (assigneeMatches_) — แนติกเดียวกับชิป "เฉพาะงานที่ฉันรับผิดชอบ" หน้า /schedule/
+function testAssigneeMatches_() {
+  assertTrue_(assigneeMatches_(['สมชาย', 'สมหญิง'], 'สมชาย'), 'ชื่อตรงกับผู้รับผิดชอบหนึ่งในรายชื่อ');
+  assertTrue_(assigneeMatches_(['ทุกคน'], 'สมชาย'), 'งานของ "ทุกคน" ต้องนับว่าเกี่ยวกับทุกคน');
+  assertTrue_(assigneeMatches_(['สมหญิง', 'ทุกคน'], 'สมชาย'), '"ทุกคน" ปนกับชื่ออื่นก็ต้องแมตช์');
+  assertFalse_(assigneeMatches_(['สมหญิง'], 'สมชาย'), 'ชื่อไม่ตรงและไม่มี "ทุกคน" → ไม่แมตช์');
+  assertFalse_(assigneeMatches_([], 'สมชาย'), 'ไม่มีผู้รับผิดชอบเลย → ไม่แมตช์');
+  assertFalse_(assigneeMatches_(null, 'สมชาย'), 'assignees เป็น null ต้องไม่พัง');
+  assertFalse_(assigneeMatches_(['สมชาย'], ''), 'ไม่มีชื่อผู้ดู → ไม่แมตช์');
 }
 
 // ---------- ใบลาของฉัน / ยกเลิก / แก้ไข / สรุปรายเดือน ----------

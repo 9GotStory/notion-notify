@@ -455,6 +455,43 @@ function checkScheduleLifecycleContracts() {
   });
 }
 
+function checkScheduleMineContracts() {
+  const calendarFile = 'apps/main/Calendar.gs';
+  const calendar = fs.readFileSync(path.join(root, calendarFile), 'utf8');
+  const calendarRequired = [
+    'viewer = staff.firstName',
+    'if (viewer) result.viewer = viewer;',
+    'function assigneeMatches_(assignees, firstName)',
+    "name === firstName || name === 'ทุกคน'",
+  ];
+  const calendarMissing = calendarRequired.filter(value => !calendar.includes(value));
+  if (calendarMissing.length) {
+    console.error(calendarFile + ' schedule viewer contract failed; missing: ' + calendarMissing.join(', '));
+    process.exitCode = 1;
+  }
+  // viewer เป็นชื่อรายบุคคล — cache โหมดเต็มแชร์กันทุกเจ้าหน้าที่ จึงต้องต่อท้าย "หลัง" cache.put เท่านั้น
+  if (calendar.lastIndexOf('if (viewer) result.viewer = viewer;') < calendar.indexOf('cache.put(cacheKey')) {
+    console.error(calendarFile + ' must attach viewer after cache.put so the shared full-mode cache stays name-free');
+    process.exitCode = 1;
+  }
+
+  const pageFile = 'web/schedule/index.html';
+  const page = fs.readFileSync(path.join(root, pageFile), 'utf8');
+  const pageRequired = [
+    'id="btnMine"',
+    "btn.setAttribute('aria-pressed', state.mine ? 'true' : 'false')",
+    "names.indexOf(state.viewer) !== -1 || names.indexOf('ทุกคน') !== -1",
+    'row.name === state.viewer',
+    'function prefetchNeighbors(month)',
+    'monthAllowed(m) && !state.cache[m]',
+  ];
+  const pageMissing = pageRequired.filter(value => !page.includes(value));
+  if (pageMissing.length) {
+    console.error(pageFile + ' mine-filter/prefetch contract failed; missing: ' + pageMissing.join(', '));
+    process.exitCode = 1;
+  }
+}
+
 function checkThaiDateContracts() {
   const context = vm.createContext({
     console,
@@ -571,6 +608,7 @@ checkDesignSystemContracts();
 checkLogRetentionContracts();
 checkAdminLogPaginationContracts();
 checkScheduleLifecycleContracts();
+checkScheduleMineContracts();
 checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');

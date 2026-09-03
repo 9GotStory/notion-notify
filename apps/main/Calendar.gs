@@ -166,6 +166,12 @@ function expandScheduleRows_(item, fromStr, toStr, full) {
   return rows;
 }
 
+/** งานนี้มีผู้รับผิดชอบตรงกับชื่อที่กำหนดไหม (รวม "ทุกคน") — pure
+ *  แนติกนี้ถูกมิเรอร์ไว้ที่หน้าเว็บ /schedule/ (isMine) สำหรับชิปกรอง "เฉพาะงานที่ฉันรับผิดชอบ" */
+function assigneeMatches_(assignees, firstName) {
+  return (assignees || []).some(name => name === firstName || name === 'ทุกคน');
+}
+
 /** งาน (สถานะยืนยันแล้ว) ที่คร่อมช่วง [fromStr, toStr) และมีผู้รับผิดชอบตรงกับชื่อที่กำหนด (รวม "ทุกคน")
  *  ใช้เตือนตอนยื่น/แก้ไขใบลาว่า "ในช่วงลามีงานที่คุณรับผิดชอบอยู่" — เตือนเท่านั้น ไม่บล็อก */
 function getItemsForAssigneeInRange_(settings, firstName, fromStr, toStr) {
@@ -175,7 +181,7 @@ function getItemsForAssigneeInRange_(settings, firstName, fromStr, toStr) {
   return queryNotionPages_(resolveDataSourceId_(settings.notion_database_id), payload)
     .map(parseNotionPage_)
     .filter(item => itemOverlapsRange_(item, fromStr, toStr))
-    .filter(item => (item.assignees || []).some(name => name === firstName || name === 'ทุกคน'));
+    .filter(item => assigneeMatches_(item.assignees, firstName));
 }
 
 function apiSchedule_(body) {
@@ -191,11 +197,17 @@ function apiSchedule_(body) {
   // โหมดเต็ม: บัญชี LINE ที่ตรวจ token ผ่าน + ลงทะเบียนในทำเนียบแล้วเท่านั้น
   // token หมดอายุ/ไม่ถูกต้อง → เงียบๆ ให้ดูแบบสาธารณะไปก่อน (หน้าเว็บเสนอปุ่มล็อกอินเอง)
   let full = false;
+  let viewer = '';
   const token = String((body && body.accessToken) || '').trim();
   if (token) {
     try {
       const profile = verifyLineToken_(token);
-      if (findStaffByUserId_(readStaffRoster_(), profile.userId)) full = true;
+      const staff = findStaffByUserId_(readStaffRoster_(), profile.userId);
+      if (staff) {
+        full = true;
+        // ชื่อต้นของผู้ดู — key เดียวกับผู้รับผิดชอบใน Notion ให้หน้าเว็บกรอง "เฉพาะงานที่ฉันรับผิดชอบ"
+        viewer = staff.firstName;
+      }
     } catch (err) { /* ไม่มี token ที่ใช้ได้ → โหมดสาธารณะ */ }
   }
 
@@ -210,7 +222,12 @@ function apiSchedule_(body) {
   const cacheKey = 'schedule_' + month + (full ? '_full' : '_pub');
   const cached = cache.get(cacheKey);
   if (cached) {
-    try { return JSON.parse(cached); } catch (err) { /* ค่าใน cache เสีย → ดึงใหม่ด้านล่าง */ }
+    try {
+      // viewer เป็นข้อมูลรายบุคคล — cache โหมดเต็มแชร์กันทุกเจ้าหน้าที่ จึงต่อชื่อตอนคืนค่า ไม่เก็บลง cache
+      const result = JSON.parse(cached);
+      if (viewer) result.viewer = viewer;
+      return result;
+    } catch (err) { /* ค่าใน cache เสีย → ดึงใหม่ด้านล่าง */ }
   }
 
   // หน้าต่างย้อนหลัง 92 วันเพื่อเก็บงานแบบช่วงวันที่ที่เริ่มก่อนเดือนนี้แต่ยังครอบคลุมอยู่
@@ -249,7 +266,9 @@ function apiSchedule_(body) {
     });
   }
   const result = { ok: true, month: month, full: full, items: items, leaves: leaves };
+  // เหตุผลเดียวกับด้านบน: cache เก็บข้อมูลตารางรวมได้ แต่ชื่อผู้ดูต่อท้ายตอนคืนค่าเท่านั้น
   try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }
+  if (viewer) result.viewer = viewer;
   return result;
 }
 

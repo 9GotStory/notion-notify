@@ -70,6 +70,11 @@
     <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">›</button>
   </nav>
 
+  <!-- ===== กรองงานของฉัน (โชว์เฉพาะโหมดเจ้าหน้าที่ที่รู้ชื่อผู้ดู) ===== -->
+  <div id="mineBar" class="hidden mb-3">
+    <button id="btnMine" type="button" aria-pressed="false" class="ui-btn-soft w-full">เฉพาะงานที่ฉันรับผิดชอบ</button>
+  </div>
+
   <!-- ===== รายการ ===== -->
   <section id="viewList"></section>
 
@@ -104,6 +109,8 @@
     cache: {},        // เก็บผลต่อเดือน เลื่อนไป-กลับไม่ต้องดึงซ้ำ
     token: '',        // LIFF access token (ถ้าล็อกอินแล้ว)
     full: false,      // โหมดเจ้าหน้าที่ (เห็นครบทุกฟิลด์)
+    viewer: '',       // ชื่อต้นของผู้ดูจากเซิร์ฟเวอร์ (เฉพาะโหมดเจ้าหน้าที่) — ใช้กรองงานของตัวเอง
+    mine: false,      // เปิดกรองเฉพาะงานที่ตัวเองรับผิดชอบ (+ใบลาของตัวเอง)
     liffReady: false, // มี LIFF แอปของหน้านี้ให้ใช้
   };
 
@@ -137,6 +144,13 @@
     return String(str == null ? '' : str).replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
     }[c]));
+  }
+
+  // งานนี้เกี่ยวกับผู้ดูไหม: ชื่อตรงกับหนึ่งในผู้รับผิดชอบ หรือเป็นงานของ "ทุกคน"
+  // (แนติกเดียวกับ assigneeMatches_ ฝั่งเซิร์ฟเวอร์ — แถวงานส่งชื่อมาคั่นลูกน้ำแล้ว)
+  function isMine(item) {
+    const names = (item.assignees || '').split(',').map(s => s.trim());
+    return names.indexOf(state.viewer) !== -1 || names.indexOf('ทุกคน') !== -1;
   }
 
   // ---------- อ่านตารางจาก Apps Script โดยตรง ----------
@@ -235,14 +249,19 @@
 
   function renderMonth(data) {
     showStatus('none');
+    // กรอง "งานของฉัน": เหลือเฉพาะงานที่ผู้ดูรับผิดชอบ + ใบลาของผู้ดูเอง (กรองตอนแสดงผล
+    // จากข้อมูลเดิมใน cache — สลับเปิด/ปิดได้ทันทีไม่ต้องดึงใหม่)
+    const filtering = state.full && state.mine && state.viewer;
+    const items = (data.items || []).filter(item => !filtering || isMine(item));
+    const leaves = (data.leaves || []).filter(row => !filtering || row.name === state.viewer);
     const byDate = {};
-    (data.items || []).forEach(item => {
+    items.forEach(item => {
       (byDate[item.date] = byDate[item.date] || []).push(item);
     });
     // ผู้ลาถูกส่งมาเฉพาะมุมมองเจ้าหน้าที่ — วันที่มีแต่คนลาไม่มีงานก็ต้องมีหัวข้อวันโผล่ด้วย
     const leavesByDate = {};
     if (state.full) {
-      (data.leaves || []).forEach(row => {
+      leaves.forEach(row => {
         (leavesByDate[row.date] = leavesByDate[row.date] || []).push(row);
       });
     }
@@ -263,7 +282,8 @@
             '</section>'
           );
         }).join('')
-      : '<p class="py-12 text-center text-slate-400 text-sm">ยังไม่มีรายการในเดือนนี้</p>';
+      : '<p class="py-12 text-center text-slate-400 text-sm">' +
+          (filtering ? 'ไม่มีงานที่คุณรับผิดชอบในเดือนนี้' : 'ยังไม่มีรายการในเดือนนี้') + '</p>';
 
     $('viewList').innerHTML = html;
 
@@ -277,8 +297,19 @@
     }
   }
 
+  // ชิปกรอง "งานของฉัน": โชว์เฉพาะโหมดเจ้าหน้าที่ที่รู้ชื่อผู้ดู สถานะกด/หน้าตาอิง state.mine
+  function syncMineChip() {
+    $('mineBar').classList.toggle('hidden', !(state.full && state.viewer));
+    const btn = $('btnMine');
+    btn.setAttribute('aria-pressed', state.mine ? 'true' : 'false');
+    btn.className = (state.mine ? 'ui-btn-primary' : 'ui-btn-soft') + ' w-full';
+    btn.textContent = (state.mine ? '✓ ' : '') + 'เฉพาะงานที่ฉันรับผิดชอบ';
+  }
+
   function updateModeBadge(data) {
     state.full = !!data.full;
+    state.viewer = data.viewer || '';
+    if (!state.full) state.mine = false; // หลุดโหมดเจ้าหน้าที่ (token หมดอายุ) → ยกเลิกกรองไปด้วย
     const badge = $('modeBadge');
     if (state.full) {
       badge.textContent = '✓ มุมมองเจ้าหน้าที่';
@@ -289,6 +320,21 @@
     }
     // ปุ่มล็อกอินโชว์เฉพาะ: ไม่เต็มโหมด + มี LIFF ของหน้านี้ให้ล็อกอิน
     $('loginCta').classList.toggle('hidden', state.full || !state.liffReady);
+    syncMineChip();
+  }
+
+  // เดือนอยู่ในขอบเขตที่เซิร์ฟเวอร์ให้ดูไหม (มิเรอร์ scheduleMonthAllowed_ — เงื่อนไขเดียวกับปุ่มนำทาง)
+  function monthAllowed(month) {
+    const diff = monthDiff(todayMonth(), month);
+    return diff >= MONTH_BACK && diff <= MONTH_FWD;
+  }
+
+  // โหลดเดือนก่อนหน้า/ถัดไปล่วงหน้าแบบเงียบๆ หลังแสดงผลเดือนปัจจุบันเสร็จ
+  // ให้กดไป-กลับได้ทันทีจาก cache (ล้มเหลวก็ไม่เป็นไร — กดปุ่มปกติจะดึงเอง)
+  function prefetchNeighbors(month) {
+    [shiftMonth(month, -1), shiftMonth(month, 1)].forEach(m => {
+      if (monthAllowed(m) && !state.cache[m]) fetchMonth(m).catch(function () {});
+    });
   }
 
   async function loadMonth(month) {
@@ -300,6 +346,7 @@
       const data = await fetchMonth(month);
       updateModeBadge(data);
       renderMonth(data);
+      prefetchNeighbors(month);
     } catch (err) {
       $('errorMessage').textContent = err.message || 'เกิดข้อผิดพลาด';
       showStatus('error');
@@ -335,6 +382,12 @@
   $('btnPrev').addEventListener('click', function () { loadMonth(shiftMonth(state.month, -1)); });
   $('btnNext').addEventListener('click', function () { loadMonth(shiftMonth(state.month, 1)); });
   $('btnToday').addEventListener('click', function () { loadMonth(todayMonth()); });
+  $('btnMine').addEventListener('click', function () {
+    state.mine = !state.mine;
+    syncMineChip();
+    const data = state.cache[state.month];
+    if (data) renderMonth(data); // กรองจากข้อมูลที่โหลดแล้ว ไม่ยิง API ซ้ำ
+  });
   $('btnRetry').addEventListener('click', function () { location.replace(location.origin + location.pathname); });
   $('btnLogin').addEventListener('click', function () {
     this.disabled = true;
