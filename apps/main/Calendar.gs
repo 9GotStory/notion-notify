@@ -123,12 +123,20 @@ function scheduleMonthBounds_(month) {
   return { from: from, to: to };
 }
 
-// อนุญาตให้ดูย้อนหลัง 1 เดือน และล่วงหน้าไม่เกิน 6 เดือน — pure (รับเดือนแบบ 'YYYY-MM')
-function scheduleMonthAllowed_(currentMonth, month) {
+// วงเดือนที่ให้ดู (นับจากเดือนปัจจุบัน): โหมดสาธารณะแคบ — endpoint สาธารณะไม่ควรถูกใช้ดึงตาราง
+// ย้อนหลังเป็นปีๆ / โหมดเจ้าหน้าที่ (ตรวจ token ผ่าน) กว้าง ±12 เดือน
+// ค่าวงถูกส่งกลับไปกับ response (viewMonths) ให้หน้าเว็บสร้างรายการเดือนจากค่าเดียวกัน — ไม่มิเรอร์ค่าคงที่อีกฝั่ง
+const SCHEDULE_VIEW_BACK_PUBLIC = -1;
+const SCHEDULE_VIEW_FWD_PUBLIC = 6;
+const SCHEDULE_VIEW_BACK_FULL = -12;
+const SCHEDULE_VIEW_FWD_FULL = 12;
+
+// เดือนอยู่ในวง [back, fwd] นับจากเดือนปัจจุบันไหม — pure (รับเดือนแบบ 'YYYY-MM')
+function scheduleMonthAllowed_(currentMonth, month, back, fwd) {
   const [cy, cm] = currentMonth.split('-').map(Number);
   const [y, m] = month.split('-').map(Number);
   const diff = (y - cy) * 12 + (m - cm);
-  return diff >= -1 && diff <= 6;
+  return diff >= back && diff <= fwd;
 }
 
 // แถวตารางงานของงานหนึ่งรายการ "ในวันใดวันหนึ่ง" — โหมดสาธารณะ (full=false) ตัดฟิลด์ภายในออก
@@ -189,13 +197,9 @@ function apiSchedule_(body) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
     return { ok: false, error: 'รูปแบบเดือนไม่ถูกต้อง (YYYY-MM)' };
   }
-  const currentMonth = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
-  if (!scheduleMonthAllowed_(currentMonth, month)) {
-    return { ok: false, error: 'ดูได้ย้อนหลัง 1 เดือน และล่วงหน้าไม่เกิน 6 เดือน' };
-  }
 
   // โหมดเต็ม: บัญชี LINE ที่ตรวจ token ผ่าน + ลงทะเบียนในทำเนียบแล้วเท่านั้น
-  // token หมดอายุ/ไม่ถูกต้อง → เงียบๆ ให้ดูแบบสาธารณะไปก่อน (หน้าเว็บเสนอปุ่มล็อกอินเอง)
+  // ตรวจก่อนเพราะ "วงเดือนที่ดูได้" ขึ้นกับโหมด / token หมดอายุ-ไม่ถูกต้อง → เงียบๆ ให้ดูแบบสาธารณะไปก่อน
   let full = false;
   let viewer = '';
   const token = String((body && body.accessToken) || '').trim();
@@ -209,6 +213,15 @@ function apiSchedule_(body) {
         viewer = staff.firstName;
       }
     } catch (err) { /* ไม่มี token ที่ใช้ได้ → โหมดสาธารณะ */ }
+  }
+
+  const currentMonth = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
+  const viewBack = full ? SCHEDULE_VIEW_BACK_FULL : SCHEDULE_VIEW_BACK_PUBLIC;
+  const viewFwd = full ? SCHEDULE_VIEW_FWD_FULL : SCHEDULE_VIEW_FWD_PUBLIC;
+  if (!scheduleMonthAllowed_(currentMonth, month, viewBack, viewFwd)) {
+    return { ok: false, error: full
+      ? 'ดูได้ย้อนหลังและล่วงหน้าไม่เกิน 12 เดือน'
+      : 'ดูได้ย้อนหลัง 1 เดือน และล่วงหน้าไม่เกิน 6 เดือน' };
   }
 
   const settings = getSettings_();
@@ -265,7 +278,7 @@ function apiSchedule_(body) {
       if (onLeave.length) row.assigneesOnLeave = onLeave;
     });
   }
-  const result = { ok: true, month: month, full: full, items: items, leaves: leaves };
+  const result = { ok: true, month: month, full: full, viewMonths: { back: viewBack, fwd: viewFwd }, items: items, leaves: leaves };
   // เหตุผลเดียวกับด้านบน: cache เก็บข้อมูลตารางรวมได้ แต่ชื่อผู้ดูต่อท้ายตอนคืนค่าเท่านั้น
   try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }
   if (viewer) result.viewer = viewer;

@@ -493,6 +493,24 @@ function checkScheduleMineContracts() {
 }
 
 function checkScheduleMonthPickerContracts() {
+  const calendarFile = 'apps/main/Calendar.gs';
+  const calendar = fs.readFileSync(path.join(root, calendarFile), 'utf8');
+  // วงดูต้องมีสองระดับ (สาธารณะแคบ / เจ้าหน้าที่ ±12) และส่งค่าวงกลับไปกับ response
+  // ให้หน้าเว็บอ่านจาก viewMonths — ห้ามกลับไปกำหนดเลขวงค้างไว้ฝั่งหน้าเว็บอีก
+  const calendarRequired = [
+    'const SCHEDULE_VIEW_BACK_PUBLIC = -1',
+    'const SCHEDULE_VIEW_FWD_PUBLIC = 6',
+    'const SCHEDULE_VIEW_BACK_FULL = -12',
+    'const SCHEDULE_VIEW_FWD_FULL = 12',
+    'scheduleMonthAllowed_(currentMonth, month, viewBack, viewFwd)',
+    'viewMonths: { back: viewBack, fwd: viewFwd }',
+  ];
+  const calendarMissing = calendarRequired.filter(value => !calendar.includes(value));
+  if (calendarMissing.length) {
+    console.error(calendarFile + ' view-window contract failed; missing: ' + calendarMissing.join(', '));
+    process.exitCode = 1;
+  }
+
   const pageFile = 'web/schedule/index.html';
   const page = fs.readFileSync(path.join(root, pageFile), 'utf8');
   const required = [
@@ -500,7 +518,9 @@ function checkScheduleMonthPickerContracts() {
     'id="monthPicker"',
     "setAttribute('aria-expanded', willOpen ? 'true' : 'false')",
     'function allowedMonths()',
-    'for (let d = MONTH_BACK; d <= MONTH_FWD; d++)',
+    'for (let d = bounds.back; d <= bounds.fwd; d++)',
+    'if (data.viewMonths) state.viewMonths = data.viewMonths',
+    'const yearBE = Number(m.slice(0, 4)) + 543',
     "e.target.closest('[data-month]')",
   ];
   // ปุ่ม "ไปเดือนนี้" ถูกตัดออกโดยเจตนา: หน้าเลื่อนไปวันปัจจุบันเองอยู่แล้ว และป้าย "เดือนนี้"

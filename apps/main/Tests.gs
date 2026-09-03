@@ -1160,13 +1160,17 @@ function testScheduleHelpers_() {
   assertEqual_(scheduleMonthBounds_('2026-08').to, '2026-09-01');
   assertEqual_(scheduleMonthBounds_('2026-12').to, '2027-01-01');
 
-  // ขอบเขตการดู: ย้อนหลังได้ 1 เดือน ล่วงหน้าได้ 6 เดือน
-  assertTrue_(scheduleMonthAllowed_('2026-08', '2026-08'), 'เดือนปัจจุบันต้องดูได้');
-  assertTrue_(scheduleMonthAllowed_('2026-08', '2026-07'), 'ย้อน 1 เดือนต้องดูได้');
-  assertTrue_(scheduleMonthAllowed_('2026-08', '2027-02'), 'ล่วงหน้า 6 เดือนต้องดูได้');
-  assertTrue_(scheduleMonthAllowed_('2026-12', '2027-01'), 'ข้ามปี +1 เดือนต้องดูได้');
-  assertFalse_(scheduleMonthAllowed_('2026-08', '2026-06'), 'ย้อนเกิน 1 เดือนต้องห้าม');
-  assertFalse_(scheduleMonthAllowed_('2026-08', '2027-03'), 'ล่วงหน้าเกิน 6 เดือนต้องห้าม');
+  // ขอบเขตการดูตามโหมด: สาธารณะ ย้อน 1 / ล่วงหน้า 6 — เจ้าหน้าที่ (ล็อกอิน) ±12 เดือน
+  assertTrue_(scheduleMonthAllowed_('2026-08', '2026-08', SCHEDULE_VIEW_BACK_PUBLIC, SCHEDULE_VIEW_FWD_PUBLIC), 'เดือนปัจจุบันต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-08', '2026-07', SCHEDULE_VIEW_BACK_PUBLIC, SCHEDULE_VIEW_FWD_PUBLIC), 'ย้อน 1 เดือนต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-08', '2027-02', SCHEDULE_VIEW_BACK_PUBLIC, SCHEDULE_VIEW_FWD_PUBLIC), 'ล่วงหน้า 6 เดือนต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-12', '2027-01', SCHEDULE_VIEW_BACK_PUBLIC, SCHEDULE_VIEW_FWD_PUBLIC), 'ข้ามปี +1 เดือนต้องดูได้');
+  assertFalse_(scheduleMonthAllowed_('2026-08', '2026-06', SCHEDULE_VIEW_BACK_PUBLIC, SCHEDULE_VIEW_FWD_PUBLIC), 'ย้อนเกิน 1 เดือนต้องห้าม');
+  assertFalse_(scheduleMonthAllowed_('2026-08', '2027-03', SCHEDULE_VIEW_BACK_PUBLIC, SCHEDULE_VIEW_FWD_PUBLIC), 'ล่วงหน้าเกิน 6 เดือนต้องห้าม');
+  assertTrue_(scheduleMonthAllowed_('2026-09', '2025-09', SCHEDULE_VIEW_BACK_FULL, SCHEDULE_VIEW_FWD_FULL), 'เจ้าหน้าที่ย้อน 12 เดือนต้องดูได้');
+  assertTrue_(scheduleMonthAllowed_('2026-12', '2027-12', SCHEDULE_VIEW_BACK_FULL, SCHEDULE_VIEW_FWD_FULL), 'เจ้าหน้าที่ล่วงหน้า 12 เดือนข้ามปีต้องดูได้');
+  assertFalse_(scheduleMonthAllowed_('2026-09', '2025-08', SCHEDULE_VIEW_BACK_FULL, SCHEDULE_VIEW_FWD_FULL), 'เจ้าหน้าที่ย้อนเกิน 12 เดือนต้องห้าม');
+  assertFalse_(scheduleMonthAllowed_('2026-09', '2027-10', SCHEDULE_VIEW_BACK_FULL, SCHEDULE_VIEW_FWD_FULL), 'เจ้าหน้าที่ล่วงหน้าเกิน 12 เดือนต้องห้าม');
 
   // โหมดสาธารณะ: ตัดผู้รับผิดชอบ/รายละเอียด/หมายเหตุออก — เหลือเฉพาะงาน เวลา สถานที่
   const item = createTestItem_(); // งานวันเดียว 2026-08-06

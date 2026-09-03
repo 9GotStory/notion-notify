@@ -103,7 +103,8 @@
     'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
 
-  // ขอบเขตการดู มิเรอร์ฝั่งเซิร์ฟเวอร์ (apiSchedule_): ย้อนหลัง 1 เดือน ล่วงหน้า 6 เดือน
+  // วงเดือนเริ่มต้นแบบโหมดสาธารณะ — ใช้ก่อน response แรกถึงเท่านั้น หลังจากนั้นเซิร์ฟเวอร์ส่งวงจริง
+  // ของโหมดนั้นๆ มากับทุก response (viewMonths — เจ้าหน้าที่กว้างกว่า) แล้ว state.viewMonths เป็นตัวชี้ขาด
   const MONTH_BACK = -1;
   const MONTH_FWD = 6;
 
@@ -111,6 +112,7 @@
     month: '',        // 'YYYY-MM' ที่กำลังดู
     today: '',        // 'yyyy-MM-dd' ตามเวลาท้องถิ่น
     cache: {},        // เก็บผลต่อเดือน เลื่อนไป-กลับไม่ต้องดึงซ้ำ
+    viewMonths: null, // วงเดือนที่ดูได้ {back, fwd} ตามโหมด — null = ยังไม่มี response ใช้ค่าเริ่มต้นสาธารณะ
     token: '',        // LIFF access token (ถ้าล็อกอินแล้ว)
     full: false,      // โหมดเจ้าหน้าที่ (เห็นครบทุกฟิลด์)
     viewer: '',       // ชื่อต้นของผู้ดูจากเซิร์ฟเวอร์ (เฉพาะโหมดเจ้าหน้าที่) — ใช้กรองงานของตัวเอง
@@ -196,10 +198,16 @@
     if (which === 'none') $('viewList').innerHTML = '';
   }
 
+  // วงเดือนที่ใช้จริง — จากเซิร์ฟเวอร์ตามโหมด หรือ fallback ค่าสาธารณะก่อน response แรกถึง
+  function viewBounds() {
+    return state.viewMonths || { back: MONTH_BACK, fwd: MONTH_FWD };
+  }
+
   // สถานะปุ่มนำทาง: ปิดทุกปุ่มระหว่างโหลด (กันกดซ้อน) และปิดปุ่มที่ชนขอบเขตเดือนอยู่แล้ว
   function updateNavState(loading) {
-    const atOldest = monthDiff(todayMonth(), state.month) <= MONTH_BACK;
-    const atNewest = monthDiff(todayMonth(), state.month) >= MONTH_FWD;
+    const bounds = viewBounds();
+    const atOldest = monthDiff(todayMonth(), state.month) <= bounds.back;
+    const atNewest = monthDiff(todayMonth(), state.month) >= bounds.fwd;
     $('btnPrev').disabled = loading || atOldest;
     $('btnNext').disabled = loading || atNewest;
   }
@@ -312,6 +320,7 @@
   function updateModeBadge(data) {
     state.full = !!data.full;
     state.viewer = data.viewer || '';
+    if (data.viewMonths) state.viewMonths = data.viewMonths; // วงดูตามโหมดจากเซิร์ฟเวอร์ (source of truth เดียว)
     if (!state.full) state.mine = false; // หลุดโหมดเจ้าหน้าที่ (token หมดอายุ) → ยกเลิกกรองไปด้วย
     const badge = $('modeBadge');
     if (state.full) {
@@ -326,26 +335,36 @@
     syncMineChip();
   }
 
-  // เดือนอยู่ในขอบเขตที่เซิร์ฟเวอร์ให้ดูไหม (มิเรอร์ scheduleMonthAllowed_ — เงื่อนไขเดียวกับปุ่มนำทาง)
+  // เดือนอยู่ในวงที่เซิร์ฟเวอร์ให้ดูไหม (มิเรอร์ scheduleMonthAllowed_ — เงื่อนไขเดียวกับปุ่มนำทาง)
   function monthAllowed(month) {
+    const bounds = viewBounds();
     const diff = monthDiff(todayMonth(), month);
-    return diff >= MONTH_BACK && diff <= MONTH_FWD;
+    return diff >= bounds.back && diff <= bounds.fwd;
   }
 
   // ---------- รายการเลือกเดือน (แตะชื่อเดือนตรงกลาง) ----------
 
-  // เดือนที่ระบบให้ดูทั้งหมด ไล่จากย้อน 1 ถึงล่วงหน้า 6 เดือนนับจากเดือนปัจจุบัน
+  // เดือนที่ระบบให้ดูทั้งหมด — ตามวงของโหมดปัจจุบันที่เซิร์ฟเวอร์ส่งมา (สาธารณะ -1/+6, เจ้าหน้าที่ ±12)
   function allowedMonths() {
+    const bounds = viewBounds();
     const list = [];
-    for (let d = MONTH_BACK; d <= MONTH_FWD; d++) list.push(shiftMonth(todayMonth(), d));
+    for (let d = bounds.back; d <= bounds.fwd; d++) list.push(shiftMonth(todayMonth(), d));
     return list;
   }
 
+  // โหมดเจ้าหน้าที่มีรายการยาวข้ามปี — แทรกหัวข้อปี (พ.ศ.) คั่นทุกครั้งที่เปลี่ยนปี
   function renderMonthPicker() {
     const todayM = todayMonth();
-    $('monthPicker').innerHTML = allowedMonths().map(m => {
+    let lastYear = null;
+    const parts = [];
+    allowedMonths().forEach(m => {
+      const yearBE = Number(m.slice(0, 4)) + 543;
+      if (yearBE !== lastYear) {
+        parts.push('<div class="px-3 pt-2 pb-1 text-xs font-bold text-slate-400">ปี ' + yearBE + '</div>');
+        lastYear = yearBE;
+      }
       const viewing = m === state.month;
-      return (
+      parts.push(
         '<button type="button" data-month="' + m + '" class="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-control text-sm ' +
           (viewing ? 'bg-brand-soft font-bold text-brand-strong' : 'text-slate-700 hover:bg-slate-50') + '">' +
           '<span class="whitespace-nowrap">' + monthLabel(m) + '</span>' +
@@ -355,7 +374,8 @@
           '</span>' +
         '</button>'
       );
-    }).join('');
+    });
+    $('monthPicker').innerHTML = parts.join('');
   }
 
   // เปิด/ปิดรายการเดือน (ไม่ส่งค่า = สลับ) — เปิดใหม่ทุกครั้งเพราะเดือนที่ดูอยู่/เดือนปัจจุบันเปลี่ยนได้
