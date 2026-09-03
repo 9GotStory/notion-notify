@@ -555,6 +555,8 @@ function checkSchedulePhase1Contracts() {
     'id="btnRefresh"',
     "$('btnRefresh').disabled = loading",
     'delete state.cache[cacheKey(state.month)]',
+    // init ช้ากว่า 5 วิ (หน้าเดินต่อแบบสาธารณะไปก่อน) — ปลุกปุ่มล็อกอิน/ป้ายโหมดทันทีที่ init สำเร็จ
+    'function wakeLiffReady_()',
   ];
   // รีเฟรชต้องล้าง cache ฝั่งหน้าเว็บเท่านั้น — ห้ามมีพารามิเตอร์ขอให้เซิร์ฟเวอร์ข้าม cache
   // (กันผู้ใช้นอกยิงรัวจนกระทบโควตา UrlFetch/Notion ที่ทั้งระบบใช้ร่วมกัน)

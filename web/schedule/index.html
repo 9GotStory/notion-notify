@@ -416,6 +416,17 @@
     syncMineChip();
   }
 
+  // LIFF init สำเร็จทีหลัง (หน้าเดินต่อแบบสาธารณะไปก่อนตอน init เกิน 5 วินาที) — ปลุก UI ทันที:
+  // โชว์ปุ่มล็อกอิน/ป้ายโหมดใหม่จากข้อมูลที่แคชไว้แล้ว ไม่ต้องรอผู้ใช้เปลี่ยนเดือนถึงจะเห็น
+  // (ชุดข้อมูลแรกของเคสนี้ถูกแคชใต้ _pub และ cacheKey() พลิกเป็น _full ทันทีที่ liffReady — เจาะ _pub ก่อน)
+  // ไม่ยิง API จากที่นี่: ถ้า loadMonth กำลังวิ่งอยู่ ตัวมันเรียก updateModeBadge เองเมื่อเสร็จ
+  // (ตอนนั้น liffReady แล้ว) — เรียกซ้อนจากที่นี่จะเสี่ยง loadMonth ชนกัน
+  function wakeLiffReady_() {
+    state.liffReady = true;
+    const data = state.cache[state.month + '_pub'] || state.cache[cacheKey(state.month)];
+    if (data) { updateModeBadge(data); renderMonth(data); }
+  }
+
   // เดือนอยู่ในวงที่เซิร์ฟเวอร์ให้ดูไหม (มิเรอร์ scheduleMonthAllowed_ — เงื่อนไขเดียวกับปุ่มนำทาง)
   function monthAllowed(month) {
     const bounds = viewBounds();
@@ -505,9 +516,10 @@
       try {
         // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา) ต้องไม่ลากหน้าสาธารณะ
         // ให้ค้างตามไปด้วย: หมดเวลาแล้วเดินหน้าแบบสาธารณะก่อน แล้วปลุก liffReady เองเมื่อ init
-        // สำเร็จทีหลัง (ตัวจับเวลาไม่ cancel การปลุก) — คำขอเดือนถัดไปเลยใช้ token ได้โดยไม่ต้องรีเฟรชหน้า
+        // สำเร็จทีหลัง (ตัวจับเวลาไม่ cancel การปลุก) — ปลุก UI ที่ค้างอยู่ด้วย (wakeLiffReady_)
+        // คำขอเดือนถัดไปเลยใช้ token ได้โดยไม่ต้องรีเฟรชหน้า
         await Promise.race([
-          liff.init({ liffId: liffId }).then(function () { state.liffReady = true; }, function () {}),
+          liff.init({ liffId: liffId }).then(wakeLiffReady_, function () {}),
           new Promise(function (resolve) { setTimeout(resolve, 5000); }),
         ]);
       } catch (err) { /* LIFF พัง → ดูแบบสาธารณะ ไม่บล็อกเนื้อหา */ }
