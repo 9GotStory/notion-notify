@@ -32,7 +32,8 @@ function handleApiRequest_(body) {
 
 function publicLeaveApiError_(err) {
   const message = String(err && err.message ? err.message : '');
-  if (err && (err.publicCode === 'UNAUTHORIZED' || err.publicCode === 'UNCONFIGURED')) {
+  if (err && (err.publicCode === 'UNAUTHORIZED' || err.publicCode === 'UNCONFIGURED' ||
+      err.publicCode === 'LINE_UNAVAILABLE')) {
     return { code: err.publicCode, message: message };
   }
   if (/^ระบบยังไม่พร้อมใช้งาน \(ผู้ดูแลยังไม่ได้ตั้งค่า leave_database_id\)$/.test(message)) {
@@ -51,40 +52,93 @@ function requireAccessToken_(body) {
   return token;
 }
 
-// ---------- ตรวจ access token กับ LINE จริงทุกครั้ง ----------
+// ---------- ตรวจ access token กับ LINE (แคชผลตรวจราย token 120 วินาที) ----------
+
+// LINE ขัดข้องชั่วคราว (เน็ตหลุด/5xx จาก api.line.me) — ต่างจาก token ตาย: ไม่ใช่ความผิดของผู้ใช้
+// ผู้ใช้ลองใหม่ได้ทันที ห้ามเคลียร์เซสชันหรือชวนให้ล็อกอินใหม่
+function lineUnavailableError_() {
+  const err = new Error('ระบบ LINE ขัดข้องชั่วคราว กรุณาลองอีกครั้ง');
+  err.publicCode = 'LINE_UNAVAILABLE';
+  return err;
+}
+
+// คีย์แคชผลตรวจ token — hash ของ token ผสม channel id (เปลี่ยน LOGIN_CHANNEL_ID แคชเก่าต้องตายไปด้วย)
+// ไม่มี token ดิบในคีย์/ค่าแคช (ข้อมูลรับรองไม่ควรนอนรอในที่ที่ log/ดีบักจับได้)
+function lineTokenCacheKey_(accessToken, channelId) {
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, accessToken, Utilities.Charset.UTF_8);
+  return 'lineauth_' + channelId + '_' + Utilities.base64EncodeWebSafe(digest).replace(/=+$/, '');
+}
 
 function verifyLineToken_(accessToken) {
-  const verifyResp = UrlFetchApp.fetch(
-    'https://api.line.me/oauth2/v2.1/verify?access_token=' + encodeURIComponent(accessToken),
-    { muteHttpExceptions: true }
-  );
-  if (verifyResp.getResponseCode() >= 300) {
-    throw new Error('เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่');
-  }
-  const verified = JSON.parse(verifyResp.getContentText());
-  if (!verified.expires_in || verified.expires_in <= 0) {
-    throw new Error('เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่');
-  }
   // กัน token ที่ออกจากแอปคนละตัว: LOGIN_CHANNEL_ID เป็นค่าบังคับและต้องตรงกับ channel ของเรา
-  const expectedChannelId = PropertiesService.getScriptProperties().getProperty('LOGIN_CHANNEL_ID');
-  if (!expectedChannelId || !String(expectedChannelId).trim()) {
+  // (อ่านก่อนทุกอย่าง — ค่าหายต้องแจ้งก่อนเรื่องอื่น และใช้ scope คีย์แคชด้วย)
+  const expectedChannelId = String(PropertiesService.getScriptProperties().getProperty('LOGIN_CHANNEL_ID') || '').trim();
+  if (!expectedChannelId) {
     const err = new Error('ระบบยังไม่ได้ตั้งค่า LOGIN_CHANNEL_ID กรุณาติดต่อผู้ดูแลระบบ');
     err.publicCode = 'UNCONFIGURED';
     throw err;
   }
-  if (String(verified.client_id || '') !== String(expectedChannelId).trim()) {
+  // token ตัวเดิมผ่านไปแล้วในรอบ 120 วินาที (หน้าตารางงาน/แอดมินกดไป-มา) ไม่ต้องยิง LINE ใหม่ —
+  // ผลล้มเหลวไม่แคช (token หมุนเวียนเร็ว) ส่วนการถอนสิทธิ์ทำเนียบ/Settings ตรวจทุกครั้งอยู่แล้วไม่ผ่านแคชนี้
+  const cacheKey = lineTokenCacheKey_(accessToken, expectedChannelId);
+  try {
+    const cached = CacheService.getScriptCache().get(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && parsed.userId) return { userId: parsed.userId, displayName: parsed.displayName || '' };
+    }
+  } catch (err) { /* แคชอ่านไม่ได้ = ไปตรวจกับ LINE ตามปกติ */ }
+  let verifyResp;
+  try {
+    verifyResp = UrlFetchApp.fetch(
+      'https://api.line.me/oauth2/v2.1/verify?access_token=' + encodeURIComponent(accessToken),
+      { muteHttpExceptions: true }
+    );
+  } catch (err) {
+    throw lineUnavailableError_(); // เน็ตหลุด/ไปถึง api.line.me ไม่ได้เลย
+  }
+  if (verifyResp.getResponseCode() >= 500) throw lineUnavailableError_();
+  if (verifyResp.getResponseCode() >= 300) {
+    throw new Error('เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่'); // 400 = หมดอายุ/ถูกเพิกถอน/format ผิด
+  }
+  let verified;
+  try {
+    verified = JSON.parse(verifyResp.getContentText());
+  } catch (err) {
+    throw lineUnavailableError_();
+  }
+  if (!verified.expires_in || verified.expires_in <= 0) {
+    throw new Error('เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่');
+  }
+  if (String(verified.client_id || '') !== expectedChannelId) {
     throw new Error('ไม่สามารถยืนยันตัวตนได้ กรุณาติดต่อผู้ดูแลระบบ');
   }
 
-  const profileResp = UrlFetchApp.fetch('https://api.line.me/v2/profile', {
-    headers: { Authorization: 'Bearer ' + accessToken },
-    muteHttpExceptions: true,
-  });
+  let profileResp;
+  try {
+    profileResp = UrlFetchApp.fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      muteHttpExceptions: true,
+    });
+  } catch (err) {
+    throw lineUnavailableError_();
+  }
+  if (profileResp.getResponseCode() >= 500) throw lineUnavailableError_();
   if (profileResp.getResponseCode() >= 300) {
     throw new Error('อ่านข้อมูลโปรไฟล์ LINE ไม่สำเร็จ ลองอีกครั้ง');
   }
-  const profile = JSON.parse(profileResp.getContentText());
-  return { userId: profile.userId, displayName: profile.displayName || '' };
+  let profile;
+  try {
+    profile = JSON.parse(profileResp.getContentText());
+  } catch (err) {
+    throw lineUnavailableError_();
+  }
+  const verifiedProfile = { userId: String(profile.userId || ''), displayName: String(profile.displayName || '') };
+  try {
+    CacheService.getScriptCache().put(cacheKey, JSON.stringify(verifiedProfile),
+      Math.min(120, verified.expires_in)); // ไม่เกินอายุจริงของ token
+  } catch (err) { /* เขียนแคชไม่ได้ = ตรวจทุกครั้งตามเดิม ไม่เป็นไร */ }
+  return verifiedProfile;
 }
 
 function apiSession_(body) {

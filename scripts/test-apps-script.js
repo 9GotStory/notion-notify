@@ -228,6 +228,180 @@ if (vm.runInContext('allowUnsignedLineWebhook_()', context)) {
   }
 }
 
+// ---------- verifyAdminLineToken_ / verifyLineToken_: outage ≠ token ตาย + แคชผลตรวจ 120 วิ ----------
+// ใช้ context แยกของโปรเจกต์ละตัว (context หลักด้านบนไม่มี UrlFetchApp/CacheService/digest —
+// ห้ามฉีด stub เพิ่มเข้าไปเพราะ test เดิมแชร์ context นั้นอยู่)
+
+const nodeCrypto = require('crypto');
+
+function makeLineStubContext(sources) {
+  // สถานะจับได้ทุกอย่างที่ verifier ทำกับโลกภายนอก: จำนวนครั้งที่ยิง LINE / คำตอบ / TTL ที่ put
+  const state = {
+    verifyStatus: 200,
+    verifyBody: { scope: 'profile', client_id: '2000000001', expires_in: 3600 },
+    profileStatus: 200,
+    profileBody: { userId: 'U123', displayName: 'สมชาย ใจดี' },
+    fetchThrows: false,
+    calls: [],
+    puts: [],
+    cache: new Map(),
+    props: new Map([['LOGIN_CHANNEL_ID', '2000000001']]),
+  };
+  const ctx = vm.createContext({
+    console, Intl, Set, Map,
+    Utilities: {
+      formatDate,
+      getUuid: () => '123e4567-e89b-42d3-a456-426614174000',
+      DigestAlgorithm: { SHA_256: 'SHA_256' },
+      Charset: { UTF_8: 'UTF_8' },
+      computeDigest: (algorithm, value) =>
+        Array.from(nodeCrypto.createHash('sha256').update(String(value), 'utf8').digest()),
+      base64EncodeWebSafe: bytes => Buffer.from(bytes).toString('base64url'),
+    },
+    PropertiesService: {
+      getScriptProperties() { return { getProperty: name => state.props.get(name) || null }; },
+    },
+    CacheService: {
+      getScriptCache() {
+        return {
+          get: key => (state.cache.has(key) ? state.cache.get(key) : null),
+          put: (key, value, ttl) => { state.puts.push([key, ttl]); state.cache.set(key, value); },
+        };
+      },
+    },
+    UrlFetchApp: {
+      fetch(url) {
+        state.calls.push(url);
+        if (state.fetchThrows) throw new Error('network down');
+        const isVerify = url.indexOf('/oauth2/v2.1/verify') !== -1;
+        return {
+          getResponseCode: () => (isVerify ? state.verifyStatus : state.profileStatus),
+          getContentText: () => JSON.stringify(isVerify ? state.verifyBody : state.profileBody),
+        };
+      },
+    },
+  });
+  sources.forEach(source => vm.runInContext(source, ctx, { filename: 'line-verifier-source' }));
+  return { ctx, state };
+}
+
+// รันชุดกรณีเดียวกันกับ verifier ของทั้งสองโปรเจกต์ — พฤติกรรมต้องตรงกันเป๊ะ (โค้ดคนละโปรเจกต์แต่หน้าตาเหมือน)
+function testLineVerifier(label, sources, entryOf) {
+  const { ctx, state } = makeLineStubContext(sources);
+  const call = token => vm.runInContext(entryOf(token), ctx);
+  let failed = false;
+  const scenario = (name, fn) => {
+    try {
+      fn();
+      console.log('PASS ' + name);
+    } catch (err) {
+      failed = true;
+      process.exitCode = 1;
+      console.error('FAIL ' + name + ': ' + (err && err.message));
+    }
+  };
+  const assert = (cond, msg) => { if (!cond) throw new Error(msg); };
+  const capture = fn => { try { return { value: fn() }; } catch (err) { return { err }; } };
+
+  scenario(label + 'VerifyCacheHit', () => {
+    const first = call('token-a');
+    assert(state.calls.length === 2, 'ต้องยิง LINE 2 ครั้ง (verify+profile) ได้ ' + state.calls.length);
+    assert(first && first.userId === 'U123' && first.displayName === 'สมชาย ใจดี', 'profile ที่คืนไม่ตรง');
+    assert(state.puts.length === 1 && state.puts[0][1] === 120,
+      'TTL แคชต้องเท่ากับ 120 (expires_in 3600) ได้ ' + JSON.stringify(state.puts));
+    state.calls = [];
+    const second = call('token-a');
+    assert(state.calls.length === 0, 'token เดิมใน 120 วิ ต้องไม่ยิง LINE ซ้ำ');
+    assert(second && second.userId === 'U123', 'profile จากแคชไม่ตรง');
+  });
+
+  scenario(label + 'VerifyTtlCappedByExpiry', () => {
+    state.verifyBody = { scope: 'profile', client_id: '2000000001', expires_in: 30 };
+    state.puts = [];
+    const result = call('token-b');
+    assert(result && result.userId === 'U123', 'ตรวจสำเร็จไม่ได้');
+    assert(state.puts.length === 1 && state.puts[0][1] === 30,
+      'TTL ต้องถูกหรือด้วยอายุจริง (30) ได้ ' + JSON.stringify(state.puts));
+    state.verifyBody = { scope: 'profile', client_id: '2000000001', expires_in: 3600 };
+  });
+
+  scenario(label + 'VerifyExpiredTokenIsNotCached', () => {
+    state.verifyStatus = 400; // เอกสาร LINE: หมดอายุ/ถูกเพิกถอน = 400 + invalid_request
+    state.calls = []; state.puts = [];
+    const { err } = capture(() => call('token-c'));
+    assert(err && /หมดอายุ/.test(String(err.message)), 'ต้องโยน หมดอายุ ได้: ' + (err && err.message));
+    assert(state.calls.length === 1, 'ต้องยิงแค่ verify แล้วตาย (1 ครั้ง) ได้ ' + state.calls.length);
+    assert(state.puts.length === 0, 'ผลล้มเหลวห้ามลงแคช');
+    state.verifyStatus = 200;
+  });
+
+  scenario(label + 'VerifyOutage500IsLineUnavailable', () => {
+    state.verifyStatus = 500;
+    const { err } = capture(() => call('token-d'));
+    assert(err && err.publicCode === 'LINE_UNAVAILABLE',
+      '5xx ต้องเป็น LINE_UNAVAILABLE ไม่ใช่หมดอายุ/ไม่มีสิทธิ์ ได้: ' + (err && err.publicCode + ' ' + err.message));
+    assert(state.puts.length === 0, 'outage ห้ามลงแคช');
+    state.verifyStatus = 200;
+  });
+
+  scenario(label + 'VerifyNetworkThrowIsLineUnavailable', () => {
+    state.fetchThrows = true;
+    const { err } = capture(() => call('token-e'));
+    assert(err && err.publicCode === 'LINE_UNAVAILABLE',
+      'เน็ตหลุดต้องเป็น LINE_UNAVAILABLE ได้: ' + (err && err.publicCode));
+    state.fetchThrows = false;
+  });
+
+  scenario(label + 'VerifyChannelMismatchRejected', () => {
+    state.verifyBody = { scope: 'profile', client_id: '9999999999', expires_in: 3600 };
+    state.calls = []; state.puts = [];
+    const { err } = capture(() => call('token-f'));
+    assert(err && /ไม่สามารถยืนยันตัวตนได้/.test(String(err.message)),
+      'channel ไม่ตรงต้องโยน ไม่สามารถยืนยันตัวตนได้ ได้: ' + (err && err.message));
+    assert(state.puts.length === 0, 'channel ไม่ตรงห้ามลงแคช');
+    state.verifyBody = { scope: 'profile', client_id: '2000000001', expires_in: 3600 };
+  });
+
+  scenario(label + 'VerifyMissingChannelConfig', () => {
+    state.props.delete('LOGIN_CHANNEL_ID');
+    const { err } = capture(() => call('token-g'));
+    assert(err && err.publicCode === 'UNCONFIGURED', 'ต้องเป็น UNCONFIGURED ได้: ' + (err && err.publicCode));
+    state.props.set('LOGIN_CHANNEL_ID', '2000000001');
+  });
+
+  scenario(label + 'VerifyProfileFailureNotCached', () => {
+    state.profileStatus = 401;
+    const { err } = capture(() => call('token-h'));
+    assert(err && /อ่านข้อมูลโปรไฟล์/.test(String(err.message)),
+      'profile 4xx ต้องโยน อ่านข้อมูลโปรไฟล์ ได้: ' + (err && err.message));
+    assert(state.puts.length === 0, 'profile พังห้ามลงแคช');
+    state.profileStatus = 200;
+  });
+
+  scenario(label + 'VerifyCorruptCacheTreatedAsMiss', () => {
+    const first = call('token-i');
+    assert(first && first.userId === 'U123', 'รอบแรกต้องผ่าน');
+    const key = state.puts[state.puts.length - 1][0];
+    state.cache.set(key, '{not json'); // แคชเสียต้องถือว่า miss ไม่ใช่พังทั้งหน้า
+    state.calls = [];
+    const retry = call('token-i');
+    assert(state.calls.length === 2, 'แคชเสียต้องกลับไปยิง LINE ใหม่ 2 ครั้ง ได้ ' + state.calls.length);
+    assert(retry && retry.userId === 'U123', 'รอบสองต้องผ่านและได้ profile เดิม');
+  });
+
+  return failed;
+}
+
+const mainDir = path.resolve(__dirname, '../apps/main');
+const mainVerifierSources = fs.readdirSync(mainDir)
+  .filter(name => name.endsWith('.gs'))
+  .sort()
+  .map(name => fs.readFileSync(path.join(mainDir, name), 'utf8'));
+const webappVerifierSources = [fs.readFileSync(path.resolve(__dirname, '../apps/webapp/WebApp.gs'), 'utf8')];
+
+testLineVerifier('main', mainVerifierSources, token => 'verifyLineToken_("' + token + '")');
+testLineVerifier('webapp', webappVerifierSources, token => 'verifyAdminLineToken_("' + token + '")');
+
 try {
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-liff-ui.js')], { stdio: 'inherit' });
 } catch (err) {

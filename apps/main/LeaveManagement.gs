@@ -21,7 +21,12 @@ function requireMainAdminToken_(body) {
       const profile = verifyLineToken_(accessToken);
       const staff = findStaffByUserId_(readStaffRoster_(), profile.userId);
       if (staff && isAdminStaffKey_(staffKey_(staff), getSettings_())) return true;
-    } catch (err) { /* ตกไปที่การตรวจรหัสกลางตามปกติด้านล่าง */ }
+    } catch (err) {
+      // LINE ขัดข้องชั่วคราว — อย่าตกไปชนรหัส ADMIN_TOKEN ที่ว่างเปล่า แล้วแจ้ง "รหัสไม่ถูกต้อง"
+      // ผิดเรื่อง (ผู้ใช้ล็อกอินด้วย LINE อยู่ ไม่ได้พิมพ์รหัสผิด) เว้นแต่จะมีรหัสแนบมาให้ตรวจสำรอง
+      if (err && err.publicCode === 'LINE_UNAVAILABLE' && !String((body && body.token) || '').trim()) throw err;
+      /* ตกไปที่การตรวจรหัสกลางตามปกติด้านล่าง */
+    }
   }
   const expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '').trim();
   if (!expected) {

@@ -630,7 +630,15 @@ function checkAdminLineLoginContracts() {
         'function findAdminStaffByLineUserId_',
         "params.accessToken || ''",
         'LOGIN_CHANNEL_ID',
+        // LINE ล่ม ≠ ไม่มีสิทธิ์ — แยก code ออกมาให้หน้าเว็บไม่ล้างเซสชัน + แคชผลตรวจ 120 วิ
+        'LINE_UNAVAILABLE',
+        'lineauth_',
       ],
+    },
+    {
+      // verifier ฝั่งโปรเจกต์หลักต้องมีพฤติกรรมเดียวกัน: แยก outage + แคชผลตรวจ
+      file: 'apps/main/LeaveApi.gs',
+      required: ['LINE_UNAVAILABLE', 'lineauth_'],
     },
     {
       file: 'apps/main/LeaveManagement.gs',
