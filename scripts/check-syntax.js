@@ -492,6 +492,30 @@ function checkScheduleMineContracts() {
   }
 }
 
+function checkScheduleMonthPickerContracts() {
+  const pageFile = 'web/schedule/index.html';
+  const page = fs.readFileSync(path.join(root, pageFile), 'utf8');
+  const required = [
+    'id="btnMonth"',
+    'id="monthPicker"',
+    "setAttribute('aria-expanded', willOpen ? 'true' : 'false')",
+    'function allowedMonths()',
+    'for (let d = MONTH_BACK; d <= MONTH_FWD; d++)',
+    "e.target.closest('[data-month]')",
+  ];
+  // ปุ่ม "ไปเดือนนี้" ถูกตัดออกโดยเจตนา: หน้าเลื่อนไปวันปัจจุบันเองอยู่แล้ว และป้าย "เดือนนี้"
+  // ในรายการเลือกเดือนก็พากลับมาได้ในแตะเดียว
+  const forbidden = ['btnToday'];
+  const missing = required.filter(value => !page.includes(value));
+  const present = forbidden.filter(value => page.includes(value));
+  if (missing.length || present.length) {
+    console.error(pageFile + ' month-picker contract failed' +
+      (missing.length ? '; missing: ' + missing.join(', ') : '') +
+      (present.length ? '; forbidden: ' + present.join(', ') : ''));
+    process.exitCode = 1;
+  }
+}
+
 function checkThaiDateContracts() {
   const context = vm.createContext({
     console,
@@ -609,6 +633,7 @@ checkLogRetentionContracts();
 checkAdminLogPaginationContracts();
 checkScheduleLifecycleContracts();
 checkScheduleMineContracts();
+checkScheduleMonthPickerContracts();
 checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');

@@ -63,9 +63,13 @@
   <!-- ===== เลือกเดือน ===== -->
   <nav class="ui-card flex items-center justify-between px-3 py-2.5 mb-4" aria-label="เลือกเดือน">
     <button id="btnPrev" type="button" aria-label="เดือนก่อนหน้า" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">‹</button>
-    <div class="text-center">
-      <p id="monthLabel" class="font-bold">—</p>
-      <button id="btnToday" type="button" class="text-xs text-primary font-semibold mt-0.5">ไปเดือนนี้</button>
+    <div class="text-center relative">
+      <button id="btnMonth" type="button" aria-haspopup="true" aria-expanded="false"
+              class="rounded-control px-2 py-1 font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">
+        <span id="monthLabel">—</span> <span aria-hidden="true" class="text-slate-400 text-xs">▾</span>
+      </button>
+      <!-- รายการเดือนที่ระบบให้ดู: ย้อน 1 ถึงล่วงหน้า 6 เดือน = สูงสุด 8 เดือน จึงไม่ต้องมีตัวเลือกปี -->
+      <div id="monthPicker" class="hidden absolute left-1/2 -translate-x-1/2 top-full mt-2 z-20 w-60 max-h-[60vh] overflow-y-auto ui-card p-1.5" aria-label="เลือกเดือน"></div>
     </div>
     <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">›</button>
   </nav>
@@ -198,7 +202,6 @@
     const atNewest = monthDiff(todayMonth(), state.month) >= MONTH_FWD;
     $('btnPrev').disabled = loading || atOldest;
     $('btnNext').disabled = loading || atNewest;
-    $('btnToday').disabled = loading;
   }
 
   // การ์ดผู้ลา (มุมมองเจ้าหน้าที่เท่านั้น) — โทนอำพันแยกจากการ์ดงานทันทีที่เห็น
@@ -329,6 +332,40 @@
     return diff >= MONTH_BACK && diff <= MONTH_FWD;
   }
 
+  // ---------- รายการเลือกเดือน (แตะชื่อเดือนตรงกลาง) ----------
+
+  // เดือนที่ระบบให้ดูทั้งหมด ไล่จากย้อน 1 ถึงล่วงหน้า 6 เดือนนับจากเดือนปัจจุบัน
+  function allowedMonths() {
+    const list = [];
+    for (let d = MONTH_BACK; d <= MONTH_FWD; d++) list.push(shiftMonth(todayMonth(), d));
+    return list;
+  }
+
+  function renderMonthPicker() {
+    const todayM = todayMonth();
+    $('monthPicker').innerHTML = allowedMonths().map(m => {
+      const viewing = m === state.month;
+      return (
+        '<button type="button" data-month="' + m + '" class="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-control text-sm ' +
+          (viewing ? 'bg-brand-soft font-bold text-brand-strong' : 'text-slate-700 hover:bg-slate-50') + '">' +
+          '<span class="whitespace-nowrap">' + monthLabel(m) + '</span>' +
+          '<span class="flex items-center gap-1.5 shrink-0">' +
+            (m === todayM ? '<span class="text-[10px] font-bold text-white bg-primary rounded-full px-2 py-0.5">เดือนนี้</span>' : '') +
+            (viewing ? '<span aria-hidden="true" class="text-brand-strong">✓</span>' : '') +
+          '</span>' +
+        '</button>'
+      );
+    }).join('');
+  }
+
+  // เปิด/ปิดรายการเดือน (ไม่ส่งค่า = สลับ) — เปิดใหม่ทุกครั้งเพราะเดือนที่ดูอยู่/เดือนปัจจุบันเปลี่ยนได้
+  function toggleMonthPicker(open) {
+    const willOpen = open == null ? $('monthPicker').classList.contains('hidden') : open;
+    $('monthPicker').classList.toggle('hidden', !willOpen);
+    $('btnMonth').setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    if (willOpen) renderMonthPicker();
+  }
+
   // โหลดเดือนก่อนหน้า/ถัดไปล่วงหน้าแบบเงียบๆ หลังแสดงผลเดือนปัจจุบันเสร็จ
   // ให้กดไป-กลับได้ทันทีจาก cache (ล้มเหลวก็ไม่เป็นไร — กดปุ่มปกติจะดึงเอง)
   function prefetchNeighbors(month) {
@@ -339,6 +376,7 @@
 
   async function loadMonth(month) {
     state.month = month;
+    toggleMonthPicker(false);
     $('monthLabel').textContent = monthLabel(month);
     updateNavState(true); // ปุ่มทุกปุ่มหรี่ลงทันทีที่เริ่มโหลด — เห็นชัดว่าคำสั่งถูกรับแล้ว
     showStatus('loading');
@@ -381,7 +419,24 @@
 
   $('btnPrev').addEventListener('click', function () { loadMonth(shiftMonth(state.month, -1)); });
   $('btnNext').addEventListener('click', function () { loadMonth(shiftMonth(state.month, 1)); });
-  $('btnToday').addEventListener('click', function () { loadMonth(todayMonth()); });
+  $('btnMonth').addEventListener('click', function () { toggleMonthPicker(); });
+  $('monthPicker').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-month]');
+    if (!btn) return;
+    toggleMonthPicker(false);
+    if (btn.dataset.month !== state.month) loadMonth(btn.dataset.month); // เดือนเดิมไม่โหลดซ้ำ ปิดรายการอย่างเดียว
+  });
+  // แตะนอกรายการ = ปิด / กด Esc = ปิดแล้วคืน focus กลับที่ปุ่มชื่อเดือน
+  document.addEventListener('click', function (e) {
+    if (!$('monthPicker').classList.contains('hidden') &&
+        !e.target.closest('#monthPicker') && !e.target.closest('#btnMonth')) toggleMonthPicker(false);
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !$('monthPicker').classList.contains('hidden')) {
+      toggleMonthPicker(false);
+      $('btnMonth').focus();
+    }
+  });
   $('btnMine').addEventListener('click', function () {
     state.mine = !state.mine;
     syncMineChip();
