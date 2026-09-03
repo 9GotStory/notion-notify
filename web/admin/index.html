@@ -28,6 +28,8 @@
         <span class="text-xs text-slate-400">หรือใช้รหัสผู้ดูแล</span>
         <span class="flex-1 border-t border-border"></span>
       </div>
+      <!-- ผลการตรวจสิทธิ์ของปุ่ม LINE (ไม่มีสิทธิ์/เซสชันหมดอายุ) — แยกจาก error แดงของช่องรหัส -->
+      <p id="loginNotice" class="ui-alert ui-alert-warning whitespace-pre-line hidden mb-3" role="status"></p>
       <label for="tokenInput" class="ui-label">Token ผู้ดูแล</label>
       <input id="tokenInput" type="password" autocomplete="off" spellcheck="false"
              class="ui-field font-mono"

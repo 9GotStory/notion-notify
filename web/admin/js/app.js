@@ -20,6 +20,8 @@ const App = {
     UI.$('loginLineBtn').addEventListener('click', () => App.loginLine());
     UI.$('logoutBtn').addEventListener('click', () => {
       AdminAPI.clearToken();
+      // ล้างเซสชัน LIFF ด้วย ไม่งั้น refresh ถัดไป auto-login พากลับเข้าทันที (pattern เดียวกับฟอร์มลา)
+      try { if (typeof liff !== 'undefined' && liff.isLoggedIn()) liff.logout(); } catch (err) { /* ไปต่อได้ */ }
       location.hash = '';
       App.showLogin();
     });
@@ -43,8 +45,9 @@ const App = {
       if (liffReady) App.loginLine(true);
       return;
     }
-    // มีข้อมูลล็อกอินในเครื่อง → ตรวจกับเซิร์ฟเวอร์ก่อนเข้า (ถอนสิทธิ์/เปลี่ยนรหัส = เตะออกทันที)
-    AdminAPI.verify(AdminAPI.getToken())
+    // มีข้อมูลล็อกอินในเครื่อง (รหัสหรือ LINE) → ตรวจกับเซิร์ฟเวอร์ก่อนเข้า
+    // (ถอนสิทธิ์/เปลี่ยนรหัส/เซสชัน LINE หมดอายุ = เตะออกทันที)
+    AdminAPI.verifySession()
       .then(() => App.showShell())
       .catch(err => App.showLogin(err.message));
   },
@@ -54,7 +57,9 @@ const App = {
   async loginLine(auto) {
     const btn = UI.$('loginLineBtn');
     const err = UI.$('loginError');
+    const notice = UI.$('loginNotice');
     err.classList.add('hidden');
+    if (notice) notice.classList.add('hidden');
     UI.setBusy(btn, true, 'กำลังเชื่อมต่อ LINE…');
     try {
       if (typeof liff === 'undefined') throw new Error('โหลด LINE SDK ไม่สำเร็จ — ลองรีเฟรชหน้า');
@@ -76,8 +81,21 @@ const App = {
       App.showShell();
       UI.showToast('เข้าสู่ระบบสำเร็จ' + (res && res.actor ? ' — ' + res.actor : ''));
     } catch (e) {
-      err.textContent = e.message || 'เข้าสู่ระบบด้วย LINE ไม่สำเร็จ';
-      err.classList.remove('hidden');
+      if (e && e.code === 'UNAUTHORIZED' && notice) {
+        // ปฏิเสธเรื่องสิทธิ์/เซสชัน → notice เหลืองทั้งโหมด auto/manual: ต้องบอกชัดว่าไม่มีสิทธิ์เข้าถึงหน้านี้
+        // ไม่ใช่ error ระบบ — เงียบไว้ผู้ใช้ที่หลงเข้ามาจะคิดว่าระบบพัง
+        if ((e.message || '').indexOf('หมดอายุ') !== -1) {
+          // token เก่าหมดอายุแต่ LIFF ยังค้าง → ล้างให้กดใหม่ได้ token สด ไม่วน fail ซ้ำ (pattern หน้าตารางงาน)
+          try { liff.logout(); } catch (_) { /* ไปต่อได้ */ }
+        }
+        notice.textContent = (e.message || 'บัญชี LINE นี้ไม่มีสิทธิ์เข้าถึงหน้านี้') +
+          '\nหากคุณควรมีสิทธิ์เข้าถึงหน้านี้ ติดต่อผู้ดูแลระบบ — หรือเข้าสู่ระบบด้วยรหัสผู้ดูแลด้านล่าง';
+        notice.classList.remove('hidden');
+      } else if (!auto) {
+        // error ทางเทคนิค (เน็ต/SDK/init ค้าง) แสดงเฉพาะที่ผู้ใช้กดเอง — โหมด auto เงียบ รอผู้ใช้กดปุ่ม
+        err.textContent = e.message || 'เข้าสู่ระบบด้วย LINE ไม่สำเร็จ';
+        err.classList.remove('hidden');
+      }
     } finally {
       UI.setBusy(btn, false);
     }

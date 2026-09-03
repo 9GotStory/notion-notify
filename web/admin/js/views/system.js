@@ -158,7 +158,7 @@ AdminViews.system = {
     try {
       await AdminAPI.call('save_settings', { data: JSON.stringify(payload) });
       UI.showToast('บันทึกแล้ว — หากเปลี่ยนเวลา ให้ติดตั้ง/อัปเดต trigger ใน Google Sheet');
-      await this.render(UI.$('view'), this._isStale);
+      await App.renderRoute();
     } catch (e) {
       UI.showToast(e.message, true);
     } finally {

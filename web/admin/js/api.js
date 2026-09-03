@@ -17,9 +17,18 @@ const AdminAPI = {
   LINE_TOKEN_KEY: 'nn-admin-line-token',
 
   getToken() { return sessionStorage.getItem(this.TOKEN_KEY) || ''; },
-  setToken(token) { sessionStorage.setItem(this.TOKEN_KEY, token); },
   getLineToken() { return sessionStorage.getItem(this.LINE_TOKEN_KEY) || ''; },
-  setLineToken(token) { sessionStorage.setItem(this.LINE_TOKEN_KEY, token); },
+  // เซสชันเดียวโหมดเดียว: ตั้งโหมดใหม่ต้องล้างอีกโหมดด้วย — กันส่ง token สองแบบปนกัน
+  // (เซิร์ฟเวอร์ prefer accessToken เมื่อมี ถ้า LINE token หมดอายุแต่ยังติดไป
+  //  รหัส ADMIN_TOKEN ที่ยังใช้ได้ก็จะโดนปฏิเสธไปด้วย)
+  setToken(token) {
+    sessionStorage.setItem(this.TOKEN_KEY, token);
+    sessionStorage.removeItem(this.LINE_TOKEN_KEY);
+  },
+  setLineToken(token) {
+    sessionStorage.setItem(this.LINE_TOKEN_KEY, token);
+    sessionStorage.removeItem(this.TOKEN_KEY);
+  },
   clearToken() {
     sessionStorage.removeItem(this.TOKEN_KEY);
     sessionStorage.removeItem(this.LINE_TOKEN_KEY);
@@ -55,7 +64,9 @@ const AdminAPI = {
     return data;
   },
 
-  /** ตรวจ token ตอนกดปุ่มเข้าสู่ระบบ — ใช้ token จาก argument (ยังไม่เก็บ) และไม่เตะกลับหน้า login */
+  /** ตรวจรหัสที่ผู้ใช้พิมพ์ตอนกดปุ่มเข้าสู่ระบบด้วยรหัส — ใช้ token จาก argument (ยังไม่เก็บ)
+   *  ไม่แนบ accessToken (กัน stale LINE token ที่ค้างในเครื่องไป block การล็อกอินด้วยรหัส)
+   *  และไม่เตะกลับหน้า login */
   async verify(token) {
     const data = await this._fetch('get_overview', { token: token });
     if (!data || data.ok === false) {
@@ -64,9 +75,31 @@ const AdminAPI = {
     return data;
   },
 
-  /** ล็อกอินด้วย LINE — เซิร์ฟเวอร์ตรวจสิทธิ์กับทำเนียบแล้วคืนชื่อผู้ใช้ (actor) กลับมา */
+  /** ตรวจสิ่งที่ล็อกอินค้างไว้ในเครื่องตอนเปิดหน้า — รหัสหรือ LINE token อันไหนมีส่งอันนั้น
+   *  (mirror call()) — LINE admin refresh หน้าแล้วต้องเข้าต่อได้ ไม่โดนเตะกลับหน้า login */
+  async verifySession() {
+    const payload = { token: this.getToken() };
+    if (this.getLineToken()) payload.accessToken = this.getLineToken();
+    const data = await this._fetch('get_overview', payload);
+    if (data && data.ok === false && data.code === 'UNAUTHORIZED') {
+      this.clearToken(); // เซิร์ฟเวอร์ยืนยันตัวรับรองไม่ผ่าน — ล้างกันวนซ้ำ (เคสเน็ตหลุด/HTTP error ไม่ล้าง)
+    }
+    if (!data || data.ok === false) {
+      throw new Error((data && data.error) || 'เชื่อมต่อไม่สำเร็จ');
+    }
+    return data;
+  },
+
+  /** ล็อกอินด้วย LINE — เซิร์ฟเวอร์ตรวจสิทธิ์กับทำเนียบแล้วคืนชื่อผู้ใช้ (actor) กลับมา
+   *  โดนปฏิเสธ (ไม่มีสิทธิ์/เซสชันหมดอายุ) = throw พร้อม code ให้หน้า login แยกเคสแสดงผล */
   async loginLine(accessToken) {
-    return this._fetch('admin_login', { accessToken: accessToken });
+    const data = await this._fetch('admin_login', { accessToken: accessToken });
+    if (!data || data.ok === false) {
+      const err = new Error((data && data.error) || 'เข้าสู่ระบบด้วย LINE ไม่สำเร็จ');
+      err.code = data && data.code;
+      throw err;
+    }
+    return data;
   },
 
   async _fetch(action, params) {

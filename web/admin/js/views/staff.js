@@ -442,7 +442,7 @@ AdminViews.staff = {
       });
       UI.showToast(target.action === 'approve' ? 'อนุมัติการผูกบัญชีแล้ว' : 'ปฏิเสธและล้างคำขอแล้ว');
       this.closeReviewDialog_();
-      await this.render(UI.$('view'), this._isStale);
+      await App.renderRoute();
     } catch (e) {
       error.textContent = e.message;
       error.classList.remove('hidden');
@@ -482,7 +482,7 @@ AdminViews.staff = {
         payload[valueKey] = select.value;
         await AdminAPI.call(action, payload);
         UI.showToast('บันทึกแล้ว — ' + staff.name + ' → ' + select.value);
-        await this.render(UI.$('view'), this._isStale);
+        await App.renderRoute();
       } catch (e) {
         UI.showToast(e.message, true);
       } finally {
@@ -634,7 +634,7 @@ AdminViews.staff = {
         data: JSON.stringify(rows), version: this.approversVersion,
       });
       UI.showToast('บันทึกผู้อนุมัติแล้ว');
-      await this.render(UI.$('view'), this._isStale); // โหลดใหม่เพื่ออัปเดตเลขแถว/ลิสต์จริง
+      await App.renderRoute(); // โหลดใหม่เพื่ออัปเดตเลขแถว/ลิสต์จริง
     } catch (e) {
       UI.showToast(e.message, true);
     } finally {

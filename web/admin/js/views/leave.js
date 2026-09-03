@@ -6,14 +6,6 @@
 
 AdminViews.leave = {
 
-  requestId_() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-      const r = Math.random() * 16 | 0;
-      return (c === 'x' ? r : (r & 3 | 8)).toString(16);
-    });
-  },
-
   editingQuotaRow: null,
   editingQuotaVersion: null,
   editingBalanceRow: null,
@@ -27,10 +19,7 @@ AdminViews.leave = {
   async render(root, isStale) {
     this._isStale = isStale;
     root.innerHTML = '<div class="text-center text-slate-400 text-sm py-10">กำลังโหลด…</div>';
-    const [quotaRes, balanceRes] = await Promise.all([
-      AdminAPI.call('get_quota_profiles'),
-      AdminAPI.call('get_balances'),
-    ]);
+    const { quotaRes, balanceRes } = await this.fetchData_();
     if (isStale()) return; // ผู้ใช้ไปหน้าอื่นแล้ว — หยุดก่อนแตะ DOM
     this.cache = {
       quotaProfiles: quotaRes.profiles || [],
@@ -371,7 +360,7 @@ AdminViews.leave = {
       if (!wasEditing) {
         const requestKey = JSON.stringify(payload);
         if (!this.balanceRequestId || this.balanceRequestKey !== requestKey) {
-          this.balanceRequestId = this.requestId_();
+          this.balanceRequestId = UI.requestId();
           this.balanceRequestKey = requestKey;
         }
         payload.requestId = this.balanceRequestId;
@@ -395,11 +384,17 @@ AdminViews.leave = {
     return btn;
   },
 
-  async reload() {
+  // โหลดข้อมูลสองชุดของหน้านี้คู่กัน — render ตอนเข้าหน้าและ reload หลังแก้/ลบ ใช้ร่วมกัน
+  async fetchData_() {
     const [quotaRes, balanceRes] = await Promise.all([
       AdminAPI.call('get_quota_profiles'),
       AdminAPI.call('get_balances'),
     ]);
+    return { quotaRes: quotaRes, balanceRes: balanceRes };
+  },
+
+  async reload() {
+    const { quotaRes, balanceRes } = await this.fetchData_();
     if (this._isStale && this._isStale()) return; // หน้าเปลี่ยนระหว่างรอ API — ทิ้งผลเก่า
     this.cache.quotaProfiles = quotaRes.profiles || [];
     this.cache.balances = balanceRes.balances || [];

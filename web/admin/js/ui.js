@@ -16,6 +16,16 @@ const UI = {
     }[c]));
   },
 
+  /** รหัสคำขอสำหรับ idempotency ฝั่งเซิร์ฟเวอร์ — uuid ถ้ามี ไม่มีก็สุ่มแบบ v4 เอง
+   *  (webview เก่าไม่มี crypto.randomUUID ต้องยังใช้งานได้ ไม่ throw) */
+  requestId() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 3 | 8)).toString(16);
+    });
+  },
+
   THAI_MONTHS: [
     'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
     'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',

@@ -6,11 +6,6 @@ AdminViews['leave-manage'] = {
   filter: 'all',
   _isStale: null,
 
-  requestId_() {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-    throw new Error('เบราว์เซอร์นี้ไม่รองรับรหัสคำขอที่ปลอดภัย');
-  },
-
   dateLabel_(leave) {
     return UI.formatThaiDateRange(leave.start, leave.end) +
       (leave.period && leave.period !== 'เต็มวัน' ? ' (' + leave.period + ')' : '');
@@ -145,9 +140,9 @@ AdminViews['leave-manage'] = {
       UI.setBusy(button, true, 'กำลังเปลี่ยน…');
       try {
         await AdminAPI.callMain('adminReassignApprover', { pageId: leave.pageId,
-          targetStaffKey: select.value, reason: reason.value.trim(), requestId: this.requestId_() });
+          targetStaffKey: select.value, reason: reason.value.trim(), requestId: UI.requestId() });
         UI.showToast('เปลี่ยนผู้อนุมัติและแจ้งผู้เกี่ยวข้องแล้ว');
-        await this.render(UI.$('view'), this._isStale);
+        await App.renderRoute();
       } catch (err) { UI.showToast(err.message, true); } finally { UI.setBusy(button, false); }
     });
     panel.appendChild(this.fieldWrap_('ผู้อนุมัติสำรอง', select));
@@ -183,12 +178,12 @@ AdminViews['leave-manage'] = {
       if (!accepted) return;
       UI.setBusy(button, true, 'กำลังบันทึก…');
       try {
-        await AdminAPI.callMain('adminAdjustLeave', { pageId: leave.pageId, requestId: this.requestId_(),
+        await AdminAPI.callMain('adminAdjustLeave', { pageId: leave.pageId, requestId: UI.requestId(),
           resultStatus: status.value, leaveType: type.value, start: start.value, end: end.value,
           period: period.value, reason: reason.value.trim(), substituteKey: substitute.value,
           adjustmentReason: adjustment.value.trim() });
         UI.showToast('บันทึกผลการลาใช้จริงและแจ้งผู้เกี่ยวข้องแล้ว');
-        await this.render(UI.$('view'), this._isStale);
+        await App.renderRoute();
       } catch (err) { UI.showToast(err.message, true); } finally { UI.setBusy(button, false); }
     });
     [
