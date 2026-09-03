@@ -28,30 +28,49 @@ const App = {
     window.addEventListener('hashchange', () => { if (UI.$('appShell').classList.contains('hidden')) return; App.renderRoute(); });
 
     // ปุ่มล็อกอินด้วย LINE โชว์เฉพาะเมื่อ deploy พร้อม LIFF ของหน้านี้ (ADMIN_LIFF_ID)
-    const liffId = String(ADMIN_CONFIG.ADMIN_LIFF_ID || '').trim();
-    if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
+    const liffReady = String(ADMIN_CONFIG.ADMIN_LIFF_ID || '').trim() &&
+      String(ADMIN_CONFIG.ADMIN_LIFF_ID).indexOf('__') !== 0 && typeof liff !== 'undefined';
+    if (liffReady) {
       UI.$('loginLineBtn').classList.remove('hidden');
       UI.$('loginDivider').classList.remove('hidden');
     }
 
-    if (!AdminAPI.getToken() && !AdminAPI.getLineToken()) { App.showLogin(); return; }
+    if (!AdminAPI.getToken() && !AdminAPI.getLineToken()) {
+      App.showLogin();
+      // เพิ่งเด้งกลับจากหน้าล็อกอินของ LINE (มี code/state ติด URL มา) หรือเปิดในแอป LINE อยู่แล้ว
+      // → ลองเข้าให้เอง ผู้ใช้ไม่ต้องกดปุ่มซ้ำหลัง "แตะดำเนินการต่อ"
+      // (ถ้ายังไม่ได้ล็อกอิน LINE จะเงียบไว้ รอผู้ใช้กดปุ่มเอง)
+      if (liffReady) App.loginLine(true);
+      return;
+    }
     // มีข้อมูลล็อกอินในเครื่อง → ตรวจกับเซิร์ฟเวอร์ก่อนเข้า (ถอนสิทธิ์/เปลี่ยนรหัส = เตะออกทันที)
     AdminAPI.verify(AdminAPI.getToken())
       .then(() => App.showShell())
       .catch(err => App.showLogin(err.message));
   },
 
-  /** ล็อกอินด้วยบัญชี LINE ของผู้ได้รับสิทธิ์ (Settings > admin_staff) — ไม่ต้องจำรหัสกลางอีกต่อไป */
-  async loginLine() {
+  /** ล็อกอินด้วยบัญชี LINE ของผู้ได้รับสิทธิ์ (Settings > admin_staff) — ไม่ต้องจำรหัสกลางอีกต่อไป
+   *  auto=true = เรียกเองตอนเปิดหน้า: ถ้ายังไม่ได้ล็อกอิน LINE ให้เงียบไว้ ไม่ดันไปหน้าล็อกอินของ LINE */
+  async loginLine(auto) {
     const btn = UI.$('loginLineBtn');
     const err = UI.$('loginError');
     err.classList.add('hidden');
     UI.setBusy(btn, true, 'กำลังเชื่อมต่อ LINE…');
     try {
       if (typeof liff === 'undefined') throw new Error('โหลด LINE SDK ไม่สำเร็จ — ลองรีเฟรชหน้า');
-      await liff.init({ liffId: String(ADMIN_CONFIG.ADMIN_LIFF_ID).trim() });
-      if (!liff.isLoggedIn()) { liff.login(); return; } // browser ภายนอก → ไปหน้า login ของ LINE แล้วเด้งกลับ
+      // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา/ตารางงาน) ต้องไม่ปล่อยปุ่มค้างตลอดไป
+      const ready = await Promise.race([
+        liff.init({ liffId: String(ADMIN_CONFIG.ADMIN_LIFF_ID).trim() }).then(() => true),
+        new Promise(resolve => { setTimeout(() => resolve(false), 5000); }),
+      ]);
+      if (!ready) throw new Error('เชื่อมต่อ LINE ช้าเกินไป — ลองกดอีกครั้ง หรือเปิดหน้านี้ในแอป LINE');
+      if (!liff.isLoggedIn()) {
+        if (auto) return; // ยังไม่ได้ล็อกอิน — รอผู้ใช้กดปุ่ม (ตอนนั้นจะพาไปหน้าล็อกอินของ LINE แล้วเด้งกลับ)
+        liff.login();
+        return;
+      }
       const accessToken = liff.getAccessToken();
+      if (!accessToken) throw new Error('ยังไม่ได้รับการยืนยันจาก LINE — กรุณากดเข้าสู่ระบบอีกครั้ง');
       const res = await AdminAPI.loginLine(accessToken);
       AdminAPI.setLineToken(accessToken);
       App.showShell();

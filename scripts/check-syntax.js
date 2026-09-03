@@ -656,7 +656,12 @@ function checkAdminLineLoginContracts() {
     },
     {
       file: 'web/admin/js/app.js',
-      required: ["UI.$('loginLineBtn').addEventListener('click', () => App.loginLine())", 'async loginLine()'],
+      required: [
+        "UI.$('loginLineBtn').addEventListener('click', () => App.loginLine())",
+        'async loginLine(auto)',
+        'Promise.race', // จับเวลา liff.init 5 วิ — init ค้างต้องไม่ทำปุ่มค้างตลอดไป (เคยเกิดกับหน้าอื่น)
+        'App.loginLine(true)', // เด้งกลับจากหน้าล็อกอิน LINE แล้วลองเข้าเอง ไม่ต้องกดปุ่มซ้ำ
+      ],
     },
     {
       file: 'web/admin/index.html',
