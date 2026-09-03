@@ -640,6 +640,12 @@ function checkAdminLineLoginContracts() {
       ],
     },
     {
+      // เมนู "เตรียม/ตรวจสอบชีตทั้งหมด" ต้อง seed แถว admin_staff ให้ด้วย — ไม่งั้น api_saveSettings
+      // ของ webapp (เขียนเฉพาะ key ที่มีแถวแล้ว) จะบันทึกจากหน้าเว็บไม่ได้เงียบๆ
+      file: 'apps/main/Config.gs',
+      required: ["['admin_staff', '',"],
+    },
+    {
       file: 'web/admin/js/api.js',
       required: [
         'ADMIN_LIFF_ID',
@@ -655,6 +661,11 @@ function checkAdminLineLoginContracts() {
     {
       file: 'web/admin/index.html',
       required: ['id="loginLineBtn"', '../liff-form/sdk.js'],
+    },
+    {
+      // หน้าตั้งค่าระบบต้องมีช่องแก้รายชื่อผู้ดูแลได้เลย — ไม่ต้องเปิด Google Sheet
+      file: 'web/admin/js/views/system.js',
+      required: ['id="f-admin-staff"', "admin_staff: UI.$('f-admin-staff').value.trim()"],
     },
   ];
   contracts.forEach(contract => {

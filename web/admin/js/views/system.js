@@ -56,6 +56,14 @@ AdminViews.system = {
       '<p class="ui-help">ปกติระบบเติมให้เองหลังเชิญบอทเข้ากลุ่ม แก้เองตรงนี้ได้ถ้าจำเป็น</p></div>' +
       '</section>' +
 
+      '<section class="ui-card ui-card-body mb-4 space-y-5" aria-labelledby="systemAdminTitle">' +
+      '<div><p id="systemAdminTitle" class="ui-section-title">สิทธิ์ผู้ดูแลระบบ</p>' +
+      '<p class="ui-help">ใครอยู่ในรายชื่อนี้ (และผูก LINE กับทำเนียบแล้ว) ล็อกอินหน้านี้ด้วยปุ่ม "เข้าสู่ระบบด้วย LINE" ได้</p></div>' +
+      '<div><label for="f-admin-staff" class="ui-label">รายชื่อผู้ดูแล (ชื่อต้น คั่นลูกน้ำ)</label>' +
+      '<input type="text" id="f-admin-staff" placeholder="เช่น สมชาย, สมหญิง" class="ui-field">' +
+      '<p class="ui-help">เว้นว่าง = ใช้รหัสผู้ดูแล (ADMIN_TOKEN) อย่างเดียว · เพิ่มชื่อแล้วผู้นั้นใช้งานได้ทันที ไม่ต้องแจกรหัส</p></div>' +
+      '</section>' +
+
       '<button type="button" id="btnSaveSettings" class="ui-btn-primary w-full sm:w-auto">บันทึกการตั้งค่าระบบ</button>' +
       '<p class="ui-help mt-3.5">อยากทดสอบส่งจริง เปิด Google Sheet แล้วใช้เมนู "ระบบแจ้งเตือนปฏิทิน &gt; ทดสอบส่งตอนนี้" — หน้านี้ไม่แตะ LINE token โดยตรงเพื่อความปลอดภัย</p>' +
 
@@ -102,6 +110,7 @@ AdminViews.system = {
     UI.$('f-log-retention').value = /^\d+$/.test(String(s.logs_retention_days || '')) ? s.logs_retention_days : '90';
     UI.$('f-calendar').value = s.notion_database_id || '';
     UI.$('f-group').value = s.line_group_id || '';
+    UI.$('f-admin-staff').value = s.admin_staff || '';
     this.setFormat(String(s.message_format || 'text').toLowerCase());
   },
 
@@ -131,6 +140,7 @@ AdminViews.system = {
       logs_retention_days: UI.$('f-log-retention').value.trim(),
       notion_database_id: UI.$('f-calendar').value.trim(),
       line_group_id: UI.$('f-group').value.trim(),
+      admin_staff: UI.$('f-admin-staff').value.trim(),
       message_format: this.format,
       _version: this.settingsVersion,
     };
