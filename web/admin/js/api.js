@@ -1,5 +1,6 @@
 // ชั้นเรียก API ของหน้าผู้ดูแลใน direct mode
-// GET + URLSearchParams ใช้กับ Apps Script /exec ซึ่ง redirect ไป response URL อีกครั้ง
+// POST body JSON แบบ text/plain (simple request ไม่เกิด CORS preflight) ใช้กับ Apps Script /exec
+// ซึ่ง redirect ไป response URL อีกครั้ง — token อยู่ใน body ไม่ติด URL ตามแบบหน้าอื่นแล้ว
 // __ADMIN_API_URL__ ถูกแทนที่ตอน build ด้วย URL /exec ของ Apps Script webapp
 'use strict';
 
@@ -54,13 +55,17 @@ const AdminAPI = {
   },
 
   async _fetchAt(url, action, params) {
-    const qs = new URLSearchParams(Object.assign({ apiAction: action }, params || {}));
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      res = await fetch(url + '?' + qs.toString(), {
-        method: 'GET', signal: controller.signal,
+      // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight (Apps Script ตอบ OPTIONS ไม่ได้)
+      // และย้าย token/พารามิเตอร์ออกจาก URL — URL พกข้อมูลรับรองไม่ได้ (ติด log/ถูกส่งต่อ)
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign({ apiAction: action }, params || {})),
+        signal: controller.signal,
       });
     } catch (err) {
       throw new Error(err && err.name === 'AbortError'

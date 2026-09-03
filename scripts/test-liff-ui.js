@@ -74,7 +74,7 @@ async function run() {
 
   let cancelResponse;
   const cancelPending = new Promise(resolve => { cancelResponse = resolve; });
-  const fetchUrls = [];
+  const fetchCalls = []; // {url, method, body} — เทสฟอร์มลาต้องยืนยันว่า API ไปเป็น POST body ไม่ใช่ query string
   const context = vm.createContext({
     console,
     document,
@@ -94,9 +94,13 @@ async function run() {
     JSON,
     setTimeout: () => 1,
     clearTimeout() {},
-    fetch(url) {
-      fetchUrls.push(String(url));
-      if (fetchUrls.length === 1) return cancelPending;
+    fetch(url, options) {
+      fetchCalls.push({
+        url: String(url),
+        method: options && options.method,
+        body: String((options && options.body) || ''),
+      });
+      if (fetchCalls.length === 1) return cancelPending;
       return Promise.resolve({
         ok: true,
         json: async () => ({ ok: true, leaves: [], usage: null, leaveYear: '2570' }),
@@ -126,8 +130,10 @@ async function run() {
   const operation = ui.confirmCancelLeave(leave);
   await Promise.resolve();
   assert(ui.state.mine.pendingPageId === leave.pageId, 'cancel did not enter pending state');
-  assert(fetchUrls.length === 1 && /apiAction=cancel/.test(fetchUrls[0]), 'cancel API was not called once');
-  assert(/requestId=123e4567-e89b-42d3-a456-426614174000/.test(fetchUrls[0]),
+  assert(fetchCalls.length === 1 && /"apiAction":"cancel"/.test(fetchCalls[0].body), 'cancel API was not called once');
+  assert(fetchCalls[0].method === 'POST' && fetchCalls[0].url === 'https://api.example.test/exec',
+    'leave API must POST to the exec URL instead of a query string');
+  assert(/"requestId":"123e4567-e89b-42d3-a456-426614174000"/.test(fetchCalls[0].body),
     'cancel request id was not sent');
   const pendingHtml = elements.get('mineList').innerHTML;
   assert(/disabled aria-disabled="true"/.test(pendingHtml), 'leave actions were not disabled');
@@ -136,13 +142,13 @@ async function run() {
   assert(mainTabs.every(tab => tab.disabled), 'main navigation was not locked');
 
   await ui.confirmCancelLeave(leave);
-  assert(fetchUrls.length === 1, 'a second cancel was sent while the first was pending');
+  assert(fetchCalls.length === 1, 'a second cancel was sent while the first was pending');
 
   cancelResponse({ ok: true, json: async () => ({ ok: true, status: 'ยกเลิก' }) });
   await operation;
   assert(ui.state.mine.pendingPageId === '', 'pending state was not cleared');
   assert(mainTabs.every(tab => !tab.disabled), 'main navigation was not unlocked');
-  assert(fetchUrls.length === 2 && /apiAction=myLeaves/.test(fetchUrls[1]), 'leave list was not refreshed');
+  assert(fetchCalls.length === 2 && /"apiAction":"myLeaves"/.test(fetchCalls[1].body), 'leave list was not refreshed');
   assert(/ยกเลิก.*เรียบร้อยแล้ว/.test(elements.get('mineSuccess').textContent),
     'success feedback was not shown');
 
@@ -166,9 +172,9 @@ async function run() {
   assert(!button.disabled && button.getAttribute('aria-busy') === null && button.textContent === 'บันทึก',
     'shared button helper did not restore idle state');
 
-  const approvalUrls = [];
-  context.fetch = async url => {
-    approvalUrls.push(String(url));
+  const approvalBodies = [];
+  context.fetch = async (url, options) => {
+    approvalBodies.push(String((options && options.body) || ''));
     return { ok: true, json: async () => ({ ok: true, leaves: [], staffOptions: [] }) };
   };
   ui.state.user = { canManageApprovals: true };
@@ -177,7 +183,7 @@ async function run() {
   await Promise.resolve();
   assert(!elements.get('view-approvals').classList.contains('hidden'),
     'approval tab did not open the approval view');
-  assert(approvalUrls.length === 1 && /apiAction=approvalQueue/.test(approvalUrls[0]),
+  assert(approvalBodies.length === 1 && /"apiAction":"approvalQueue"/.test(approvalBodies[0]),
     'approval tab did not load the approval queue');
 
   console.log('PASS testLiffCancelInteraction');

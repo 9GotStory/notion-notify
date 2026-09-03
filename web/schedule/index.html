@@ -76,6 +76,9 @@
     <button id="btnNext" type="button" aria-label="เดือนถัดไป" class="w-11 h-11 rounded-full hover:bg-slate-100 text-slate-600 text-lg font-bold disabled:opacity-30 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand">›</button>
   </nav>
 
+  <!-- ===== ปฏิทินย่อของเดือนที่ดู — จุดบอกวันที่มีรายการ แตะวันที่เพื่อเลื่อนลิสต์ไปหา ===== -->
+  <div id="miniCal" class="ui-card p-3 mb-4"></div>
+
   <!-- ===== กรองงานของฉัน (โชว์เฉพาะโหมดเจ้าหน้าที่ที่รู้ชื่อผู้ดู) ===== -->
   <div id="mineBar" class="hidden mb-3">
     <button id="btnMine" type="button" aria-pressed="false" class="ui-btn-soft w-full">เฉพาะงานที่ฉันรับผิดชอบ</button>
@@ -104,6 +107,7 @@
   const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
     'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const THAI_DAYS = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์'];
+  const THAI_DAYS_SHORT = ['อา','จ','อ','พ','พฤ','ศ','ส']; // หัวคอลัมน์ของปฏิทินย่อ
 
   // วงเดือนเริ่มต้นแบบโหมดสาธารณะ — ใช้ก่อน response แรกถึงเท่านั้น หลังจากนั้นเซิร์ฟเวอร์ส่งวงจริง
   // ของโหมดนั้นๆ มากับทุก response (viewMonths — เจ้าหน้าที่กว้างกว่า) แล้ว state.viewMonths เป็นตัวชี้ขาด
@@ -282,6 +286,43 @@
     );
   }
 
+  // ปฏิทินย่อของเดือนที่ดู: จุดเขียว = มีงาน / จุดอำพัน = มีผู้ลา (เฉพาะโหมดเจ้าหน้าที่)
+  // วันที่มีรายการเป็นปุ่ม — แตะแล้วเลื่อนลิสต์ไปหา (section รายวันมี id d-YYYY-MM-DD)
+  function renderMiniCalendar(byDate, leavesByDate, dates) {
+    const [y, m] = state.month.split('-').map(Number);
+    const firstDow = new Date(Date.UTC(y, m - 1, 1)).getUTCDay(); // 0 = อาทิตย์ (คอลัมน์แรก)
+    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const has = {};
+    dates.forEach(d => {
+      has[d] = { work: !!(byDate[d] || []).length, leave: !!(leavesByDate[d] || []).length };
+    });
+    let cells = '';
+    for (let i = 0; i < firstDow; i++) cells += '<div aria-hidden="true"></div>';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = state.month + '-' + pad(d);
+      const info = has[date];
+      const isToday = date === state.today;
+      const num = '<span class="text-[11px] leading-none">' + d + '</span>';
+      const dots = info
+        ? '<span class="flex gap-0.5 justify-center mt-0.5">' +
+            (info.work ? '<span class="w-1 h-1 rounded-full bg-primary"></span>' : '') +
+            (info.leave ? '<span class="w-1 h-1 rounded-full bg-amber-500"></span>' : '') +
+          '</span>'
+        : '<span class="mt-0.5 block h-1"></span>'; // วันว่างก็เว้นแถวจุดไว้ให้สูงเท่ากัน
+      cells += info
+        ? '<button type="button" data-scroll="' + date + '" aria-label="' + escapeHtml(dayLabel(date)) + ' มีรายการ" ' +
+            'class="flex flex-col items-center justify-center rounded-control h-9 ' +
+              (isToday ? 'bg-brand-soft font-bold text-brand-strong' : 'hover:bg-slate-50') + '">' +
+            num + dots + '</button>'
+        : '<div class="flex flex-col items-center justify-center h-9 text-slate-300' +
+            (isToday ? ' font-bold text-slate-500' : '') + '">' + num + dots + '</div>';
+    }
+    $('miniCal').innerHTML =
+      '<div class="grid grid-cols-7 gap-0.5 text-center text-[10px] font-semibold text-slate-400 mb-1">' +
+        THAI_DAYS_SHORT.map(d => '<div>' + d + '</div>').join('') + '</div>' +
+      '<div class="grid grid-cols-7 gap-0.5">' + cells + '</div>';
+  }
+
   function renderMonth(data) {
     showStatus('none');
     // กรอง "งานของฉัน": เหลือเฉพาะงานที่ผู้ดูรับผิดชอบ + ใบลาของผู้ดูเอง (กรองตอนแสดงผล
@@ -301,12 +342,13 @@
       });
     }
     const dates = Object.keys(Object.assign({}, byDate, leavesByDate)).sort();
+    renderMiniCalendar(byDate, leavesByDate, dates);
 
     const html = dates.length
       ? dates.map(date => {
           const isToday = date === state.today;
           return (
-            '<section class="mb-4">' +
+            '<section class="mb-4" id="d-' + date + '">' +
               '<div class="flex items-center gap-2 mb-1 px-1">' +
                 '<h2 class="text-sm font-bold ' + (isToday ? 'text-primary' : 'text-slate-600') + '">' +
                   escapeHtml(dayLabel(date)) + '</h2>' +
@@ -488,6 +530,34 @@
       $('btnMonth').focus();
     }
   });
+  // แตะวันที่มีรายการในปฏิทินย่อ = เลื่อนลิสต์ไปหาวันนั้น
+  $('miniCal').addEventListener('click', function (e) {
+    const btn = e.target.closest('[data-scroll]');
+    if (!btn) return;
+    const el = document.getElementById('d-' + btn.dataset.scroll);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  // ---------- ปัดนิ้วเปลี่ยนเดือน ----------
+  // ปัดแนวนอน = เปลี่ยนเดือน (ต้องชัดกว่าแนวตั้งอย่างน้อย 1.5 เท่า กันขโมยการเลื่อนอ่านลิสต์)
+  // ยึดสถานะ disabled ของปุ่ม ‹ › เป็นเงื่อนไข — มันรวม "กำลังโหลด" และ "ชนขอบเขตเดือน" ไว้แล้ว
+  const SWIPE_MIN_PX = 60;
+  let touchStart = null;
+  document.addEventListener('touchstart', function (e) {
+    const t = e.changedTouches[0];
+    touchStart = { x: t.clientX, y: t.clientY };
+  }, { passive: true });
+  document.addEventListener('touchend', function (e) {
+    if (!touchStart) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    touchStart = null;
+    if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const forward = dx < 0;
+    if ($(forward ? 'btnNext' : 'btnPrev').disabled) return;
+    loadMonth(shiftMonth(state.month, forward ? 1 : -1));
+  }, { passive: true });
   $('btnMine').addEventListener('click', function () {
     state.mine = !state.mine;
     syncMineChip();

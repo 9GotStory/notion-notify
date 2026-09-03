@@ -431,14 +431,18 @@
       relogin_();
       throw new Error('กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่');
     }
-    const params = new URLSearchParams(
-      Object.assign({ apiAction: action, accessToken: accessToken }, extra || {}));
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
     try {
-      res = await fetch(CONFIG.API_URL + '?' + params.toString(), {
-        method: 'GET', signal: controller.signal,
+      // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight (Apps Script ตอบ OPTIONS ไม่ได้)
+      // และย้ายข้อมูลทั้งหมดรวมถึง accessToken ออกจาก URL — URL พกข้อมูลรับรองไม่ได้ (ติด log/ถูกส่งต่อ)
+      res = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign(
+          { apiAction: action, accessToken: accessToken }, extra || {})),
+        signal: controller.signal,
       });
     } catch (err) {
       throw new Error(err && err.name === 'AbortError'

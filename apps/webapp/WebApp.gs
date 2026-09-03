@@ -120,9 +120,15 @@ function claimAdminGatewayNonce_(nonce) {
 }
 
 function unwrapAdminGatewayEnvelope_(body) {
+  // ไม่มี envelope = คำขอตรงจากหน้าเว็บ (POST body JSON) — ยอมได้เฉพาะ legacy mode
+  // ที่เจ้าของระบบเปิด ALLOW_LEGACY_DIRECT ไว้ แบบเดียวกับ unwrapGatewayEnvelope_ ของโปรเจกต์หลัก
+  // เมื่อตัด flag ตอน cutover เกตเวย์ ทางตรง (ทั้ง GET ของ doGet และ POST ของ doPost) จะถูกปฏิเสธพร้อมกัน
+  if (!body || !body.gatewayEnvelope) {
+    if (adminGatewayRequired_()) throw new Error('คำขอนี้ต้องผ่าน security gateway');
+    return body || {};
+  }
   const secret = adminGatewaySecret_();
   if (!secret) throw new Error('ยังไม่ได้ตั้งค่า GATEWAY_SHARED_SECRET');
-  if (!body || !body.gatewayEnvelope) throw new Error('คำขอนี้ต้องผ่าน security gateway');
   const timestamp = String(body.timestamp || '');
   const nonce = String(body.nonce || '');
   const payload = body.payload;

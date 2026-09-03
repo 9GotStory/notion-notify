@@ -45,10 +45,12 @@ function checkAdminViewContracts() {
 function checkDirectModeContracts() {
   const contracts = [
     {
+      // เฟส 3: ฟอร์มลาส่ง API แบบ POST body JSON เหมือนหน้าตารางงาน — token ห้ามติด URL
       file: 'web/liff-form/index.html',
-      required: ["new URLSearchParams", "accessToken: accessToken", "CONFIG.API_URL + '?'", "method: 'GET'",
+      required: ['accessToken: accessToken', 'CONFIG.API_URL,', "method: 'POST'",
+        "'Content-Type': 'text/plain;charset=utf-8'",
         'fiscalYearBEForDateStr(start) !== fiscalYearBEForDateStr(end)'],
-      forbidden: ["'/api/liff'"],
+      forbidden: ["'/api/liff'", 'new URLSearchParams', "CONFIG.API_URL + '?'"],
     },
     {
       // เฟส 3: หน้าตารางงานส่ง API แบบ POST body JSON (text/plain กัน CORS preflight)
@@ -59,10 +61,12 @@ function checkDirectModeContracts() {
       forbidden: ["'/api/schedule'", 'new URLSearchParams', "CONFIG.API_URL + '?'"],
     },
     {
+      // เฟส 3: หน้าผู้ดูแลส่ง API แบบ POST body JSON เหมือนหน้าอื่น — token ห้ามติด URL
       file: 'web/admin/js/api.js',
-      required: ["new URLSearchParams", 'this._fetchAt(ADMIN_CONFIG.API_URL',
-        'ADMIN_CONFIG.MAIN_API_URL', "method: 'GET'", 'sessionStorage'],
-      forbidden: ["'/api/admin'"],
+      required: ['this._fetchAt(ADMIN_CONFIG.API_URL',
+        'ADMIN_CONFIG.MAIN_API_URL', "method: 'POST'",
+        "'Content-Type': 'text/plain;charset=utf-8'", 'sessionStorage'],
+      forbidden: ["'/api/admin'", 'new URLSearchParams'],
     },
     {
       file: '.github/workflows/deploy-liff-form.yml',
@@ -594,6 +598,23 @@ function checkSchedulePhase2Contracts() {
   }
 }
 
+function checkScheduleUxContracts() {
+  const pageFile = 'web/schedule/index.html';
+  const page = fs.readFileSync(path.join(root, pageFile), 'utf8');
+  const required = [
+    'id="miniCal"',
+    'function renderMiniCalendar(byDate, leavesByDate, dates)',
+    "e.target.closest('[data-scroll]')",
+    'const SWIPE_MIN_PX = 60;',
+    "if ($(forward ? 'btnNext' : 'btnPrev').disabled) return",
+  ];
+  const missing = required.filter(value => !page.includes(value));
+  if (missing.length) {
+    console.error(pageFile + ' mini-calendar/swipe contract failed; missing: ' + missing.join(', '));
+    process.exitCode = 1;
+  }
+}
+
 function checkThaiDateContracts() {
   const context = vm.createContext({
     console,
@@ -714,6 +735,7 @@ checkScheduleMineContracts();
 checkScheduleMonthPickerContracts();
 checkSchedulePhase1Contracts();
 checkSchedulePhase2Contracts();
+checkScheduleUxContracts();
 checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');
