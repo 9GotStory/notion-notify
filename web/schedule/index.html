@@ -177,14 +177,18 @@
   async function fetchMonth(month) {
     const key = cacheKey(month);
     if (state.cache[key]) return state.cache[key];
-    const params = new URLSearchParams(Object.assign(
-      { apiAction: 'schedule', month: month }, state.token ? { accessToken: state.token } : {}));
     let res;
     const controller = new AbortController();
     const timeout = setTimeout(function () { controller.abort(); }, 20000);
     try {
-      res = await fetch(CONFIG.API_URL + '?' + params.toString(), {
-        method: 'GET', signal: controller.signal,
+      // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight (Apps Script ตอบ OPTIONS ไม่ได้)
+      // และย้ายข้อมูลทั้งหมดรวมถึง accessToken ออกจาก URL — URL พกข้อมูลรับรองไม่ได้ (ติด log/ถูกส่งต่อ)
+      res = await fetch(CONFIG.API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(Object.assign(
+          { apiAction: 'schedule', month: month }, state.token ? { accessToken: state.token } : {})),
+        signal: controller.signal,
       });
     } catch (err) {
       throw new Error(err && err.name === 'AbortError'

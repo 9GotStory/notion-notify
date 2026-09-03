@@ -51,9 +51,12 @@ function checkDirectModeContracts() {
       forbidden: ["'/api/liff'"],
     },
     {
+      // เฟส 3: หน้าตารางงานส่ง API แบบ POST body JSON (text/plain กัน CORS preflight)
+      // ข้อมูลรับรองห้ามติด URL อีกต่อไป — URLSearchParams กลับมา = token กลับเข้า URL
       file: 'web/schedule/index.html',
-      required: ["apiAction: 'schedule'", "CONFIG.API_URL + '?'", "method: 'GET'"],
-      forbidden: ["'/api/schedule'"],
+      required: ["apiAction: 'schedule'", 'CONFIG.API_URL,', "method: 'POST'",
+        "'Content-Type': 'text/plain;charset=utf-8'"],
+      forbidden: ["'/api/schedule'", 'new URLSearchParams', "CONFIG.API_URL + '?'"],
     },
     {
       file: 'web/admin/js/api.js',
