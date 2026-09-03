@@ -143,8 +143,89 @@ function unwrapAdminGatewayEnvelope_(body) {
   return payload;
 }
 
-// ตรวจ token ทุกคำขอ — fail-closed ทุกกรณี (คืน error object ถ้าไม่ผ่าน, null ถ้าผ่าน)
+// ---------- ล็อกอินผู้ดูแลด้วย LINE (ทางเลือกที่ยืดหยุ่นกว่าการแจกรหัส ADMIN_TOKEN) ----------
+// เพิ่ม/ถอดสิทธิ์ = แก้คีย์ admin_staff ในชีต Settings (ชื่อต้นคั่นลูกน้ำ) — ไม่ต้องเปลี่ยนรหัสกลาง
+// ADMIN_TOKEN ยังใช้ได้เท่าเดิมเป็นทางกู้ฉุกเฉินเมื่อ LINE/การผูกบัญชีมีปัญหา
+
+// ตรวจ LINE access token กับ LINE โดยตรง — แบบเดียวกับ verifyLineToken_ ของโปรเจกต์หลัก
+// (ใช้เฉพาะ token ผู้ใช้ ไม่ต้องถือ LINE_CHANNEL_ACCESS_TOKEN — คุณสมบัติเดิมของโปรเจกต์นี้คงเดิม)
+function verifyAdminLineToken_(accessToken) {
+  const verifyResp = UrlFetchApp.fetch(
+    'https://api.line.me/oauth2/v2.1/verify?access_token=' + encodeURIComponent(accessToken),
+    { muteHttpExceptions: true }
+  );
+  if (verifyResp.getResponseCode() >= 300) throw new Error('เซสชัน LINE หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+  const verified = JSON.parse(verifyResp.getContentText());
+  if (!verified.expires_in || verified.expires_in <= 0) throw new Error('เซสชัน LINE หมดอายุ กรุณาเข้าสู่ระบบใหม่');
+  // กัน token ที่ออกจากแอปคนละตัว — LOGIN_CHANNEL_ID ต้องตรงกับ channel ของเรา
+  const expectedChannelId = String(PropertiesService.getScriptProperties().getProperty('LOGIN_CHANNEL_ID') || '').trim();
+  if (!expectedChannelId) {
+    const err = new Error('ยังไม่ได้ตั้งค่า LOGIN_CHANNEL_ID ใน Script Properties ของโปรเจกต์นี้');
+    err.publicCode = 'UNCONFIGURED';
+    throw err;
+  }
+  if (String(verified.client_id || '') !== expectedChannelId) {
+    throw new Error('ไม่สามารถยืนยันตัวตนได้ กรุณาติดต่อผู้ดูแลระบบ');
+  }
+  const profileResp = UrlFetchApp.fetch('https://api.line.me/v2/profile', {
+    headers: { Authorization: 'Bearer ' + accessToken },
+    muteHttpExceptions: true,
+  });
+  if (profileResp.getResponseCode() >= 300) throw new Error('อ่านข้อมูลโปรไฟล์ LINE ไม่สำเร็จ ลองอีกครั้ง');
+  const profile = JSON.parse(profileResp.getContentText());
+  return { userId: String(profile.userId || ''), displayName: String(profile.displayName || '') };
+}
+
+// ชื่อแอดมินจาก Settings คีย์ admin_staff (คั่นลูกน้ำ/ไปป์/บรรทัด) — เซมแนติก isAdminStaffName_ ฝั่ง main
+function adminStaffNameSet_(raw) {
+  return new Set(String(raw || '').split(/[,|\n]/).map(s => s.trim()).filter(Boolean));
+}
+
+// หาเจ้าของ LINE userId ในทำเนียบ Staff: ต้องผูกแล้ว (APPROVED) และยัง ACTIVE — คืนชื่อต้นหรือ null
+// (layout คอลัมน์เดียวกับ readReportStaff_ / readStaffRoster_ ฝั่ง main: ชื่อต้น=คอลัมน์ 2,
+//  userId=6, สถานะบุคลากร=11, สถานะการผูก=12 — นับแบบ 1-based)
+function findAdminStaffByLineUserId_(userId) {
+  const sheet = getSheet_('Staff');
+  const lastRow = sheet.getLastRow();
+  const data = lastRow >= 3 ? sheet.getRange(3, 1, lastRow - 2, 12).getDisplayValues() : [];
+  const row = data.find(r =>
+    String(r[5]).trim() === String(userId || '').trim() &&
+    String(r[10] || '').trim().toUpperCase() === 'ACTIVE' &&
+    String(r[11] || '').trim().toUpperCase() === 'APPROVED' &&
+    String(r[1]).trim());
+  return row ? String(row[1]).trim() : null;
+}
+
+// apiAction: admin_login — ล็อกอินด้วย LINE token (ผ่านด่าน requireAdminToken_ โดยเฉพาะ)
+// คืนชื่อผู้ใช้ให้หน้าเว็บแสดงว่าล็อกอินเป็นใคร
+function api_adminLogin_(params) {
+  const accessToken = String((params && params.accessToken) || '').trim();
+  if (!accessToken) return { ok: false, code: 'INVALID_REQUEST', error: 'ไม่ได้แนบข้อมูลยืนยันจาก LINE' };
+  let profile;
+  try {
+    profile = verifyAdminLineToken_(accessToken);
+  } catch (err) {
+    return { ok: false, code: err.publicCode || 'UNAUTHORIZED', error: err.message };
+  }
+  const firstName = findAdminStaffByLineUserId_(profile.userId);
+  if (!firstName || !adminStaffNameSet_(api_getSettings().admin_staff).has(firstName)) {
+    return { ok: false, code: 'UNAUTHORIZED', error: 'บัญชี LINE นี้ยังไม่ได้รับสิทธิ์ผู้ดูแลระบบ' };
+  }
+  return { ok: true, actor: firstName, via: 'line' };
+}
+
+// ตรวจสิทธิ์ทุกคำขอ — fail-closed ทุกกรณี (คืน error object ถ้าไม่ผ่าน, null ถ้าผ่าน)
+// สองทาง: รหัสกลาง ADMIN_TOKEN (เดิม ใช้ได้เท่าเดิมทุกประการ) หรือ LINE token ของผู้ได้รับสิทธิ์ (ใหม่)
 function requireAdminToken_(params) {
+  const accessToken = String(params.accessToken || '').trim();
+  if (accessToken) {
+    try {
+      const profile = verifyAdminLineToken_(accessToken);
+      const firstName = findAdminStaffByLineUserId_(profile.userId);
+      if (firstName && adminStaffNameSet_(api_getSettings().admin_staff).has(firstName)) return null;
+    } catch (err) { /* ตกไปที่ปฏิเสธด้านล่าง */ }
+    return { ok: false, code: 'UNAUTHORIZED', error: 'เซสชัน LINE หมดอายุหรือไม่มีสิทธิ์ผู้ดูแล — กรุณาเข้าสู่ระบบใหม่' };
+  }
   const expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '').trim();
   if (!expected) {
     return {
@@ -215,6 +296,8 @@ const ADMIN_API = {
 };
 
 function handleAdminApiRequest_(params) {
+  // admin_login คือการล็อกอินเอง — ไม่ต้องผ่านด่าน requireAdminToken_ (ตรวจภายในแล้ว)
+  if (params.apiAction === 'admin_login') return api_adminLogin_(params);
   const authError = requireAdminToken_(params);
   if (authError) return authError;
   const handler = ADMIN_API[params.apiAction];

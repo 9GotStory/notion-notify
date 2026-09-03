@@ -2,7 +2,26 @@
 
 const LEAVE_PENDING_REMINDER_HANDLER = 'pendingLeaveReminderJob';
 
+// ชื่อต้นนี้อยู่ในรายชื่อผู้ดูแลใน Settings (คีย์ admin_staff คั่นลูกน้ำ/ไปป์/บรรทัด) ไหม — pure
+// เซมแนติก adminStaffNameSet_ ฝั่ง webapp — แก้ฝั่งไหนต้องแก้อีกฝั่งให้ตรงกันด้วย
+function isAdminStaffName_(firstName, settings) {
+  const wanted = String(firstName || '').trim();
+  if (!wanted) return false;
+  return String((settings && settings.admin_staff) || '')
+    .split(/[,|\n]/).map(s => s.trim()).filter(Boolean).includes(wanted);
+}
+
 function requireMainAdminToken_(body) {
+  // ทางเลือกนอกเหนือรหัสกลาง ADMIN_TOKEN: LINE token ของผู้ได้รับสิทธิ์ใน Settings (admin_staff)
+  // — ผ่าน verification เดียวกับฟอร์มลา + ต้องผูกทำเนียบแล้ว (เหมือน admin_login ของ webapp)
+  const accessToken = String((body && body.accessToken) || '').trim();
+  if (accessToken) {
+    try {
+      const profile = verifyLineToken_(accessToken);
+      const staff = findStaffByUserId_(readStaffRoster_(), profile.userId);
+      if (staff && isAdminStaffName_(staff.firstName, getSettings_())) return true;
+    } catch (err) { /* ตกไปที่การตรวจรหัสกลางตามปกติด้านล่าง */ }
+  }
   const expected = String(PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '').trim();
   if (!expected) {
     const err = new Error('ยังไม่ได้ตั้ง ADMIN_TOKEN ใน Apps Script หลัก');

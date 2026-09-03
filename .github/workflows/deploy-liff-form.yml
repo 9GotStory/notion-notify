@@ -68,6 +68,7 @@ jobs:
           API_URL: ${{ secrets.API_URL || vars.API_URL }}
           SCHEDULE_LIFF_ID: ${{ secrets.SCHEDULE_LIFF_ID || vars.SCHEDULE_LIFF_ID }}
           ADMIN_API_URL: ${{ secrets.ADMIN_API_URL || vars.ADMIN_API_URL }}
+          ADMIN_LIFF_ID: ${{ secrets.ADMIN_LIFF_ID || vars.ADMIN_LIFF_ID }}
         run: |
           if [ -z "$LIFF_ID" ] || [ -z "$API_URL" ] || [ -z "$ADMIN_API_URL" ]; then
             echo "::error::ยังไม่ได้ตั้งค่า — ไปที่ Settings > Environments > liff แล้วเพิ่ม LIFF_ID, API_URL และ ADMIN_API_URL"
@@ -79,6 +80,12 @@ jobs:
           fi
           if [ -n "$SCHEDULE_LIFF_ID" ] && [[ ! "$SCHEDULE_LIFF_ID" =~ ^[0-9]+-[A-Za-z0-9]+$ ]]; then
             echo "::error::SCHEDULE_LIFF_ID มีรูปแบบไม่ถูกต้อง"
+            exit 1
+          fi
+          # ADMIN_LIFF_ID เป็นตัวเลือกเช่นกัน: ยังไม่ได้สร้าง LIFF ของหน้าผู้ดูแลก็ deploy ได้
+          # (ปุ่มล็อกอินด้วย LINE จะถูกซ่อน ใช้รหัสผู้ดูแลตามเดิม)
+          if [ -n "$ADMIN_LIFF_ID" ] && [[ ! "$ADMIN_LIFF_ID" =~ ^[0-9]+-[A-Za-z0-9]+$ ]]; then
+            echo "::error::ADMIN_LIFF_ID มีรูปแบบไม่ถูกต้อง"
             exit 1
           fi
           if [[ ! "$API_URL" =~ ^https://script\.google\.com/macros/s/[A-Za-z0-9_-]+/exec$ ]] ||
@@ -131,7 +138,7 @@ jobs:
           cp web/admin/index.html site/web/admin/index.html
           cp web/admin/js/*.js site/web/admin/js/
           cp web/admin/js/views/*.js site/web/admin/js/views/
-          sed -i "s|__ADMIN_API_URL__|$ADMIN_API_URL|g; s|__API_URL__|$API_URL|g" site/web/admin/js/api.js
+          sed -i "s|__ADMIN_API_URL__|$ADMIN_API_URL|g; s|__API_URL__|$API_URL|g; s|__ADMIN_LIFF_ID__|${ADMIN_LIFF_ID:-}|g" site/web/admin/js/api.js
           if grep -rq '__ADMIN_API_URL__\|__API_URL__' site/web/admin/; then
             echo "::error::ยังมี placeholder API URL ค้างในไฟล์"
             exit 1

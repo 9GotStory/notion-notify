@@ -17,6 +17,7 @@ const App = {
     });
     UI.$('loginBtn').addEventListener('click', () => App.login());
     UI.$('tokenInput').addEventListener('keydown', e => { if (e.key === 'Enter') App.login(); });
+    UI.$('loginLineBtn').addEventListener('click', () => App.loginLine());
     UI.$('logoutBtn').addEventListener('click', () => {
       AdminAPI.clearToken();
       location.hash = '';
@@ -26,11 +27,41 @@ const App = {
       btn.addEventListener('click', () => { location.hash = '#/' + btn.dataset.route; }));
     window.addEventListener('hashchange', () => { if (UI.$('appShell').classList.contains('hidden')) return; App.renderRoute(); });
 
-    if (!AdminAPI.getToken()) { App.showLogin(); return; }
-    // มี token ในเครื่อง → ตรวจกับเซิร์ฟเวอร์ก่อนเข้า (เปลี่ยน token ที่ Script Properties = เตะออกทันที)
+    // ปุ่มล็อกอินด้วย LINE โชว์เฉพาะเมื่อ deploy พร้อม LIFF ของหน้านี้ (ADMIN_LIFF_ID)
+    const liffId = String(ADMIN_CONFIG.ADMIN_LIFF_ID || '').trim();
+    if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
+      UI.$('loginLineBtn').classList.remove('hidden');
+      UI.$('loginDivider').classList.remove('hidden');
+    }
+
+    if (!AdminAPI.getToken() && !AdminAPI.getLineToken()) { App.showLogin(); return; }
+    // มีข้อมูลล็อกอินในเครื่อง → ตรวจกับเซิร์ฟเวอร์ก่อนเข้า (ถอนสิทธิ์/เปลี่ยนรหัส = เตะออกทันที)
     AdminAPI.verify(AdminAPI.getToken())
       .then(() => App.showShell())
       .catch(err => App.showLogin(err.message));
+  },
+
+  /** ล็อกอินด้วยบัญชี LINE ของผู้ได้รับสิทธิ์ (Settings > admin_staff) — ไม่ต้องจำรหัสกลางอีกต่อไป */
+  async loginLine() {
+    const btn = UI.$('loginLineBtn');
+    const err = UI.$('loginError');
+    err.classList.add('hidden');
+    UI.setBusy(btn, true, 'กำลังเชื่อมต่อ LINE…');
+    try {
+      if (typeof liff === 'undefined') throw new Error('โหลด LINE SDK ไม่สำเร็จ — ลองรีเฟรชหน้า');
+      await liff.init({ liffId: String(ADMIN_CONFIG.ADMIN_LIFF_ID).trim() });
+      if (!liff.isLoggedIn()) { liff.login(); return; } // browser ภายนอก → ไปหน้า login ของ LINE แล้วเด้งกลับ
+      const accessToken = liff.getAccessToken();
+      const res = await AdminAPI.loginLine(accessToken);
+      AdminAPI.setLineToken(accessToken);
+      App.showShell();
+      UI.showToast('เข้าสู่ระบบสำเร็จ' + (res && res.actor ? ' — ' + res.actor : ''));
+    } catch (e) {
+      err.textContent = e.message || 'เข้าสู่ระบบด้วย LINE ไม่สำเร็จ';
+      err.classList.remove('hidden');
+    } finally {
+      UI.setBusy(btn, false);
+    }
   },
 
   async login() {

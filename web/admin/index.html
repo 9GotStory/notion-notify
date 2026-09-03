@@ -10,6 +10,10 @@
 
 <!-- CSS ชุดเดียวกับฟอร์มลา/ตารางงาน — คอมไพล์โดย GitHub Actions (ไม่ใช้ Tailwind CDN ที่มีปัญหาเครือข่ายองค์กร) -->
 <link rel="stylesheet" href="../liff-form/styles.css">
+
+<!-- LIFF SDK (สำเนา same-origin ชุดเดียวกับฟอร์มลา) — ใช้กับปุ่ม "เข้าสู่ระบบด้วย LINE"
+     ถ้ายังไม่ได้ตั้งค่า ADMIN_LIFF_ID ปุ่มนี้จะถูกซ่อนไป หน้ายังใช้รหัสผู้ดูแลได้ปกติ -->
+<script charset="utf-8" src="../liff-form/sdk.js"></script>
 </head>
 <body class="font-sans bg-canvas text-slate-900 text-[15px] leading-relaxed">
 
@@ -17,15 +21,21 @@
   <div id="loginView" class="hidden min-h-screen flex items-center justify-center px-4">
     <div class="ui-card w-full max-w-sm p-6">
       <h1 class="text-lg font-semibold mb-1">📅 ระบบแจ้งเตือนปฏิทิน</h1>
-      <p class="text-sm text-slate-500 mb-5">หน้าจัดการสำหรับผู้ดูแลระบบ — กรอก token เพื่อเข้าใช้งาน (เก็บไว้ในเครื่องนี้จนกว่าจะออกจากระบบ)</p>
+      <p class="text-sm text-slate-500 mb-5">หน้าจัดการสำหรับผู้ดูแลระบบ — เข้าด้วยบัญชี LINE ที่ได้รับสิทธิ์ หรือใช้รหัสผู้ดูแล</p>
+      <button id="loginLineBtn" type="button" class="ui-btn-primary w-full hidden">เข้าสู่ระบบด้วย LINE</button>
+      <div id="loginDivider" class="flex items-center gap-2 my-3 hidden" aria-hidden="true">
+        <span class="flex-1 border-t border-border"></span>
+        <span class="text-xs text-slate-400">หรือใช้รหัสผู้ดูแล</span>
+        <span class="flex-1 border-t border-border"></span>
+      </div>
       <label for="tokenInput" class="ui-label">Token ผู้ดูแล</label>
       <input id="tokenInput" type="password" autocomplete="off" spellcheck="false"
              class="ui-field font-mono"
              placeholder="วาง token ที่ได้รับจากผู้ดูแลระบบ">
       <p id="loginError" class="ui-alert ui-alert-danger hidden mt-2"></p>
       <button id="loginBtn" type="button"
-              class="ui-btn-primary w-full mt-4">
-        เข้าสู่ระบบ
+              class="ui-btn-soft w-full mt-4">
+        เข้าสู่ระบบด้วยรหัส
       </button>
     </div>
   </div>

@@ -70,7 +70,7 @@ function checkDirectModeContracts() {
     },
     {
       file: '.github/workflows/deploy-liff-form.yml',
-      required: ['API_URL:', 'ADMIN_API_URL:', '__API_URL__', '__ADMIN_API_URL__'],
+      required: ['API_URL:', 'ADMIN_API_URL:', '__API_URL__', '__ADMIN_API_URL__', '__ADMIN_LIFF_ID__'],
       forbidden: ['GATEWAY_URL'],
     },
   ];
@@ -615,6 +615,58 @@ function checkScheduleUxContracts() {
   }
 }
 
+function checkAdminLineLoginContracts() {
+  const contracts = [
+    {
+      file: 'apps/webapp/WebApp.gs',
+      // ล็อกอินผู้ดูแลด้วย LINE: verify กับ api.line.me + ทำเนียบ + รายชื่อจาก Settings (admin_staff)
+      // — ADMIN_TOKEN ยังต้องใช้ได้เท่าเดิมเป็นทางกู้ฉุกเฉิน
+      required: [
+        'function verifyAdminLineToken_',
+        "if (params.apiAction === 'admin_login') return api_adminLogin_(params);",
+        'function api_adminLogin_',
+        'function adminStaffNameSet_',
+        'function findAdminStaffByLineUserId_',
+        "params.accessToken || ''",
+        'LOGIN_CHANNEL_ID',
+      ],
+    },
+    {
+      file: 'apps/main/LeaveManagement.gs',
+      required: [
+        'function isAdminStaffName_',
+        'function requireMainAdminToken_',
+        'isAdminStaffName_(staff.firstName, getSettings_())',
+      ],
+    },
+    {
+      file: 'web/admin/js/api.js',
+      required: [
+        'ADMIN_LIFF_ID',
+        "loginLine(accessToken)",
+        'LINE_TOKEN_KEY',
+        "payload.accessToken = this.getLineToken()",
+      ],
+    },
+    {
+      file: 'web/admin/js/app.js',
+      required: ["UI.$('loginLineBtn').addEventListener('click', () => App.loginLine())", 'async loginLine()'],
+    },
+    {
+      file: 'web/admin/index.html',
+      required: ['id="loginLineBtn"', '../liff-form/sdk.js'],
+    },
+  ];
+  contracts.forEach(contract => {
+    const source = fs.readFileSync(path.join(root, contract.file), 'utf8');
+    const missing = contract.required.filter(value => !source.includes(value));
+    if (missing.length) {
+      console.error(contract.file + ' admin LINE login contract failed; missing: ' + missing.join(', '));
+      process.exitCode = 1;
+    }
+  });
+}
+
 function checkThaiDateContracts() {
   const context = vm.createContext({
     console,
@@ -736,6 +788,7 @@ checkScheduleMonthPickerContracts();
 checkSchedulePhase1Contracts();
 checkSchedulePhase2Contracts();
 checkScheduleUxContracts();
+checkAdminLineLoginContracts();
 checkThaiDateContracts();
 
 if (!process.exitCode) console.log('Syntax, UI, admin view, and direct-mode contract checks passed');
