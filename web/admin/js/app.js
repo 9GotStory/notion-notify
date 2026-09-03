@@ -81,13 +81,20 @@ const App = {
       App.showShell();
       UI.showToast('เข้าสู่ระบบสำเร็จ' + (res && res.actor ? ' — ' + res.actor : ''));
     } catch (e) {
-      if (e && e.code === 'UNAUTHORIZED' && notice) {
+      const unauthorized = e && e.code === 'UNAUTHORIZED';
+      if (unauthorized && (e.message || '').indexOf('หมดอายุ') !== -1) {
+        // เซสชัน LINE หมดอายุ (token LIFF อายุ 12 ชม.) — ล้างตัวเก่าแล้วขอใหม่ให้เองเลย
+        // ผู้ใช้กดปุ่มครั้งเดียว ไม่ต้องมากดซ้ำหลังเจอ error (pattern หน้าตารางงาน)
+        try { liff.logout(); } catch (_) { /* ไปต่อได้ */ }
+        if (!auto) {
+          // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน
+          if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
+          try { liff.login(); return; } catch (_) { /* redirect ไม่เกิด — ไปแสดง notice ด้านล่างต่อ */ }
+        }
+      }
+      if (unauthorized && notice) {
         // ปฏิเสธเรื่องสิทธิ์/เซสชัน → notice เหลืองทั้งโหมด auto/manual: ต้องบอกชัดว่าไม่มีสิทธิ์เข้าถึงหน้านี้
         // ไม่ใช่ error ระบบ — เงียบไว้ผู้ใช้ที่หลงเข้ามาจะคิดว่าระบบพัง
-        if ((e.message || '').indexOf('หมดอายุ') !== -1) {
-          // token เก่าหมดอายุแต่ LIFF ยังค้าง → ล้างให้กดใหม่ได้ token สด ไม่วน fail ซ้ำ (pattern หน้าตารางงาน)
-          try { liff.logout(); } catch (_) { /* ไปต่อได้ */ }
-        }
         notice.textContent = (e.message || 'บัญชี LINE นี้ไม่มีสิทธิ์เข้าถึงหน้านี้') +
           '\nหากคุณควรมีสิทธิ์เข้าถึงหน้านี้ ติดต่อผู้ดูแลระบบ — หรือเข้าสู่ระบบด้วยรหัสผู้ดูแลด้านล่าง';
         notice.classList.remove('hidden');
