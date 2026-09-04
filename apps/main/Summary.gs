@@ -121,27 +121,25 @@ function checkAndSendNotification() {
     // กัน trigger ซ้ำหรือการเรียกซ้ำโดยไม่ตั้งใจไม่ให้ยิงข้อความซ้ำในวันเดียวกัน
     if (props.getProperty('LAST_CHECKED_DATE') === todayStr) return;
 
-    if (isWeekend_(now)) {
-      logResult_(now, 'skip', 'วันเสาร์-อาทิตย์');
-      props.setProperty('LAST_CHECKED_DATE', todayStr);
-      return;
-    }
-    if (isHoliday_(now)) {
-      logResult_(now, 'skip', 'วันหยุดราชการ (ตาราง Holidays)');
-      props.setProperty('LAST_CHECKED_DATE', todayStr);
-      return;
-    }
-
     const items = getNotionItemsForDay_(now, settings.notion_database_id);
     // ส่วนผู้ลาวันนี้ — ถ้ายังไม่ได้ตั้งค่าระบบลา จะคืน [] พร้อม log เอง ไม่กระทบการส่งเช้าหลัก
     const leaves = getApprovedLeavesForDay_(now, settings.leave_database_id);
-    // ส่วนล่วงหน้า (พรุ่งนี้ หรือ N วันถัดไปตาม advance_notice_days) — รวมอยู่ในข้อความเดียวกับของวันนี้
-    // เพราะโควตา LINE นับตามจำนวนผู้รับต่อข้อความ การรวมสองวันไว้ด้วยกันไม่เพิ่มโควตาแม้แต่ข้อความเดียว
+    // ส่วนล่วงหน้า (พรุ่งนี้ หรือ N วันถัดไปตาม advance_notice_days)
     const advance = collectAdvanceNotice_(now, settings);
-
-    // สรุปวันลารายเดือน: การรันเช้าครั้งแรกของแต่ละเดือน (วันทำการแรก) แนบสรุปเดือนที่เพิ่งจบ
-    // มาในข้อความเดียวกัน — ไม่เพิ่มโควตา LINE แม้แต่ข้อความเดียว (นับตามผู้รับต่อข้อความ)
+    // สรุปวันลารายเดือน: การรันเช้าครั้งแรกของแต่ละเดือน
     const monthly = maybeCollectMonthlyLeaveSummary_(now, settings, props);
+
+    const isDayOff = isWeekend_(now) || isHoliday_(now);
+    
+    // ถ้าเป็นวันหยุด จะแจ้งเตือนเฉพาะเมื่อมีรายการของวันนี้ (งานหรือวันเกิด) หรือมีสรุปรายเดือนต้องส่ง
+    // หากไม่มี จะไม่ส่งแจ้งเตือน (แม้จะมีล่วงหน้า advance ก็จะถูกข้ามไปส่งในวันทำการถัดไป)
+    if (isDayOff && items.length === 0 && !(monthly && monthly.summary)) {
+      const dayType = isWeekend_(now) ? 'วันเสาร์-อาทิตย์' : 'วันหยุดราชการ';
+      logResult_(now, 'skip', dayType + ' (ไม่มีงาน/วันเกิด/สรุปเดือนสำหรับวันนี้)');
+      if (monthly) props.setProperty('last_monthly_leave_summary', monthly.currentMonth);
+      props.setProperty('LAST_CHECKED_DATE', todayStr);
+      return;
+    }
 
     if (items.length === 0 && leaves.length === 0 && !advance && !(monthly && monthly.summary)) {
       // ไม่มีงานและไม่มีผู้ลา ทั้งวันนี้และวันล่วงหน้า -> ไม่ส่งข้อความเข้ากลุ่มเลย แต่ยังบันทึก log ไว้เป็นหลักฐานว่าเช็คแล้วจริง
