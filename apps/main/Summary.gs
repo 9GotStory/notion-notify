@@ -240,6 +240,9 @@ function todaySectionTitle_(date) {
 // แปลงงานหนึ่งรายการเป็นบล็อกบูลเล็ต (พร้อมฟิลด์ย่อยแบบย่อหน้า) — ใช้ทั้งส่วนวันนี้และส่วนล่วงหน้า
 // งานแบบหลายวันต่อท้ายช่วงวันที่แบบวงเล็บ เพื่อให้รู้ว่ารายการนี้คร่อมกี่วัน/ถึงวันไหน
 function textItemBlock_(item) {
+  if (item.isBirthday) {
+    return `• 🎉 ${item.title} — ${item.details || 'สุขสันต์วันเกิด!'}`;
+  }
   const range = itemRangeLabel_(item);
   const lines = [`• ${itemTimeLabel_(item)} — ${item.title}${range ? ' (' + range + ')' : ''}`];
   itemSubFields_(item).forEach(f => lines.push(`   ${f.label}: ${f.value}`));
@@ -292,6 +295,21 @@ function flexItemBoxes_(items, accentColor) {
   const accent = accentColor || TODAY_SECTION_THEME.text;
   items.forEach((item, i) => {
     if (i > 0) boxes.push({ type: 'separator', margin: 'lg' });
+
+    if (item.isBirthday) {
+      boxes.push({
+        type: 'box', layout: 'vertical', margin: 'md', contents: [
+          {
+            type: 'box', layout: 'baseline', contents: [
+              { type: 'text', text: '🎉', size: 'sm', flex: 0, adjustMode: 'shrink-to-fit' },
+              { type: 'text', text: item.title, size: 'sm', weight: 'bold', wrap: true, flex: 1, margin: 'md', color: '#D946EF' }
+            ]
+          },
+          { type: 'text', text: item.details || 'สุขสันต์วันเกิด!', size: 'xs', color: '#C026D3', wrap: true, margin: 'sm', offsetStart: 'xl' }
+        ]
+      });
+      return;
+    }
 
     const itemContents = [
       {

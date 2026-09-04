@@ -276,6 +276,18 @@
   }
 
   function itemCard(item) {
+    if (item.isBirthday) {
+      return (
+        '<div class="ui-card border-pink-200 bg-pink-50 p-4 mt-2">' +
+          '<div class="flex items-baseline gap-2">' +
+            '<span class="text-xs font-bold text-pink-500 shrink-0">🎉</span>' +
+            '<span class="text-sm font-bold text-slate-800 min-w-0">' + escapeHtml(item.title) + '</span>' +
+          '</div>' +
+          (state.full && item.details ? '<div class="mt-1 text-xs font-medium text-pink-700">' + escapeHtml(item.details) + '</div>' : '') +
+        '</div>'
+      );
+    }
+
     const rows = [];
     if (item.range) rows.push(['ช่วงวันที่', item.range]); // งานหลายวัน — บอกช่วงเต็มของรายการนี้
     if (state.full && item.assignees) rows.push(['ผู้รับผิดชอบ', item.assignees]);

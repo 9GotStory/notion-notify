@@ -82,7 +82,8 @@ function getNotionItemsForDay_(date, databaseId) {
         assignees: [staff.firstName],
         location: '',
         details: 'สุขสันต์วันเกิด! 🎉',
-        notes: ''
+        notes: '',
+        isBirthday: true
       });
     }
   });
@@ -345,7 +346,8 @@ function apiSchedule_(body) {
           location: '',
           assignees: staff.firstName,
           details: 'สุขสันต์วันเกิด! 🎉',
-          notes: ''
+          notes: '',
+          isBirthday: true
         });
       }
     });
