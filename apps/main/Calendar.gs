@@ -50,9 +50,44 @@ function getNotionItemsForDay_(date, databaseId) {
   // (Notion filter เทียบวันเริ่มเท่านั้น) แล้วกรอง overlap จริงด้วย itemOverlapsRange_ อีกชั้น
   const payload = buildNotionQueryPayload_(shiftDateStr_(todayStr, -RANGE_PADDING_DAYS), tomorrowStr);
 
-  return queryNotionPages_(dataSourceId, payload)
+  const items = queryNotionPages_(dataSourceId, payload)
     .map(parseNotionPage_)
     .filter(item => itemOverlapsRange_(item, todayStr, tomorrowStr));
+
+  // เพิ่มวันเกิดของบุคลากร
+  const viewMonthStr = todayStr.split('-')[1];
+  const viewDayStr = todayStr.split('-')[2];
+  const roster = readStaffRoster_();
+  roster.forEach(staff => {
+    let bdayMonth = null;
+    let bdayDay = null;
+    const dob = (staff.dob || '').trim();
+    const matchDash = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const matchSlash = dob.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (matchDash) {
+      bdayMonth = matchDash[2];
+      bdayDay = matchDash[3];
+    } else if (matchSlash) {
+      bdayMonth = matchSlash[2].padStart(2, '0');
+      bdayDay = matchSlash[1].padStart(2, '0');
+    }
+    
+    if (bdayMonth === viewMonthStr && bdayDay === viewDayStr) {
+      items.push({
+        title: '🎂 วันเกิด ' + staff.firstName + ' ' + staff.lastName,
+        start: todayStr + 'T00:00:00Z',
+        end: todayStr + 'T00:00:00Z',
+        isDatetime: false,
+        status: 'ยืนยันแล้ว',
+        assignees: [staff.firstName],
+        location: '',
+        details: 'สุขสันต์วันเกิด! 🎉',
+        notes: ''
+      });
+    }
+  });
+
+  return items;
 }
 
 // ดึงข้อมูลส่วน "ล่วงหน้า" ตามค่า advance_notice_days ใน Settings (1–7, เว้นว่าง/ค่าอื่น = ปิด)
@@ -284,7 +319,43 @@ function apiSchedule_(body) {
       const onLeave = conflictingAssignees_(row.assignees, leaveNamesByDate[row.date]);
       if (onLeave.length) row.assigneesOnLeave = onLeave;
     });
+
+    // เพิ่มวันเกิดของบุคลากรในเดือนนี้ (แสดงเป็นงานตลอดวัน)
+    const viewMonthStr = month.split('-')[1]; // 'MM'
+    roster.forEach(staff => {
+      let bdayMonth = null;
+      let bdayDay = null;
+      const dob = (staff.dob || '').trim();
+      const matchDash = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      const matchSlash = dob.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (matchDash) {
+        bdayMonth = matchDash[2];
+        bdayDay = matchDash[3];
+      } else if (matchSlash) {
+        bdayMonth = matchSlash[2].padStart(2, '0');
+        bdayDay = matchSlash[1].padStart(2, '0');
+      }
+      
+      if (bdayMonth === viewMonthStr) {
+        items.push({
+          date: month + '-' + bdayDay,
+          title: '🎂 วันเกิด ' + staff.firstName + ' ' + staff.lastName,
+          time: 'ทั้งวัน',
+          range: '',
+          location: '',
+          assignees: staff.firstName,
+          details: 'สุขสันต์วันเกิด! 🎉',
+          notes: ''
+        });
+      }
+    });
   }
+
+  // จัดเรียง items ใหม่อีกรอบหลังจากเพิ่มวันเกิด
+  items.sort((a, b) => a.date === b.date
+    ? a.title.localeCompare(b.title, 'th')
+    : (a.date < b.date ? -1 : 1));
+
   const result = { ok: true, month: month, full: full, viewMonths: { back: viewBack, fwd: viewFwd }, items: items, leaves: leaves };
   // เหตุผลเดียวกับด้านบน: cache เก็บข้อมูลตารางรวมได้ แต่ชื่อผู้ดูต่อท้ายตอนคืนค่าเท่านั้น
   try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }

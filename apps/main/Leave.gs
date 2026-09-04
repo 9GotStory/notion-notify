@@ -153,6 +153,7 @@ const STAFF_SHEET_COLUMNS = [
   'รหัสบุคลากร', 'สถานะบุคลากร', 'สถานะการผูก LINE',
   'LINE User ID ที่รออนุมัติ', 'ชื่อ LINE ที่รออนุมัติ', 'ขอผูกเมื่อ',
   'ผู้อนุมัติการผูก', 'อนุมัติการผูกเมื่อ', 'Binding Request ID',
+  'วันเกิด',
 ];
 
 const STAFF_ACTIVE_STATUS = 'ACTIVE';
@@ -263,6 +264,7 @@ function readStaffRoster_() {
       bindingApprovedBy: String(row[15] || '').trim(),
       bindingApprovedAt: String(row[16] || '').trim(),
       bindingRequestId: String(row[17] || '').trim(),
+      dob: String(row[18] || '').trim(),
     }))
     .filter(staff => staff.firstName && staff.lastName); // ต้องมีทั้งชื่อและสกุลจึงนับ
 }
