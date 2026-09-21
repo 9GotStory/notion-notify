@@ -200,6 +200,73 @@
           </div>
 
           <div
+            id="createActivityPanel"
+            class="mt-4 border-t border-slate-200 pt-4"
+          >
+            <div>
+              <h3 class="text-sm font-semibold text-text">
+                สร้างกิจกรรมใหม่
+              </h3>
+
+              <p class="ui-help">
+                ใช้เมื่อยังไม่พบกิจกรรมที่ต้องการในรายการด้านบน
+              </p>
+            </div>
+
+            <div class="mt-4 space-y-4">
+              <div>
+                <label
+                  for="activityDate"
+                  class="mb-1.5 block text-sm font-medium text-text"
+                >
+                  วันที่กิจกรรม
+                </label>
+
+                <input
+                  id="activityDate"
+                  type="date"
+                  class="ui-input w-full"
+                >
+              </div>
+
+              <div>
+                <label
+                  for="activityNameInput"
+                  class="mb-1.5 block text-sm font-medium text-text"
+                >
+                  ชื่อกิจกรรม
+                </label>
+
+                <input
+                  id="activityNameInput"
+                  type="text"
+                  autocomplete="off"
+                  class="ui-input w-full"
+                  placeholder="เช่น ประชุมประจำเดือน"
+                >
+
+                <p class="ui-help">
+                  ระบบจะสร้างชื่อโฟลเดอร์จากวันที่และชื่อกิจกรรมให้อัตโนมัติ
+                </p>
+              </div>
+
+              <button
+                id="createActivityButton"
+                type="button"
+                class="ui-btn-secondary w-full"
+              >
+                สร้างกิจกรรม
+              </button>
+
+              <p
+                id="createActivityStatus"
+                class="ui-help"
+                aria-live="polite"
+              ></p>
+            </div>
+          </div>
+
+          <div
             id="destinationSummary"
             class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4"
           >
@@ -938,6 +1005,224 @@
       return state.destination;
     }
 
+    function parseGregorianDate_(value) {
+      const raw =
+        String(value || '').trim();
+
+      const match =
+        /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(
+          raw
+        );
+
+      if (!match) {
+        throw new Error(
+          'กรุณาเลือกวันที่กิจกรรม'
+        );
+      }
+
+      const year =
+        Number(match[1]);
+
+      const month =
+        Number(match[2]);
+
+      const day =
+        Number(match[3]);
+
+      const date =
+        new Date(
+          Date.UTC(
+            year,
+            month - 1,
+            day
+          )
+        );
+
+      if (
+        date.getUTCFullYear() !== year ||
+        date.getUTCMonth() !== month - 1 ||
+        date.getUTCDate() !== day
+      ) {
+        throw new Error(
+          'วันที่กิจกรรมไม่ถูกต้อง'
+        );
+      }
+
+      return {
+        year,
+        month: match[2],
+        day: match[3],
+      };
+    }
+
+    function buildActivityName(
+      dateValue,
+      activityName
+    ) {
+      const date =
+        parseGregorianDate_(
+          dateValue
+        );
+
+      const name =
+        String(activityName || '')
+          .trim()
+          .normalize('NFC');
+
+      if (!name) {
+        throw new Error(
+          'กรุณาระบุชื่อกิจกรรม'
+        );
+      }
+
+      if (
+        name.includes('/') ||
+        name.includes('\\') ||
+        name.includes('\0') ||
+        name === '.' ||
+        name === '..' ||
+        name.includes('../') ||
+        name.includes('..\\')
+      ) {
+        throw new Error(
+          'ชื่อกิจกรรมมีอักขระที่ไม่อนุญาต'
+        );
+      }
+
+      const buddhistYear =
+        date.year + 543;
+
+      if (
+        buddhistYear < 2400 ||
+        buddhistYear > 2999
+      ) {
+        throw new Error(
+          'ปีของกิจกรรมอยู่นอกช่วงที่รองรับ'
+        );
+      }
+
+      return (
+        String(buddhistYear) +
+        '-' +
+        date.month +
+        '-' +
+        date.day +
+        '_' +
+        name
+      );
+    }
+
+    async function createActivity(
+      dateValue,
+      activityName
+    ) {
+      if (
+        !state.selectedTopic ||
+        state.selectedTopic.type !==
+          'topic' ||
+        !state.selectedYear
+      ) {
+        throw new Error(
+          'กรุณาเลือกหมวดงานและปีก่อน'
+        );
+      }
+
+      const canonicalName =
+        buildActivityName(
+          dateValue,
+          activityName
+        );
+
+      if (
+        canonicalName.slice(0, 4) !==
+          state.selectedYear
+      ) {
+        throw new Error(
+          'วันที่กิจกรรมไม่อยู่ในปี พ.ศ. ที่เลือก'
+        );
+      }
+
+      const result =
+        await photoApi(
+          '/v1/activities',
+          {
+            method: 'POST',
+
+            headers: {
+              'Content-Type':
+                'application/json',
+            },
+
+            body: JSON.stringify({
+              topic:
+                state.selectedTopic.name,
+
+              year:
+                state.selectedYear,
+
+              activityName:
+                canonicalName,
+            }),
+          }
+        );
+
+      const activity =
+        result.activity;
+
+      if (
+        !activity ||
+        typeof activity.name !==
+          'string' ||
+        typeof activity.path !==
+          'string'
+      ) {
+        throw new Error(
+          'รูปแบบข้อมูลกิจกรรมที่ได้รับไม่ถูกต้อง'
+        );
+      }
+
+      // Backend response คือ canonical authority
+      state.activities = [
+        activity,
+
+        ...state.activities.filter(
+          item =>
+            item &&
+            item.name !==
+              activity.name
+        ),
+      ].sort(
+        (left, right) =>
+          right.name.localeCompare(
+            left.name,
+            'th'
+          )
+      );
+
+      state.selectedActivity =
+        activity;
+
+      state.destination = {
+        type: 'activity',
+
+        topic:
+          state.selectedTopic.name,
+
+        year:
+          state.selectedYear,
+
+        activity:
+          activity.name,
+
+        path:
+          activity.path,
+      };
+
+      renderDestinationState_();
+
+      return activity;
+    }
+
     function roleLabel_(role) {
       if (role === 'admin') {
         return 'ผู้ดูแลระบบ';
@@ -1181,6 +1466,66 @@
                   ? err.message
                   : String(err);
             }
+          }
+        }
+      );
+    }
+
+    const createActivityButton =
+      $('createActivityButton');
+
+    if (createActivityButton) {
+      createActivityButton.addEventListener(
+        'click',
+        async () => {
+          const dateInput =
+            $('activityDate');
+
+          const nameInput =
+            $('activityNameInput');
+
+          const status =
+            $('createActivityStatus');
+
+          createActivityButton.disabled =
+            true;
+
+          if (status) {
+            status.textContent =
+              'กำลังสร้างกิจกรรม…';
+          }
+
+          try {
+            const activity =
+              await createActivity(
+                dateInput
+                  ? dateInput.value
+                  : '',
+
+                nameInput
+                  ? nameInput.value
+                  : ''
+              );
+
+            if (status) {
+              status.textContent =
+                'พร้อมใช้งาน: ' +
+                activity.name;
+            }
+
+            if (nameInput) {
+              nameInput.value = '';
+            }
+          } catch (err) {
+            if (status) {
+              status.textContent =
+                err && err.message
+                  ? err.message
+                  : String(err);
+            }
+          } finally {
+            createActivityButton.disabled =
+              false;
           }
         }
       );

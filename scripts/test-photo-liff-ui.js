@@ -158,6 +158,16 @@ async function run() {
       typeof selectActivity === 'function'
         ? selectActivity
         : null,
+
+    buildActivityName:
+      typeof buildActivityName === 'function'
+        ? buildActivityName
+        : null,
+
+    createActivity:
+      typeof createActivity === 'function'
+        ? createActivity
+        : null,
   };
 })();`
   );
@@ -397,6 +407,28 @@ async function run() {
         };
       }
 
+      if (fetchCalls.length === 6) {
+        return {
+          ok: true,
+          status: 201,
+
+          async json() {
+            return {
+              ok: true,
+              created: true,
+
+              activity: {
+                name:
+                  '2569-09-21_ทดสอบ Photo Bridge',
+                path:
+                  '80_งานกิจกรรมกลาง/2569/' +
+                  '2569-09-21_ทดสอบ Photo Bridge',
+              },
+            };
+          },
+        };
+      }
+
       throw new Error(
         'unexpected extra fetch: ' + url
       );
@@ -564,6 +596,19 @@ async function run() {
       'admin',
     'UI must not trust issuer actor as final authority'
   );
+
+  // ---------- Create activity UI ----------
+
+  [
+    'id="activityDate"',
+    'id="activityNameInput"',
+    'id="createActivityButton"',
+  ].forEach(required => {
+    assert(
+      html.includes(required),
+      'create activity UI missing: ' + required
+    );
+  });
 
   // ---------- Destination selection ----------
 
@@ -745,8 +790,174 @@ async function run() {
     'activity selection must produce canonical destination'
   );
 
+  // ---------- Create activity ----------
+
+  assert(
+    typeof ui.buildActivityName ===
+      'function',
+    'photo UI must provide buildActivityName()'
+  );
+
+  assert(
+    typeof ui.createActivity ===
+      'function',
+    'photo UI must provide createActivity()'
+  );
+
+  const canonicalName =
+    ui.buildActivityName(
+      '2026-09-21',
+      '  ทดสอบ Photo Bridge  '
+    );
+
+  assert(
+    canonicalName ===
+      '2569-09-21_ทดสอบ Photo Bridge',
+    'Gregorian activity date must become canonical Buddhist-year folder name'
+  );
+
+  // วันที่ต้องสัมพันธ์กับปี พ.ศ. ที่เลือก
+  const beforeWrongYear =
+    fetchCalls.length;
+
+  let wrongYearError = null;
+
+  try {
+    await ui.createActivity(
+      '2025-09-21',
+      'ปีไม่ตรงกัน'
+    );
+  } catch (err) {
+    wrongYearError = err;
+  }
+
+  assert(
+    wrongYearError,
+    'activity date outside selected Buddhist year must be rejected'
+  );
+
+  assert(
+    fetchCalls.length ===
+      beforeWrongYear,
+    'invalid activity year must not call Photo Bridge'
+  );
+
+  // ชื่อที่มี path separator ต้องถูกปฏิเสธฝั่ง client
+  const beforeUnsafeName =
+    fetchCalls.length;
+
+  let unsafeNameError = null;
+
+  try {
+    await ui.createActivity(
+      '2026-09-21',
+      '../unsafe'
+    );
+  } catch (err) {
+    unsafeNameError = err;
+  }
+
+  assert(
+    unsafeNameError,
+    'unsafe activity name must be rejected'
+  );
+
+  assert(
+    fetchCalls.length ===
+      beforeUnsafeName,
+    'unsafe activity name must not call Photo Bridge'
+  );
+
+  // สร้างกิจกรรมจริง
+  const created =
+    await ui.createActivity(
+      '2026-09-21',
+      'ทดสอบ Photo Bridge'
+    );
+
+  assert(
+    fetchCalls.length === 6,
+    'create activity must make exactly one POST request'
+  );
+
+  const createRequest =
+    fetchCalls[5];
+
+  assert(
+    createRequest.url ===
+      context.CONFIG.PHOTO_API_URL +
+        '/v1/activities',
+    'create activity endpoint mismatch'
+  );
+
+  assert(
+    createRequest.method === 'POST',
+    'create activity must use POST'
+  );
+
+  assert(
+    createRequest.headers.Authorization ===
+      'Bearer runtime-photo-ticket',
+    'create activity must use Photo Ticket'
+  );
+
+  assert(
+    createRequest.headers['Content-Type'] ===
+      'application/json',
+    'create activity must use application/json'
+  );
+
+  const createBody =
+    JSON.parse(createRequest.body);
+
+  assert(
+    createBody.topic ===
+      '80_งานกิจกรรมกลาง',
+    'create activity topic mismatch'
+  );
+
+  assert(
+    createBody.year === '2569',
+    'create activity Buddhist year mismatch'
+  );
+
+  assert(
+    createBody.activityName ===
+      '2569-09-21_ทดสอบ Photo Bridge',
+    'create activity canonical name mismatch'
+  );
+
+  assert(
+    created &&
+      created.name ===
+        '2569-09-21_ทดสอบ Photo Bridge',
+    'createActivity must return backend activity'
+  );
+
+  // backend response เป็น canonical authority
+  assert(
+    ui.state.destination &&
+      ui.state.destination.type ===
+        'activity' &&
+      ui.state.destination.activity ===
+        '2569-09-21_ทดสอบ Photo Bridge' &&
+      ui.state.destination.path ===
+        '80_งานกิจกรรมกลาง/2569/' +
+        '2569-09-21_ทดสอบ Photo Bridge',
+    'created backend activity must become selected destination'
+  );
+
+  assert(
+    ui.state.activities.some(
+      item =>
+        item.name ===
+          '2569-09-21_ทดสอบ Photo Bridge'
+    ),
+    'created activity must appear in current activity list'
+  );
+
   console.log(
-    'Photo LIFF destination selection contract passed'
+    'Photo LIFF create activity contract passed'
   );
 
 }
