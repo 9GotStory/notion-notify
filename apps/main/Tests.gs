@@ -1788,3 +1788,143 @@ function assertThrows_(fn, expectedMessage) {
   if (!thrown) throw new Error('คาดว่าฟังก์ชันต้อง throw error');
   if (expectedMessage) assertContains_(thrown.message || thrown, expectedMessage);
 }
+
+function testPhotoTicketGoldenVector_() {
+  const claims = {
+    sub: 'Utest123',
+    staffKey: 'นายทดสอบ ระบบ',
+    role: 'manager',
+    iat: 1770000000,
+    exp: 1770000300,
+  };
+
+  const expected =
+    'eyJzdWIiOiJVdGVzdDEyMyIsInN0YWZmS2V5Ijoi4LiZ4Liy4Lii4LiX4LiU4Liq4Lit4LiaIOC4o-C4sOC4muC4miIsInJvbGUiOiJtYW5hZ2VyIiwiaWF0IjoxNzcwMDAwMDAwLCJleHAiOjE3NzAwMDAzMDB9.yxeVt6BzZMQMAjxCCixO3K3pQcZ3GZ89AmiGeYQCCGk';
+
+  assertEqual_(
+    createPhotoTicket_(
+      claims,
+      'photo-test-secret'
+    ),
+    expected,
+    'Apps Script Photo Ticket ต้องตรงกับ Node golden vector'
+  );
+}
+
+function testPhotoTicketRoleMapping_() {
+  const settings = {
+    admin_staff: 'นายแอด มิน',
+    photo_managers: 'นายจัดการ ภาพ',
+  };
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายแอด มิน',
+      settings
+    ),
+    'admin',
+    'admin_staff ต้องได้ role admin'
+  );
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายจัดการ ภาพ',
+      settings
+    ),
+    'manager',
+    'photo_managers ต้องได้ role manager'
+  );
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายผู้ ใช้งาน',
+      settings
+    ),
+    'user',
+    'Staff ปกติต้องได้ role user'
+  );
+
+  const both = {
+    admin_staff: 'นายซ้ำ สิทธิ์',
+    photo_managers: 'นายซ้ำ สิทธิ์',
+  };
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายซ้ำ สิทธิ์',
+      both
+    ),
+    'admin',
+    'admin ต้องมี precedence สูงกว่า manager'
+  );
+}
+
+function testPhotoTicketGoldenVector_() {
+  const claims = {
+    sub: 'Utest123',
+    staffKey: 'นายทดสอบ ระบบ',
+    role: 'manager',
+    iat: 1770000000,
+    exp: 1770000300,
+  };
+
+  const expected =
+    'eyJzdWIiOiJVdGVzdDEyMyIsInN0YWZmS2V5Ijoi4LiZ4Liy4Lii4LiX4LiU4Liq4Lit4LiaIOC4o-C4sOC4muC4miIsInJvbGUiOiJtYW5hZ2VyIiwiaWF0IjoxNzcwMDAwMDAwLCJleHAiOjE3NzAwMDAzMDB9.yxeVt6BzZMQMAjxCCixO3K3pQcZ3GZ89AmiGeYQCCGk';
+
+  assertEqual_(
+    createPhotoTicket_(
+      claims,
+      'photo-test-secret'
+    ),
+    expected,
+    'Apps Script Photo Ticket ต้องตรงกับ Node golden vector'
+  );
+}
+
+function testPhotoTicketRoleMapping_() {
+  const settings = {
+    admin_staff: 'นายแอด มิน',
+    photo_managers: 'นายจัดการ ภาพ',
+  };
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายแอด มิน',
+      settings
+    ),
+    'admin',
+    'admin_staff ต้องได้ role admin'
+  );
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายจัดการ ภาพ',
+      settings
+    ),
+    'manager',
+    'photo_managers ต้องได้ role manager'
+  );
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายผู้ ใช้งาน',
+      settings
+    ),
+    'user',
+    'Staff ปกติต้องได้ role user'
+  );
+
+  const both = {
+    admin_staff: 'นายซ้ำ สิทธิ์',
+    photo_managers: 'นายซ้ำ สิทธิ์',
+  };
+
+  assertEqual_(
+    photoRoleForStaffKey_(
+      'นายซ้ำ สิทธิ์',
+      both
+    ),
+    'admin',
+    'admin ต้องมี precedence สูงกว่า manager'
+  );
+}
