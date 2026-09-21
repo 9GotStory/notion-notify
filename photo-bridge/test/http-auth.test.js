@@ -184,3 +184,57 @@ test('topics endpoint hides backend failures', async () => {
     error: 'Internal server error',
   });
 });
+
+test('authenticated user can list activities', async () => {
+  const activityContext = {
+    ...context,
+    archiveService: {
+      async listActivities(topic, year) {
+        assert.equal(
+          topic,
+          '80_งานกิจกรรมกลาง'
+        );
+        assert.equal(year, '2569');
+
+        return [
+          {
+            name:
+              '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+            path:
+              '80_งานกิจกรรมกลาง/2569/2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+          },
+        ];
+      },
+    },
+  };
+
+  const result = await handleHttpRequest(
+    request(
+      '/v1/activities?topic=' +
+        encodeURIComponent('80_งานกิจกรรมกลาง') +
+        '&year=2569',
+      ticket()
+    ),
+    activityContext
+  );
+
+  assert.equal(result.status, 200);
+
+  assert.equal(
+    result.body.activities[0].name,
+    '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง'
+  );
+});
+
+test('activities endpoint requires authentication', async () => {
+  const result = await handleHttpRequest(
+    request(
+      '/v1/activities?topic=' +
+        encodeURIComponent('80_งานกิจกรรมกลาง') +
+        '&year=2569'
+    ),
+    context
+  );
+
+  assert.equal(result.status, 401);
+});

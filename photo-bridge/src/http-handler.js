@@ -4,6 +4,8 @@ import {
   requireRole,
 } from './auth.js';
 
+import { ArchiveInputError } from './archive-service.js';
+
 function response(status, body) {
   return {
     status,
@@ -65,6 +67,26 @@ export async function handleHttpRequest(request, context) {
 
     if (
       method === 'GET' &&
+      url.pathname === '/v1/activities'
+    ) {
+      if (!context.archiveService) {
+        throw new Error('Archive service unavailable');
+      }
+
+      const activities =
+        await context.archiveService.listActivities(
+          url.searchParams.get('topic'),
+          url.searchParams.get('year')
+        );
+
+      return response(200, {
+        ok: true,
+        activities,
+      });
+    }
+
+    if (
+      method === 'GET' &&
       url.pathname === '/v1/manager/session'
     ) {
       requireRole(actor, ['manager', 'admin']);
@@ -80,7 +102,10 @@ export async function handleHttpRequest(request, context) {
       error: 'Not found',
     });
   } catch (error) {
-    if (error instanceof AuthError) {
+    if (
+      error instanceof AuthError ||
+      error instanceof ArchiveInputError
+    ) {
       return response(error.statusCode, {
         ok: false,
         error: error.message,
