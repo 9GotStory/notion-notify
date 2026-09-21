@@ -24,7 +24,7 @@ function safeActor(actor) {
   };
 }
 
-export function handleHttpRequest(request, context) {
+export async function handleHttpRequest(request, context) {
   const method = String(request.method || 'GET').toUpperCase();
   const url = new URL(request.url, 'http://localhost');
 
@@ -49,7 +49,24 @@ export function handleHttpRequest(request, context) {
       });
     }
 
-    if (method === 'GET' && url.pathname === '/v1/manager/session') {
+    if (method === 'GET' && url.pathname === '/v1/topics') {
+      if (!context.archiveService) {
+        throw new Error('Archive service unavailable');
+      }
+
+      const topics =
+        await context.archiveService.listSelectableTopics();
+
+      return response(200, {
+        ok: true,
+        topics,
+      });
+    }
+
+    if (
+      method === 'GET' &&
+      url.pathname === '/v1/manager/session'
+    ) {
       requireRole(actor, ['manager', 'admin']);
 
       return response(200, {

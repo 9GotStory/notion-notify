@@ -46,8 +46,8 @@ const context = {
   },
 };
 
-test('health endpoint is public', () => {
-  const result = handleHttpRequest(
+test('health endpoint is public', async () => {
+  const result = await handleHttpRequest(
     request('/health'),
     context
   );
@@ -56,8 +56,8 @@ test('health endpoint is public', () => {
   assert.equal(result.body.ok, true);
 });
 
-test('authenticated session returns safe actor fields', () => {
-  const result = handleHttpRequest(
+test('authenticated session returns safe actor fields', async () => {
+  const result = await handleHttpRequest(
     request('/v1/session', ticket()),
     context
   );
@@ -71,8 +71,8 @@ test('authenticated session returns safe actor fields', () => {
   });
 });
 
-test('missing bearer ticket returns 401', () => {
-  const result = handleHttpRequest(
+test('missing bearer ticket returns 401', async () => {
+  const result = await handleHttpRequest(
     request('/v1/session'),
     context
   );
@@ -80,8 +80,8 @@ test('missing bearer ticket returns 401', () => {
   assert.equal(result.status, 401);
 });
 
-test('normal user cannot access manager boundary', () => {
-  const result = handleHttpRequest(
+test('normal user cannot access manager boundary', async () => {
+  const result = await handleHttpRequest(
     request('/v1/manager/session', ticket('user')),
     context
   );
@@ -89,8 +89,8 @@ test('normal user cannot access manager boundary', () => {
   assert.equal(result.status, 403);
 });
 
-test('manager can access manager boundary', () => {
-  const result = handleHttpRequest(
+test('manager can access manager boundary', async () => {
+  const result = await handleHttpRequest(
     request('/v1/manager/session', ticket('manager')),
     context
   );
@@ -98,8 +98,8 @@ test('manager can access manager boundary', () => {
   assert.equal(result.status, 200);
 });
 
-test('admin can access manager boundary', () => {
-  const result = handleHttpRequest(
+test('admin can access manager boundary', async () => {
+  const result = await handleHttpRequest(
     request('/v1/manager/session', ticket('admin')),
     context
   );
@@ -107,16 +107,80 @@ test('admin can access manager boundary', () => {
   assert.equal(result.status, 200);
 });
 
-test('ticket exceeding configured lifetime is rejected', () => {
+test('ticket exceeding configured lifetime is rejected', async () => {
   const longTicket = ticket('user', {
     iat: 1000,
     exp: 1600,
   });
 
-  const result = handleHttpRequest(
+  const result = await handleHttpRequest(
     request('/v1/session', longTicket),
     context
   );
 
   assert.equal(result.status, 401);
+});
+
+test('authenticated user can list topics', async () => {
+  const topicContext = {
+    ...context,
+    archiveService: {
+      async listSelectableTopics() {
+        return [
+          {
+            name: '80_งานกิจกรรมกลาง',
+            path: '80_งานกิจกรรมกลาง',
+            type: 'topic',
+          },
+        ];
+      },
+    },
+  };
+
+  const result = await handleHttpRequest(
+    request('/v1/topics', ticket()),
+    topicContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body.topics, [
+    {
+      name: '80_งานกิจกรรมกลาง',
+      path: '80_งานกิจกรรมกลาง',
+      type: 'topic',
+    },
+  ]);
+});
+
+test('topics endpoint requires authentication', async () => {
+  const result = await handleHttpRequest(
+    request('/v1/topics'),
+    context
+  );
+
+  assert.equal(result.status, 401);
+});
+
+test('topics endpoint hides backend failures', async () => {
+  const topicContext = {
+    ...context,
+    archiveService: {
+      async listSelectableTopics() {
+        throw new Error(
+          'backend secret information'
+        );
+      },
+    },
+  };
+
+  const result = await handleHttpRequest(
+    request('/v1/topics', ticket()),
+    topicContext
+  );
+
+  assert.equal(result.status, 500);
+  assert.deepEqual(result.body, {
+    ok: false,
+    error: 'Internal server error',
+  });
 });
