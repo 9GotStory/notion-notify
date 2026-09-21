@@ -178,6 +178,42 @@ export async function handleHttpRequest(request, context) {
 
     if (
       method === 'POST' &&
+      url.pathname === '/v1/archive'
+    ) {
+      requireRole(actor, ['manager', 'admin']);
+
+      if (
+        !request.body ||
+        typeof request.body !== 'object' ||
+        Array.isArray(request.body)
+      ) {
+        throw new ArchiveInputError(
+          'JSON body is required'
+        );
+      }
+
+      if (!context.managerService) {
+        throw new Error(
+          'Manager service unavailable'
+        );
+      }
+
+      const result =
+        await context.managerService.archiveActivity({
+          topic: request.body.topic,
+          year: request.body.year,
+          activityName:
+            request.body.activityName,
+        });
+
+      return response(200, {
+        ok: true,
+        archived: result,
+      });
+    }
+
+    if (
+      method === 'POST' &&
       url.pathname === '/v1/rename'
     ) {
       requireRole(actor, ['manager', 'admin']);

@@ -457,3 +457,280 @@ test('activity rename returns 409 when destination already exists', async () => 
     }
   );
 });
+
+test('manager archives activity preserving topic and year hierarchy', async () => {
+  const activityName =
+    '2569-09-03_กิจกรรมทดสอบ';
+
+  const sourcePath =
+    `${TOPIC}/${YEAR}/${activityName}`;
+
+  let moved;
+  const ensured = [];
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+    archiveName: '99_ARCHIVE_คลังภาพเก่า',
+
+    archiveService: {
+      async listActivities(topic, year) {
+        assert.equal(topic, TOPIC);
+        assert.equal(year, YEAR);
+
+        return [
+          {
+            name: activityName,
+            path: sourcePath,
+          },
+        ];
+      },
+
+      async ensureFolder(parent, name) {
+        ensured.push([parent, name]);
+
+        return {
+          path: `${parent}/${name}`,
+          created: true,
+        };
+      },
+    },
+
+    dav: {
+      async listFolders(path) {
+        assert.equal(
+          path,
+          `99_ARCHIVE_คลังภาพเก่า/${TOPIC}/${YEAR}`
+        );
+
+        return [];
+      },
+
+      async move(source, destination, options) {
+        moved = {
+          source,
+          destination,
+          options,
+        };
+      },
+    },
+  });
+
+  const result = await service.archiveActivity({
+    topic: TOPIC,
+    year: YEAR,
+    activityName,
+  });
+
+  assert.deepEqual(ensured, [
+    ['99_ARCHIVE_คลังภาพเก่า', TOPIC],
+    [`99_ARCHIVE_คลังภาพเก่า/${TOPIC}`, YEAR],
+  ]);
+
+  assert.equal(
+    moved.source,
+    sourcePath
+  );
+
+  assert.equal(
+    moved.destination,
+    `99_ARCHIVE_คลังภาพเก่า/${TOPIC}/${YEAR}/${activityName}`
+  );
+
+  assert.deepEqual(
+    moved.options,
+    {
+      overwrite: false,
+    }
+  );
+
+  assert.equal(
+    result.destination,
+    moved.destination
+  );
+});
+
+test('archive rejects missing source activity before MOVE', async () => {
+  let moved = false;
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+    archiveName: '99_ARCHIVE_คลังภาพเก่า',
+
+    archiveService: {
+      async listActivities() {
+        return [];
+      },
+
+      async ensureFolder() {
+        throw new Error(
+          'ensureFolder must not be called'
+        );
+      },
+    },
+
+    dav: {
+      async move() {
+        moved = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.archiveActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName:
+        '2569-09-03_ไม่มีอยู่จริง',
+    }),
+    ManagerNotFoundError
+  );
+
+  assert.equal(moved, false);
+});
+
+test('archive rejects existing archived destination with 409', async () => {
+  const activityName =
+    '2569-09-03_กิจกรรมทดสอบ';
+
+  let moved = false;
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+    archiveName: '99_ARCHIVE_คลังภาพเก่า',
+
+    archiveService: {
+      async listActivities() {
+        return [
+          {
+            name: activityName,
+            path:
+              `${TOPIC}/${YEAR}/${activityName}`,
+          },
+        ];
+      },
+
+      async ensureFolder(parent, name) {
+        return {
+          path: `${parent}/${name}`,
+          created: false,
+        };
+      },
+    },
+
+    dav: {
+      async listFolders() {
+        return [
+          {
+            name: activityName,
+            path:
+              `99_ARCHIVE_คลังภาพเก่า/${TOPIC}/${YEAR}/${activityName}`,
+          },
+        ];
+      },
+
+      async move() {
+        moved = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.archiveActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName,
+    }),
+    (error) => {
+      assert.equal(
+        error instanceof ManagerConflictError,
+        true
+      );
+
+      assert.equal(error.statusCode, 409);
+      return true;
+    }
+  );
+
+  assert.equal(moved, false);
+});
+
+test('archive rejects activity year mismatch before WebDAV', async () => {
+  let listed = false;
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+    archiveName: '99_ARCHIVE_คลังภาพเก่า',
+
+    archiveService: {
+      async listActivities() {
+        listed = true;
+        return [];
+      },
+    },
+
+    dav: {},
+  });
+
+  await assert.rejects(
+    () => service.archiveActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName:
+        '2568-09-03_ปีไม่ตรงกัน',
+    }),
+    /does not match/
+  );
+
+  assert.equal(listed, false);
+});
+
+test('archive maps WebDAV source race to 404', async () => {
+  const activityName =
+    '2569-09-03_กิจกรรมทดสอบ';
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+    archiveName: '99_ARCHIVE_คลังภาพเก่า',
+
+    archiveService: {
+      async listActivities() {
+        return [
+          {
+            name: activityName,
+            path:
+              `${TOPIC}/${YEAR}/${activityName}`,
+          },
+        ];
+      },
+
+      async ensureFolder(parent, name) {
+        return {
+          path: `${parent}/${name}`,
+          created: false,
+        };
+      },
+    },
+
+    dav: {
+      async listFolders() {
+        return [];
+      },
+
+      async move() {
+        throw new WebDavError(
+          'not found',
+          404
+        );
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.archiveActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName,
+    }),
+    ManagerNotFoundError
+  );
+});

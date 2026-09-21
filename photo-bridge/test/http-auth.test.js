@@ -868,3 +868,170 @@ test('activity rename requires authentication', async () => {
 
   assert.equal(result.status, 401);
 });
+
+test('normal user cannot archive activity', async () => {
+  let called = false;
+
+  const archiveContext = {
+    ...context,
+
+    managerService: {
+      async archiveActivity() {
+        called = true;
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/archive',
+    ticket('user')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    archiveContext
+  );
+
+  assert.equal(result.status, 403);
+  assert.equal(called, false);
+});
+
+test('manager can archive activity', async () => {
+  const archiveContext = {
+    ...context,
+
+    managerService: {
+      async archiveActivity(input) {
+        assert.equal(
+          input.activityName,
+          '2569-09-03_กิจกรรม'
+        );
+
+        return {
+          name:
+            '2569-09-03_กิจกรรม',
+          source:
+            '80_งานกิจกรรมกลาง/2569/' +
+            '2569-09-03_กิจกรรม',
+          destination:
+            '99_ARCHIVE_คลังภาพเก่า/' +
+            '80_งานกิจกรรมกลาง/2569/' +
+            '2569-09-03_กิจกรรม',
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/archive',
+    ticket('manager')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    archiveContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(
+    result.body.archived.name,
+    '2569-09-03_กิจกรรม'
+  );
+});
+
+test('admin can archive activity', async () => {
+  let called = false;
+
+  const archiveContext = {
+    ...context,
+
+    managerService: {
+      async archiveActivity() {
+        called = true;
+
+        return {
+          name: 'activity',
+          source: 'source',
+          destination: 'destination',
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/archive',
+    ticket('admin')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    archiveContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(called, true);
+});
+
+test('archive requires JSON body', async () => {
+  const req = request(
+    '/v1/archive',
+    ticket('manager')
+  );
+
+  req.method = 'POST';
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 400);
+});
+
+test('archive requires authentication', async () => {
+  const req = request('/v1/archive');
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 401);
+});
+

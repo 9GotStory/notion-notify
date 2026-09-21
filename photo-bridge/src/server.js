@@ -32,6 +32,7 @@ const managerService = new ManagerService({
   dav,
   archiveService,
   inboxName: config.inbox,
+  archiveName: config.archive,
 });
 
 const host = process.env.PHOTO_LISTEN_HOST || '127.0.0.1';

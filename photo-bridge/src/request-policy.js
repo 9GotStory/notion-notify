@@ -4,6 +4,7 @@ const POST_BODY_POLICY = new Map([
   ['/v1/inbox/uploads', 'binary'],
   ['/v1/move', 'json'],
   ['/v1/rename', 'json'],
+  ['/v1/archive', 'json'],
 ]);
 
 export function requestBodyKind(method, pathname) {
