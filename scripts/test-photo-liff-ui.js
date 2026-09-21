@@ -205,6 +205,10 @@ async function run() {
   const fetchCalls = [];
   const liffInitCalls = [];
 
+  // Contract สำหรับ Photo Ticket หมดอายุ:
+  // request แรกได้ 401 -> ขอ ticket ใหม่ -> retry เดิม 1 ครั้ง
+  let renewalMode = 'off';
+
   const bridgeActor = {
     sub: 'U123',
     staffKey: 'bridge-staff',
@@ -309,6 +313,77 @@ async function run() {
             : String(options.body),
         rawBody: (options && options.body),
       });
+
+      const requestUrl =
+        String(url);
+
+      // จำลอง Photo Ticket หมดอายุใน request จริง
+      if (
+        renewalMode === 'expire-next' &&
+        requestUrl.startsWith(
+          'https://photo.example.test:8443/'
+        )
+      ) {
+        renewalMode = 'issuer';
+
+        return {
+          ok: false,
+          status: 401,
+
+          async json() {
+            return {
+              ok: false,
+              error: 'Photo ticket expired',
+            };
+          },
+        };
+      }
+
+      // หลัง 401 ต้องกลับไปขอ Photo Ticket ใหม่
+      // โดยใช้ LINE access token สด
+      if (
+        renewalMode === 'issuer' &&
+        requestUrl ===
+          'https://script.google.com/macros/s/test/exec'
+      ) {
+        renewalMode = 'retry';
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              ticket:
+                'renewed-photo-ticket',
+            };
+          },
+        };
+      }
+
+      // request เดิมหลัง renew ต้องถูก retry
+      // ด้วย ticket ใหม่
+      if (
+        renewalMode === 'retry' &&
+        requestUrl.startsWith(
+          'https://photo.example.test:8443/'
+        )
+      ) {
+        renewalMode = 'done';
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              actor: bridgeActor,
+            };
+          },
+        };
+      }
 
       if (fetchCalls.length === 1) {
         return {
@@ -1289,8 +1364,94 @@ async function run() {
     'organization upload must return per-file success'
   );
 
+  // ---------- Expired Photo Ticket renewal ----------
+
+  const beforeRenewal =
+    fetchCalls.length;
+
+  renewalMode = 'expire-next';
+
+  const renewedSession =
+    await ui.photoApi(
+      '/v1/session'
+    );
+
+  const renewalCalls =
+    fetchCalls.slice(
+      beforeRenewal
+    );
+
+  assert(
+    renewalMode === 'done',
+    'expired Photo Ticket must be renewed and retried once'
+  );
+
+  assert(
+    renewalCalls.length === 3,
+    'expired ticket flow must perform original request, issuer request, and one retry'
+  );
+
+  assert(
+    renewalCalls[0].url ===
+      context.CONFIG.PHOTO_API_URL +
+        '/v1/session',
+    'expired-ticket original request mismatch'
+  );
+
+  assert(
+    renewalCalls[0].headers.Authorization ===
+      'Bearer runtime-photo-ticket',
+    'first request must use original Photo Ticket'
+  );
+
+  assert(
+    renewalCalls[1].url ===
+      context.CONFIG.API_URL,
+    '401 must request a new Photo Ticket from Apps Script'
+  );
+
+  const renewalIssuerBody =
+    JSON.parse(
+      renewalCalls[1].body
+    );
+
+  assert(
+    renewalIssuerBody.apiAction ===
+      'photoTicket' &&
+      renewalIssuerBody.accessToken ===
+        'line-access-token',
+    'renewal must use a fresh LIFF access token'
+  );
+
+  assert(
+    renewalCalls[2].url ===
+      context.CONFIG.PHOTO_API_URL +
+        '/v1/session',
+    'original Photo Bridge request must be retried'
+  );
+
+  assert(
+    renewalCalls[2].headers.Authorization ===
+      'Bearer renewed-photo-ticket',
+    'retry must use renewed Photo Ticket'
+  );
+
+  assert(
+    ui.state.photoTicket ===
+      'renewed-photo-ticket',
+    'renewed Photo Ticket must replace old runtime ticket'
+  );
+
+  assert(
+    renewedSession &&
+      renewedSession.actor &&
+      renewedSession.actor.staffKey ===
+        'bridge-staff',
+    'retried request must return normal Photo Bridge response'
+  );
+
   console.log(
-    'Photo LIFF upload contract passed'
+    'Photo LIFF upload + ticket renewal contract passed'
   );
 
 }

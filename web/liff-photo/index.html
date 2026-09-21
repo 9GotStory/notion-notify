@@ -615,54 +615,88 @@
       const request =
         options || {};
 
-      const headers =
-        Object.assign(
-          {},
-          request.headers || {},
-          {
-            Authorization:
-              'Bearer ' + state.photoTicket,
-          }
-        );
-
-      const controller =
-        new AbortController();
-
-      const timeout =
-        setTimeout(
-          () => controller.abort(),
-          20000
-        );
-
-      let response;
-
-      try {
-        response = await fetch(
-          CONFIG.PHOTO_API_URL + path,
+      async function send_(ticket) {
+        const headers =
           Object.assign(
             {},
-            request,
+            request.headers || {},
             {
-              method:
-                request.method || 'GET',
-              headers: headers,
-              signal:
-                controller.signal,
+              Authorization:
+                'Bearer ' + ticket,
             }
-          )
-        );
-      } catch (err) {
-        throw new Error(
-          err && err.name === 'AbortError'
-            ? 'คลังภาพใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
-            : 'เชื่อมต่อคลังภาพไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต'
-        );
-      } finally {
-        clearTimeout(timeout);
+          );
+
+        const controller =
+          new AbortController();
+
+        const timeout =
+          setTimeout(
+            () => controller.abort(),
+            20000
+          );
+
+        let response;
+
+        try {
+          response = await fetch(
+            CONFIG.PHOTO_API_URL + path,
+            Object.assign(
+              {},
+              request,
+              {
+                method:
+                  request.method || 'GET',
+                headers: headers,
+                signal:
+                  controller.signal,
+              }
+            )
+          );
+        } catch (err) {
+          throw new Error(
+            err && err.name === 'AbortError'
+              ? 'คลังภาพใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+              : 'เชื่อมต่อคลังภาพไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต'
+          );
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        const data =
+          await readJson_(response);
+
+        return {
+          response: response,
+          data: data,
+        };
       }
 
+      let result =
+        await send_(
+          state.photoTicket
+        );
+
+      // Photo Ticket มีอายุสั้น:
+      // ถ้า Bridge ตอบ 401 ให้ขอ ticket ใหม่
+      // จาก LINE access token สด แล้ว retry
+      // request เดิมได้เพียง 1 ครั้งเท่านั้น
+      if (
+        result.response &&
+        result.response.status === 401
+      ) {
+        await requestPhotoTicket();
+
+        result =
+          await send_(
+            state.photoTicket
+          );
+      }
+
+      const response =
+        result.response;
+
       const data =
-        await readJson_(response);
+        result.data;
 
       if (
         !response.ok ||
