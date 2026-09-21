@@ -214,3 +214,24 @@ test('unexpected WebDAV status produces sanitized error', async () => {
     }
   );
 });
+
+test('DELETE removes a resource through WebDAV', async () => {
+  let captured;
+
+  const dav = client(async (url, options) => {
+    captured = { url, options };
+    return mockResponse(204);
+  });
+
+  const result = await dav.delete(
+    '00_INBOX_รอจัดหมวด/__PHOTO_BRIDGE_TEST__'
+  );
+
+  assert.equal(result, true);
+  assert.equal(captured.options.method, 'DELETE');
+
+  assert.equal(
+    captured.url.includes('__PHOTO_BRIDGE_TEST__'),
+    true
+  );
+});

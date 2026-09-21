@@ -321,4 +321,23 @@ export class WebDavClient {
 
     return true;
   }
+
+  async delete(relativePath) {
+    const normalized = normalizeRelativePath(relativePath);
+
+    if (!normalized) {
+      throw new WebDavError('Delete path is required');
+    }
+
+    await this.request(
+      'DELETE',
+      normalized,
+      {
+        allowedStatuses: [204],
+      }
+    );
+
+    return true;
+  }
+
 }
