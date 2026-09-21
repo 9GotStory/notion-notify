@@ -43,6 +43,9 @@ function envFor(fixture, overrides = {}) {
     PHOTO_TICKET_SECRET_FILE: fixture.ticketFile,
     PHOTO_TICKET_TTL_SECONDS: '300',
 
+    PHOTO_ALLOWED_ORIGIN:
+      'https://9gotstory.github.io',
+
     ...overrides,
   };
 }
@@ -152,6 +155,90 @@ test('default upload limit is 25 MiB', () => {
     assert.equal(
       config.maxUploadBytes,
       26214400
+    );
+  } finally {
+    rmSync(fixture.dir, {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
+
+test('allowed browser origin is normalized', () => {
+  const fixture = secretFixture();
+
+  try {
+    const config = loadConfig(
+      envFor(fixture, {
+        PHOTO_ALLOWED_ORIGIN:
+          'https://9gotstory.github.io/',
+      })
+    );
+
+    assert.equal(
+      config.allowedOrigin,
+      'https://9gotstory.github.io'
+    );
+  } finally {
+    rmSync(fixture.dir, {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
+test('missing allowed browser origin fails closed', () => {
+  const fixture = secretFixture();
+
+  try {
+    const env = envFor(fixture);
+    delete env.PHOTO_ALLOWED_ORIGIN;
+
+    assert.throws(
+      () => loadConfig(env),
+      /Missing required configuration: PHOTO_ALLOWED_ORIGIN/
+    );
+  } finally {
+    rmSync(fixture.dir, {
+      recursive: true,
+      force: true,
+    });
+  }
+});
+
+test('allowed browser origin must be a bare HTTPS origin', () => {
+  const fixture = secretFixture();
+
+  try {
+    assert.throws(
+      () => loadConfig(
+        envFor(fixture, {
+          PHOTO_ALLOWED_ORIGIN:
+            'http://9gotstory.github.io',
+        })
+      ),
+      /must be an HTTPS origin/
+    );
+
+    assert.throws(
+      () => loadConfig(
+        envFor(fixture, {
+          PHOTO_ALLOWED_ORIGIN:
+            'https://9gotstory.github.io/notion-notify/',
+        })
+      ),
+      /must be an HTTPS origin/
+    );
+
+    assert.throws(
+      () => loadConfig(
+        envFor(fixture, {
+          PHOTO_ALLOWED_ORIGIN:
+            'https://9gotstory.github.io?x=1',
+        })
+      ),
+      /must be an HTTPS origin/
     );
   } finally {
     rmSync(fixture.dir, {

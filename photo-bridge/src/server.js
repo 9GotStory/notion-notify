@@ -3,6 +3,10 @@ import http from 'node:http';
 import { ArchiveService } from './archive-service.js';
 import { authenticateRequest } from './auth.js';
 import { loadConfig } from './config.js';
+import {
+  corsHeaders,
+  evaluatePreflight,
+} from './cors.js';
 import { handleHttpRequest } from './http-handler.js';
 import { ManagerService } from './manager-service.js';
 import { requestBodyKind } from './request-policy.js';
@@ -97,6 +101,16 @@ function sendJson(res, status, body) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const origin =
+    String(req.headers.origin || '').trim();
+
+  const cors =
+    corsHeaders(origin, config.allowedOrigin);
+
+  for (const [name, value] of Object.entries(cors)) {
+    res.setHeader(name, value);
+  }
+
   try {
     const method =
       String(req.method || 'GET').toUpperCase();
@@ -105,6 +119,49 @@ const server = http.createServer(async (req, res) => {
       req.url || '/',
       'http://localhost'
     );
+
+    if (method === 'OPTIONS') {
+      if (!url.pathname.startsWith('/v1/')) {
+        sendJson(res, 404, {
+          ok: false,
+          error: 'Not found',
+        });
+
+        return;
+      }
+
+      const preflight = evaluatePreflight({
+        origin,
+        requestMethod:
+          req.headers['access-control-request-method'],
+        requestHeaders:
+          req.headers['access-control-request-headers'],
+        allowedOrigin: config.allowedOrigin,
+      });
+
+      if (!preflight.allowed) {
+        sendJson(res, 403, {
+          ok: false,
+          error: 'CORS preflight rejected',
+        });
+
+        return;
+      }
+
+      for (
+        const [name, value]
+        of Object.entries(preflight.headers)
+      ) {
+        res.setHeader(name, value);
+      }
+
+      res.writeHead(204, {
+        'cache-control': 'no-store',
+      });
+      res.end();
+
+      return;
+    }
 
     let body;
 

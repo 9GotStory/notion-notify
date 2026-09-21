@@ -55,6 +55,38 @@ function validateNextcloudUrl(value) {
   return url.toString().replace(/\/$/, '');
 }
 
+function validateAllowedOrigin(value) {
+  const raw = required(
+    'PHOTO_ALLOWED_ORIGIN',
+    value
+  );
+
+  let url;
+
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      'PHOTO_ALLOWED_ORIGIN must be a valid HTTPS origin'
+    );
+  }
+
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.pathname && url.pathname !== '/')
+  ) {
+    throw new Error(
+      'PHOTO_ALLOWED_ORIGIN must be an HTTPS origin without path, query, or fragment'
+    );
+  }
+
+  return url.origin;
+}
+
 export function loadConfig(env = process.env) {
   return Object.freeze({
     nextcloudUrl: validateNextcloudUrl(env.PHOTO_NEXTCLOUD_URL),
@@ -77,6 +109,9 @@ export function loadConfig(env = process.env) {
       'PHOTO_TICKET_TTL_SECONDS',
       env.PHOTO_TICKET_TTL_SECONDS,
       300
+    ),
+    allowedOrigin: validateAllowedOrigin(
+      env.PHOTO_ALLOWED_ORIGIN
     ),
     maxUploadBytes: positiveInteger(
       'PHOTO_MAX_UPLOAD_BYTES',
