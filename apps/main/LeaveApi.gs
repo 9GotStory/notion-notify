@@ -7,6 +7,7 @@ function handleApiRequest_(body) {
   try {
     switch (body.apiAction) {
       case 'session': return apiSession_(body);
+      case 'photoTicket': return apiPhotoTicket_(body);
       case 'bind': return apiBind_(body);
       case 'submit': return apiSubmit_(body);
       case 'myLeaves': return apiMyLeaves_(body);

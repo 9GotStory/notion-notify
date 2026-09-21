@@ -197,3 +197,97 @@ function buildPhotoTicketClaims_(
     claims
   );
 }
+
+function issuePhotoTicketForStaff_(
+  profile,
+  staff,
+  settings,
+  secret,
+  nowSeconds
+) {
+  const userId = String(
+    profile && profile.userId || ''
+  ).trim();
+
+  if (!userId) {
+    throw new Error(
+      'ไม่สามารถยืนยันตัวตน LINE ได้'
+    );
+  }
+
+  if (
+    !staff ||
+    !isActiveStaff_(staff) ||
+    !isApprovedStaffBinding_(staff) ||
+    String(staff.lineUserId || '').trim() !== userId
+  ) {
+    throw new Error(
+      'บัญชีนี้ยังไม่ได้รับอนุญาตให้ใช้งานคลังภาพ'
+    );
+  }
+
+  const key = staffKey_(staff);
+
+  if (!key) {
+    throw new Error(
+      'ข้อมูลบุคลากรไม่สมบูรณ์ กรุณาติดต่อผู้ดูแล'
+    );
+  }
+
+  const role = photoRoleForStaffKey_(
+    key,
+    settings || {}
+  );
+
+  const claims = buildPhotoTicketClaims_(
+    userId,
+    key,
+    role,
+    nowSeconds
+  );
+
+  return {
+    ticket: createPhotoTicket_(
+      claims,
+      secret
+    ),
+    actor: {
+      staffKey: claims.staffKey,
+      role: claims.role,
+      exp: claims.exp,
+    },
+  };
+}
+
+function apiPhotoTicket_(body) {
+  // Client supplies only LINE access token.
+  // sub/staffKey/role are always derived server-side.
+  const profile = verifyLineToken_(
+    requireAccessToken_(body)
+  );
+
+  const roster = readStaffRoster_();
+
+  const staff = findStaffByUserId_(
+    roster,
+    profile.userId
+  );
+
+  if (!staff) {
+    throw new Error(
+      'ยังไม่ได้ลงทะเบียนหรือบัญชีบุคลากรยังไม่ได้รับอนุมัติ'
+    );
+  }
+
+  return Object.assign(
+    {
+      ok: true,
+    },
+    issuePhotoTicketForStaff_(
+      profile,
+      staff,
+      getSettings_(),
+      photoTicketSecret_()
+    )
+  );
+}

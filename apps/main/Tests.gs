@@ -77,6 +77,12 @@ function runUnitTests() {
     testUsageSummaryWithQuotaMap_,
     testQuotaProfileSeed_,
     testScheduleHelpers_,
+    // Photo Bridge / Photo Ticket
+    testPhotoTicketGoldenVector_,
+    testPhotoTicketRoleMapping_,
+    testPhotoTicketIssuerForVerifiedStaff_,
+    testPhotoTicketIssuerRejectsIdentityMismatch_,
+    testPhotoTicketIssuerRejectsUnapprovedStaff_,
   ];
 
   const failures = [];
@@ -1323,16 +1329,57 @@ function testParseLeaveSubmissionInput_() {
 }
 
 function testSubmissionRequestId_() {
-  assertEqual_(requireSubmissionRequestId_({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
-    '123e4567-e89b-42d3-a456-426614174000');
-  assertEqual_(mutationRequestId_({ requestId: '123e4567-e89b-42d3-a456-426614174000' }),
-    '123e4567-e89b-42d3-a456-426614174000');
-  assertEqual_(mutationRequestId_({}), '123e4567-e89b-42d3-a456-426614174000');
-  assertThrows_(function () { requireSubmissionRequestId_({ requestId: 'same-value-every-time' }); },
-    'รหัสคำขอไม่ถูกต้อง');
-  assertThrows_(function () { mutationRequestId_({ requestId: 'same-value-every-time' }); },
-    'รหัสคำขอไม่ถูกต้อง');
-  assertThrows_(function () { requireSubmissionRequestId_({}); }, 'รหัสคำขอไม่ถูกต้อง');
+  const provided = '123e4567-e89b-42d3-a456-426614174000';
+
+  assertEqual_(
+    requireSubmissionRequestId_({ requestId: provided }),
+    provided
+  );
+
+  assertEqual_(
+    mutationRequestId_({ requestId: provided }),
+    provided
+  );
+
+  // Legacy LIFF fallback: server generates a fresh UUID when requestId is absent.
+  // Verify the contract instead of expecting a deterministic random value.
+  const generated = mutationRequestId_({});
+
+  assertTrue_(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(generated),
+    'requestId ที่ server สร้างต้องเป็น UUID v4'
+  );
+
+  assertEqual_(
+    requireSubmissionRequestId_({ requestId: generated }),
+    generated,
+    'requestId ที่ server สร้างต้องผ่าน validator เดียวกับ requestId จาก client'
+  );
+
+  assertThrows_(
+    function () {
+      requireSubmissionRequestId_({
+        requestId: 'same-value-every-time'
+      });
+    },
+    'รหัสคำขอไม่ถูกต้อง'
+  );
+
+  assertThrows_(
+    function () {
+      mutationRequestId_({
+        requestId: 'same-value-every-time'
+      });
+    },
+    'รหัสคำขอไม่ถูกต้อง'
+  );
+
+  assertThrows_(
+    function () {
+      requireSubmissionRequestId_({});
+    },
+    'รหัสคำขอไม่ถูกต้อง'
+  );
 }
 
 function testBuildMyLeaveRow_() {
@@ -1926,5 +1973,96 @@ function testPhotoTicketRoleMapping_() {
     ),
     'admin',
     'admin ต้องมี precedence สูงกว่า manager'
+  );
+}
+
+function testPhotoTicketIssuerForVerifiedStaff_() {
+  const staff = {
+    firstName: 'ทดสอบ',
+    lastName: 'ระบบ',
+    lineUserId: 'Ureal123',
+    employmentStatus: STAFF_ACTIVE_STATUS,
+    bindingStatus: STAFF_BINDING_STATUS.approved,
+  };
+
+  const result = issuePhotoTicketForStaff_(
+    {
+      userId: 'Ureal123',
+    },
+    staff,
+    {
+      admin_staff: '',
+      photo_managers: 'ทดสอบ ระบบ',
+    },
+    'photo-test-secret',
+    1770000000
+  );
+
+  assertEqual_(
+    result.actor.staffKey,
+    staffKey_(staff),
+    'staffKey ต้อง derive จาก Staff roster'
+  );
+
+  assertEqual_(
+    result.actor.role,
+    'manager',
+    'photo_managers ต้องได้ manager'
+  );
+
+  assertEqual_(
+    result.actor.exp,
+    1770000300,
+    'Photo Ticket ต้องมีอายุ 300 วินาที'
+  );
+}
+
+function testPhotoTicketIssuerRejectsIdentityMismatch_() {
+  const staff = {
+    firstName: 'ทดสอบ',
+    lastName: 'ระบบ',
+    lineUserId: 'Ustaff',
+    employmentStatus: STAFF_ACTIVE_STATUS,
+    bindingStatus: STAFF_BINDING_STATUS.approved,
+  };
+
+  assertThrows_(
+    function () {
+      issuePhotoTicketForStaff_(
+        {
+          userId: 'Uattacker',
+        },
+        staff,
+        {},
+        'photo-test-secret',
+        1770000000
+      );
+    },
+    'บัญชีนี้ยังไม่ได้รับอนุญาต'
+  );
+}
+
+function testPhotoTicketIssuerRejectsUnapprovedStaff_() {
+  const staff = {
+    firstName: 'ทดสอบ',
+    lastName: 'ระบบ',
+    lineUserId: 'Ureal123',
+    employmentStatus: STAFF_ACTIVE_STATUS,
+    bindingStatus: STAFF_BINDING_STATUS.pending,
+  };
+
+  assertThrows_(
+    function () {
+      issuePhotoTicketForStaff_(
+        {
+          userId: 'Ureal123',
+        },
+        staff,
+        {},
+        'photo-test-secret',
+        1770000000
+      );
+    },
+    'บัญชีนี้ยังไม่ได้รับอนุญาต'
   );
 }
