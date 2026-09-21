@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   isValidActivityName,
   isValidBuddhistYear,
@@ -25,15 +27,54 @@ export class UploadConflictError extends Error {
 export class UploadService {
   constructor(options) {
     if (!options?.dav) {
-      throw new Error('UploadService WebDAV client is required');
+      throw new Error(
+        'UploadService WebDAV client is required'
+      );
     }
 
     if (!options?.archiveService) {
-      throw new Error('UploadService ArchiveService is required');
+      throw new Error(
+        'UploadService ArchiveService is required'
+      );
     }
 
     this.dav = options.dav;
     this.archiveService = options.archiveService;
+
+    this.inboxName =
+      options.inboxName || null;
+
+    this.clock =
+      options.clock || (() => new Date());
+
+    this.idFactory =
+      options.idFactory ||
+      (() =>
+        randomUUID()
+          .replaceAll('-', '')
+          .slice(0, 8)
+      );
+  }
+
+  async putImage(destination, content, mime) {
+    try {
+      await this.dav.upload(
+        destination,
+        content,
+        mime
+      );
+    } catch (error) {
+      if (
+        error instanceof WebDavError &&
+        error.statusCode === 412
+      ) {
+        throw new UploadConflictError(
+          'A file with this name already exists'
+        );
+      }
+
+      throw error;
+    }
   }
 
   async uploadToActivity(input) {
@@ -43,7 +84,9 @@ export class UploadService {
 
     const year = String(input?.year || '').trim();
 
-    const activityName = String(input?.activityName || '')
+    const activityName = String(
+      input?.activityName || ''
+    )
       .trim()
       .normalize('NFC');
 
@@ -66,7 +109,9 @@ export class UploadService {
     }
 
     const selected =
-      await this.archiveService.resolveActivityTopic(topic);
+      await this.archiveService.resolveActivityTopic(
+        topic
+      );
 
     const activities =
       await this.archiveService.listActivities(
@@ -92,27 +137,73 @@ export class UploadService {
     const destination =
       `${activity.path}/${validated.filename}`;
 
-    try {
-      await this.dav.upload(
-        destination,
-        input.content,
-        validated.mime
-      );
-    } catch (error) {
-      if (
-        error instanceof WebDavError &&
-        error.statusCode === 412
-      ) {
-        throw new UploadConflictError(
-          'A file with this name already exists'
-        );
-      }
-
-      throw error;
-    }
+    await this.putImage(
+      destination,
+      input.content,
+      validated.mime
+    );
 
     return {
       name: validated.filename,
+      path: destination,
+      mime: validated.mime,
+      size: validated.size,
+    };
+  }
+
+  async uploadToInbox(input) {
+    if (!this.inboxName) {
+      throw new Error(
+        'UploadService inbox is not configured'
+      );
+    }
+
+    const validated = validateImageUpload(
+      input?.filename,
+      input?.content
+    );
+
+    const now = this.clock();
+
+    if (
+      !(now instanceof Date) ||
+      Number.isNaN(now.getTime())
+    ) {
+      throw new Error(
+        'UploadService clock returned invalid date'
+      );
+    }
+
+    const timestamp = now
+      .toISOString()
+      .replace(/[-:]/gu, '')
+      .replace(/\.\d{3}Z$/u, 'Z');
+
+    const suffix = String(this.idFactory())
+      .replace(/[^A-Za-z0-9_-]/gu, '')
+      .slice(0, 16);
+
+    if (!suffix) {
+      throw new Error(
+        'UploadService generated invalid identifier'
+      );
+    }
+
+    const storedName =
+      `${timestamp}_${suffix}_${validated.filename}`;
+
+    const destination =
+      `${this.inboxName}/${storedName}`;
+
+    await this.putImage(
+      destination,
+      input.content,
+      validated.mime
+    );
+
+    return {
+      name: storedName,
+      originalName: validated.filename,
       path: destination,
       mime: validated.mime,
       size: validated.size,

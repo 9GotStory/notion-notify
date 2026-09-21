@@ -146,3 +146,116 @@ test('existing filename becomes HTTP conflict', async () => {
     UploadConflictError
   );
 });
+
+test('inbox upload generates unique stored filename', async () => {
+  let captured;
+
+  const service = new UploadService({
+    archiveService: archiveService(),
+
+    inboxName: '00_INBOX_รอจัดหมวด',
+
+    clock: () =>
+      new Date('2026-09-21T08:00:00.000Z'),
+
+    idFactory: () => 'a1b2c3d4',
+
+    dav: {
+      async upload(path, content, mime) {
+        captured = {
+          path,
+          content,
+          mime,
+        };
+      },
+    },
+  });
+
+  const result = await service.uploadToInbox({
+    filename: 'IMG_0001.png',
+    content: JPEG,
+  });
+
+  assert.equal(
+    result.originalName,
+    'IMG_0001.jpg'
+  );
+
+  assert.equal(
+    result.name,
+    '20260921T080000Z_a1b2c3d4_IMG_0001.jpg'
+  );
+
+  assert.equal(
+    result.path,
+    '00_INBOX_รอจัดหมวด/' +
+      '20260921T080000Z_a1b2c3d4_IMG_0001.jpg'
+  );
+
+  assert.equal(result.mime, 'image/jpeg');
+
+  assert.equal(
+    captured.path,
+    result.path
+  );
+
+  assert.equal(
+    captured.mime,
+    'image/jpeg'
+  );
+});
+
+test('inbox upload rejects unsupported content before PUT', async () => {
+  let wrote = false;
+
+  const service = new UploadService({
+    archiveService: archiveService(),
+    inboxName: '00_INBOX_รอจัดหมวด',
+
+    dav: {
+      async upload() {
+        wrote = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.uploadToInbox({
+      filename: 'bad.jpg',
+      content: Buffer.from('not-image'),
+    }),
+    /Unsupported or invalid image/
+  );
+
+  assert.equal(wrote, false);
+});
+
+test('inbox filename collision becomes HTTP conflict', async () => {
+  const service = new UploadService({
+    archiveService: archiveService(),
+
+    inboxName: '00_INBOX_รอจัดหมวด',
+
+    clock: () =>
+      new Date('2026-09-21T08:00:00.000Z'),
+
+    idFactory: () => 'same-id',
+
+    dav: {
+      async upload() {
+        throw new WebDavError(
+          'precondition failed',
+          412
+        );
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.uploadToInbox({
+      filename: 'photo.jpg',
+      content: JPEG,
+    }),
+    UploadConflictError
+  );
+});

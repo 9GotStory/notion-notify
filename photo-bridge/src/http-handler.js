@@ -151,6 +151,27 @@ export async function handleHttpRequest(request, context) {
     }
 
     if (
+      method === 'POST' &&
+      url.pathname === '/v1/inbox/uploads'
+    ) {
+      if (!context.uploadService) {
+        throw new Error('Upload service unavailable');
+      }
+
+      const file =
+        await context.uploadService.uploadToInbox({
+          filename:
+            url.searchParams.get('filename'),
+          content: request.body,
+        });
+
+      return response(201, {
+        ok: true,
+        file,
+      });
+    }
+
+    if (
       method === 'GET' &&
       url.pathname === '/v1/manager/session'
     ) {

@@ -23,6 +23,7 @@ const archiveService = new ArchiveService({
 const uploadService = new UploadService({
   dav,
   archiveService,
+  inboxName: config.inbox,
 });
 
 const host = process.env.PHOTO_LISTEN_HOST || '127.0.0.1';
@@ -102,7 +103,8 @@ const server = http.createServer(async (req, res) => {
       method === 'POST' &&
       (
         url.pathname === '/v1/activities' ||
-        url.pathname === '/v1/uploads'
+        url.pathname === '/v1/uploads' ||
+        url.pathname === '/v1/inbox/uploads'
       );
 
     // Reject unauthorized writes before reading request bodies.

@@ -445,3 +445,77 @@ test('upload requires authentication', async () => {
 
   assert.equal(result.status, 401);
 });
+
+test('authenticated user can upload to inbox', async () => {
+  const uploadContext = {
+    ...context,
+
+    uploadService: {
+      async uploadToInbox(input) {
+        assert.equal(
+          input.filename,
+          'photo.jpg'
+        );
+
+        assert.equal(
+          Buffer.isBuffer(input.content),
+          true
+        );
+
+        return {
+          name:
+            '20260921T080000Z_abcd1234_photo.jpg',
+          originalName: 'photo.jpg',
+          path:
+            '00_INBOX_รอจัดหมวด/' +
+            '20260921T080000Z_abcd1234_photo.jpg',
+          mime: 'image/jpeg',
+          size: input.content.length,
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/inbox/uploads?filename=' +
+      encodeURIComponent('photo.jpg'),
+    ticket()
+  );
+
+  req.method = 'POST';
+
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result = await handleHttpRequest(
+    req,
+    uploadContext
+  );
+
+  assert.equal(result.status, 201);
+
+  assert.equal(
+    result.body.file.originalName,
+    'photo.jpg'
+  );
+});
+
+test('inbox upload requires authentication', async () => {
+  const req = request(
+    '/v1/inbox/uploads?filename=photo.jpg'
+  );
+
+  req.method = 'POST';
+
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 401);
+});
