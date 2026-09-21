@@ -4,6 +4,7 @@ import { ArchiveService } from './archive-service.js';
 import { authenticateRequest } from './auth.js';
 import { loadConfig } from './config.js';
 import { handleHttpRequest } from './http-handler.js';
+import { requestBodyKind } from './request-policy.js';
 import { UploadService } from './upload-service.js';
 import { WebDavClient } from './webdav-client.js';
 
@@ -99,34 +100,24 @@ const server = http.createServer(async (req, res) => {
 
     let body;
 
-    const protectedWrite =
-      method === 'POST' &&
-      (
-        url.pathname === '/v1/activities' ||
-        url.pathname === '/v1/uploads' ||
-        url.pathname === '/v1/inbox/uploads'
-      );
+    const bodyKind =
+      requestBodyKind(method, url.pathname);
 
-    // Reject unauthorized writes before reading request bodies.
-    // This is especially important for binary uploads.
-    if (protectedWrite) {
+    // Any endpoint with a request body must authenticate
+    // before its body is read. The body policy is the
+    // single source of truth for both concerns.
+    if (bodyKind) {
       authenticateRequest(
         req.headers,
         config
       );
     }
 
-    if (
-      method === 'POST' &&
-      url.pathname === '/v1/activities'
-    ) {
+    if (bodyKind === 'json') {
       body = await readJsonBody(req);
     }
 
-    if (
-      method === 'POST' &&
-      url.pathname === '/v1/uploads'
-    ) {
+    if (bodyKind === 'binary') {
       body = await readBody(
         req,
         config.maxUploadBytes
