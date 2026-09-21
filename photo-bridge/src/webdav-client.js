@@ -274,23 +274,40 @@ export class WebDavClient {
     return true;
   }
 
-  async upload(relativePath, content, contentType) {
+  async upload(
+    relativePath,
+    content,
+    contentType,
+    options = {}
+  ) {
     const normalized = normalizeRelativePath(relativePath);
 
     if (!normalized) {
       throw new WebDavError('Upload path is required');
     }
 
+    const overwrite =
+      options.overwrite === true;
+
+    const headers = {
+      'content-type':
+        String(contentType || 'application/octet-stream'),
+    };
+
+    if (!overwrite) {
+      headers['if-none-match'] = '*';
+    }
+
     await this.request(
       'PUT',
       normalized,
       {
-        headers: {
-          'content-type':
-            String(contentType || 'application/octet-stream'),
-        },
+        headers,
         body: content,
-        allowedStatuses: [201, 204],
+        allowedStatuses:
+          overwrite
+            ? [201, 204]
+            : [201],
       }
     );
 

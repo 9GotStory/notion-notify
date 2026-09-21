@@ -159,6 +159,10 @@ test('PUT uploads content with declared MIME type', async () => {
     captured.options.headers['content-type'],
     'image/jpeg'
   );
+  assert.equal(
+    captured.options.headers['if-none-match'],
+    '*'
+  );
   assert.equal(captured.options.body, content);
 });
 
@@ -233,5 +237,36 @@ test('DELETE removes a resource through WebDAV', async () => {
   assert.equal(
     captured.url.includes('__PHOTO_BRIDGE_TEST__'),
     true
+  );
+});
+
+test('PUT rejects an existing destination by default', async () => {
+  let captured;
+
+  const dav = client(async (url, options) => {
+    captured = { url, options };
+    return mockResponse(412);
+  });
+
+  await assert.rejects(
+    () => dav.upload(
+      '80_งานกิจกรรมกลาง/2569/activity/photo.jpg',
+      Buffer.from('image'),
+      'image/jpeg'
+    ),
+    (error) => {
+      assert.equal(
+        error instanceof WebDavError,
+        true
+      );
+
+      assert.equal(error.statusCode, 412);
+      return true;
+    }
+  );
+
+  assert.equal(
+    captured.options.headers['if-none-match'],
+    '*'
   );
 });
