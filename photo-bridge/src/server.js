@@ -4,6 +4,7 @@ import { ArchiveService } from './archive-service.js';
 import { authenticateRequest } from './auth.js';
 import { loadConfig } from './config.js';
 import { handleHttpRequest } from './http-handler.js';
+import { ManagerService } from './manager-service.js';
 import { requestBodyKind } from './request-policy.js';
 import { UploadService } from './upload-service.js';
 import { WebDavClient } from './webdav-client.js';
@@ -22,6 +23,12 @@ const archiveService = new ArchiveService({
 });
 
 const uploadService = new UploadService({
+  dav,
+  archiveService,
+  inboxName: config.inbox,
+});
+
+const managerService = new ManagerService({
   dav,
   archiveService,
   inboxName: config.inbox,
@@ -135,6 +142,7 @@ const server = http.createServer(async (req, res) => {
         config,
         archiveService,
         uploadService,
+        managerService,
       }
     );
 

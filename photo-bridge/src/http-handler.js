@@ -11,6 +11,11 @@ import {
   UploadPolicyError,
 } from './upload-service.js';
 
+import {
+  ManagerConflictError,
+  ManagerNotFoundError,
+} from './manager-service.js';
+
 function response(status, body) {
   return {
     status,
@@ -172,6 +177,43 @@ export async function handleHttpRequest(request, context) {
     }
 
     if (
+      method === 'POST' &&
+      url.pathname === '/v1/move'
+    ) {
+      requireRole(actor, ['manager', 'admin']);
+
+      if (
+        !request.body ||
+        typeof request.body !== 'object' ||
+        Array.isArray(request.body)
+      ) {
+        throw new ArchiveInputError(
+          'JSON body is required'
+        );
+      }
+
+      if (!context.managerService) {
+        throw new Error(
+          'Manager service unavailable'
+        );
+      }
+
+      const result =
+        await context.managerService.moveFromInbox({
+          filename: request.body.filename,
+          topic: request.body.topic,
+          year: request.body.year,
+          activityName:
+            request.body.activityName,
+        });
+
+      return response(200, {
+        ok: true,
+        moved: result,
+      });
+    }
+
+    if (
       method === 'GET' &&
       url.pathname === '/v1/manager/session'
     ) {
@@ -192,7 +234,9 @@ export async function handleHttpRequest(request, context) {
       error instanceof AuthError ||
       error instanceof ArchiveInputError ||
       error instanceof UploadPolicyError ||
-      error instanceof UploadConflictError
+      error instanceof UploadConflictError ||
+      error instanceof ManagerNotFoundError ||
+      error instanceof ManagerConflictError
     ) {
       return response(error.statusCode, {
         ok: false,

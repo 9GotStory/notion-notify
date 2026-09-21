@@ -50,3 +50,13 @@ test('non-write requests do not consume request bodies', () => {
     null
   );
 });
+
+test('manager move uses JSON request body', () => {
+  assert.equal(
+    requestBodyKind(
+      'POST',
+      '/v1/move'
+    ),
+    'json'
+  );
+});

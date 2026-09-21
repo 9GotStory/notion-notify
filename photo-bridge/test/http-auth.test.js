@@ -519,3 +519,170 @@ test('inbox upload requires authentication', async () => {
 
   assert.equal(result.status, 401);
 });
+
+test('normal user cannot move Inbox file', async () => {
+  let called = false;
+
+  const moveContext = {
+    ...context,
+
+    managerService: {
+      async moveFromInbox() {
+        called = true;
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/move',
+    ticket('user')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    filename: 'photo.jpg',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName: '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    moveContext
+  );
+
+  assert.equal(result.status, 403);
+  assert.equal(called, false);
+});
+
+test('manager can move Inbox file', async () => {
+  const moveContext = {
+    ...context,
+
+    managerService: {
+      async moveFromInbox(input) {
+        assert.equal(
+          input.filename,
+          'photo.jpg'
+        );
+
+        return {
+          name: 'photo.jpg',
+          source:
+            '00_INBOX_รอจัดหมวด/photo.jpg',
+          destination:
+            '80_งานกิจกรรมกลาง/2569/' +
+            '2569-09-03_กิจกรรม/photo.jpg',
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/move',
+    ticket('manager')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    filename: 'photo.jpg',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName: '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    moveContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.ok, true);
+  assert.equal(
+    result.body.moved.name,
+    'photo.jpg'
+  );
+});
+
+test('admin can move Inbox file', async () => {
+  let called = false;
+
+  const moveContext = {
+    ...context,
+
+    managerService: {
+      async moveFromInbox() {
+        called = true;
+
+        return {
+          name: 'photo.jpg',
+          source:
+            '00_INBOX_รอจัดหมวด/photo.jpg',
+          destination:
+            '80_งานกิจกรรมกลาง/2569/' +
+            '2569-09-03_กิจกรรม/photo.jpg',
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/move',
+    ticket('admin')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    filename: 'photo.jpg',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName: '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    moveContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(called, true);
+});
+
+test('manager move requires JSON body', async () => {
+  const req = request(
+    '/v1/move',
+    ticket('manager')
+  );
+
+  req.method = 'POST';
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 400);
+});
+
+test('manager move requires authentication', async () => {
+  const req = request('/v1/move');
+
+  req.method = 'POST';
+
+  req.body = {
+    filename: 'photo.jpg',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName: '2569-09-03_กิจกรรม',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 401);
+});
