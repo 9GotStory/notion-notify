@@ -60,3 +60,13 @@ test('manager move uses JSON request body', () => {
     'json'
   );
 });
+
+test('manager activity rename uses JSON request body', () => {
+  assert.equal(
+    requestBodyKind(
+      'POST',
+      '/v1/rename'
+    ),
+    'json'
+  );
+});

@@ -221,3 +221,239 @@ test('existing destination maps to 409 conflict', async () => {
     }
   );
 });
+
+test('manager renames activity within the same topic and year', async () => {
+  let captured;
+
+  const oldName =
+    '2569-09-03_ชื่อเดิม';
+
+  const newName =
+    '2569-09-03_ชื่อใหม่';
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+
+    archiveService: {
+      async listActivities(topic, year) {
+        assert.equal(topic, TOPIC);
+        assert.equal(year, YEAR);
+
+        return [
+          {
+            name: oldName,
+            path:
+              `${TOPIC}/${YEAR}/${oldName}`,
+          },
+        ];
+      },
+    },
+
+    dav: {
+      async move(source, destination, options) {
+        captured = {
+          source,
+          destination,
+          options,
+        };
+      },
+    },
+  });
+
+  const result = await service.renameActivity({
+    topic: TOPIC,
+    year: YEAR,
+    activityName: oldName,
+    newActivityName: newName,
+  });
+
+  assert.equal(
+    captured.source,
+    `${TOPIC}/${YEAR}/${oldName}`
+  );
+
+  assert.equal(
+    captured.destination,
+    `${TOPIC}/${YEAR}/${newName}`
+  );
+
+  assert.deepEqual(
+    captured.options,
+    {
+      overwrite: false,
+    }
+  );
+
+  assert.equal(
+    result.newName,
+    newName
+  );
+});
+
+test('activity rename rejects unsafe new activity name before MOVE', async () => {
+  let listed = false;
+  let moved = false;
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+
+    archiveService: {
+      async listActivities() {
+        listed = true;
+        return [];
+      },
+    },
+
+    dav: {
+      async move() {
+        moved = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.renameActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName:
+        '2569-09-03_ชื่อเดิม',
+      newActivityName:
+        '../bad',
+    }),
+    /Invalid new activity/
+  );
+
+  assert.equal(listed, false);
+  assert.equal(moved, false);
+});
+
+test('activity rename rejects year mismatch', async () => {
+  let moved = false;
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+
+    archiveService: {
+      async listActivities() {
+        return [];
+      },
+    },
+
+    dav: {
+      async move() {
+        moved = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.renameActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName:
+        '2569-09-03_ชื่อเดิม',
+      newActivityName:
+        '2568-09-03_ชื่อใหม่',
+    }),
+    /does not match/
+  );
+
+  assert.equal(moved, false);
+});
+
+test('activity rename returns 404 when source activity is missing', async () => {
+  const service = new ManagerService({
+    inboxName: INBOX,
+
+    archiveService: {
+      async listActivities() {
+        return [];
+      },
+    },
+
+    dav: {
+      async move() {
+        throw new Error(
+          'MOVE must not be called'
+        );
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.renameActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName:
+        '2569-09-03_ชื่อเดิม',
+      newActivityName:
+        '2569-09-03_ชื่อใหม่',
+    }),
+    (error) => {
+      assert.equal(
+        error instanceof ManagerNotFoundError,
+        true
+      );
+
+      assert.equal(error.statusCode, 404);
+
+      return true;
+    }
+  );
+});
+
+test('activity rename returns 409 when destination already exists', async () => {
+  const oldName =
+    '2569-09-03_ชื่อเดิม';
+
+  const newName =
+    '2569-09-03_ชื่อใหม่';
+
+  const service = new ManagerService({
+    inboxName: INBOX,
+
+    archiveService: {
+      async listActivities() {
+        return [
+          {
+            name: oldName,
+            path:
+              `${TOPIC}/${YEAR}/${oldName}`,
+          },
+          {
+            name: newName,
+            path:
+              `${TOPIC}/${YEAR}/${newName}`,
+          },
+        ];
+      },
+    },
+
+    dav: {
+      async move() {
+        throw new Error(
+          'MOVE must not be called'
+        );
+      },
+    },
+  });
+
+  await assert.rejects(
+    () => service.renameActivity({
+      topic: TOPIC,
+      year: YEAR,
+      activityName: oldName,
+      newActivityName: newName,
+    }),
+    (error) => {
+      assert.equal(
+        error instanceof ManagerConflictError,
+        true
+      );
+
+      assert.equal(error.statusCode, 409);
+
+      return true;
+    }
+  );
+});

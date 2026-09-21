@@ -686,3 +686,185 @@ test('manager move requires authentication', async () => {
 
   assert.equal(result.status, 401);
 });
+
+test('normal user cannot rename activity', async () => {
+  let called = false;
+
+  const renameContext = {
+    ...context,
+
+    managerService: {
+      async renameActivity() {
+        called = true;
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/rename',
+    ticket('user')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_ชื่อเดิม',
+    newActivityName:
+      '2569-09-03_ชื่อใหม่',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    renameContext
+  );
+
+  assert.equal(result.status, 403);
+  assert.equal(called, false);
+});
+
+test('manager can rename activity', async () => {
+  const renameContext = {
+    ...context,
+
+    managerService: {
+      async renameActivity(input) {
+        assert.equal(
+          input.activityName,
+          '2569-09-03_ชื่อเดิม'
+        );
+
+        assert.equal(
+          input.newActivityName,
+          '2569-09-03_ชื่อใหม่'
+        );
+
+        return {
+          oldName:
+            '2569-09-03_ชื่อเดิม',
+          newName:
+            '2569-09-03_ชื่อใหม่',
+          source:
+            '80_งานกิจกรรมกลาง/2569/' +
+            '2569-09-03_ชื่อเดิม',
+          destination:
+            '80_งานกิจกรรมกลาง/2569/' +
+            '2569-09-03_ชื่อใหม่',
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/rename',
+    ticket('manager')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_ชื่อเดิม',
+    newActivityName:
+      '2569-09-03_ชื่อใหม่',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    renameContext
+  );
+
+  assert.equal(result.status, 200);
+
+  assert.equal(
+    result.body.renamed.newName,
+    '2569-09-03_ชื่อใหม่'
+  );
+});
+
+test('admin can rename activity', async () => {
+  let called = false;
+
+  const renameContext = {
+    ...context,
+
+    managerService: {
+      async renameActivity() {
+        called = true;
+
+        return {
+          oldName: 'old',
+          newName: 'new',
+          source: 'source',
+          destination: 'destination',
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/rename',
+    ticket('admin')
+  );
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_ชื่อเดิม',
+    newActivityName:
+      '2569-09-03_ชื่อใหม่',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    renameContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(called, true);
+});
+
+test('activity rename requires JSON body', async () => {
+  const req = request(
+    '/v1/rename',
+    ticket('manager')
+  );
+
+  req.method = 'POST';
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 400);
+});
+
+test('activity rename requires authentication', async () => {
+  const req = request('/v1/rename');
+
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-03_ชื่อเดิม',
+    newActivityName:
+      '2569-09-03_ชื่อใหม่',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 401);
+});
