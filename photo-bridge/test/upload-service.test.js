@@ -259,3 +259,118 @@ test('inbox filename collision becomes HTTP conflict', async () => {
     UploadConflictError
   );
 });
+
+
+test('organization upload writes directly to organization destination', async () => {
+  let captured;
+
+  const JPEG = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0,
+    0x00, 0x10, 0x4a, 0x46,
+  ]);
+
+  const service = new UploadService({
+    archiveService: {
+      async listSelectableTopics() {
+        return [
+          {
+            name: '80_งานกิจกรรมกลาง',
+            path: '80_งานกิจกรรมกลาง',
+            type: 'topic',
+          },
+          {
+            name: '90_ภาพองค์กร',
+            path: '90_ภาพองค์กร',
+            type: 'organization',
+          },
+        ];
+      },
+    },
+
+    dav: {
+      async upload(path, content, mime) {
+        captured = {
+          path,
+          content,
+          mime,
+        };
+      },
+    },
+  });
+
+  const result =
+    await service.uploadToOrganization({
+      filename: 'ตราสำนักงาน.png',
+      content: JPEG,
+    });
+
+  assert.equal(
+    result.name,
+    'ตราสำนักงาน.jpg'
+  );
+
+  assert.equal(
+    result.path,
+    '90_ภาพองค์กร/ตราสำนักงาน.jpg'
+  );
+
+  assert.equal(
+    result.mime,
+    'image/jpeg'
+  );
+
+  assert.equal(
+    captured.path,
+    result.path
+  );
+
+  assert.equal(
+    captured.content,
+    JPEG
+  );
+
+  assert.equal(
+    captured.mime,
+    'image/jpeg'
+  );
+});
+
+test('organization upload fails closed when organization destination is unavailable', async () => {
+  let wrote = false;
+
+  const JPEG = Buffer.from([
+    0xff, 0xd8, 0xff, 0xe0,
+    0x00, 0x10, 0x4a, 0x46,
+  ]);
+
+  const service = new UploadService({
+    archiveService: {
+      async listSelectableTopics() {
+        return [
+          {
+            name: '80_งานกิจกรรมกลาง',
+            path: '80_งานกิจกรรมกลาง',
+            type: 'topic',
+          },
+        ];
+      },
+    },
+
+    dav: {
+      async upload() {
+        wrote = true;
+      },
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      service.uploadToOrganization({
+        filename: 'photo.jpg',
+        content: JPEG,
+      }),
+    /organization/i
+  );
+
+  assert.equal(wrote, false);
+});

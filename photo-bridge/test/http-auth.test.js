@@ -1035,3 +1035,77 @@ test('archive requires authentication', async () => {
   assert.equal(result.status, 401);
 });
 
+
+
+test('authenticated user can upload directly to organization', async () => {
+  const organizationContext = {
+    ...context,
+
+    uploadService: {
+      async uploadToOrganization(input) {
+        assert.equal(
+          input.filename,
+          'logo.png'
+        );
+
+        assert.equal(
+          Buffer.isBuffer(input.content),
+          true
+        );
+
+        return {
+          name: 'logo.jpg',
+          path: '90_ภาพองค์กร/logo.jpg',
+          mime: 'image/jpeg',
+          size: input.content.length,
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/organization/uploads?filename=' +
+      encodeURIComponent('logo.png'),
+    ticket()
+  );
+
+  req.method = 'POST';
+
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result =
+    await handleHttpRequest(
+      req,
+      organizationContext
+    );
+
+  assert.equal(result.status, 201);
+  assert.equal(result.body.ok, true);
+
+  assert.equal(
+    result.body.file.path,
+    '90_ภาพองค์กร/logo.jpg'
+  );
+});
+
+test('organization upload requires authentication', async () => {
+  const req = request(
+    '/v1/organization/uploads?filename=logo.jpg'
+  );
+
+  req.method = 'POST';
+
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result =
+    await handleHttpRequest(
+      req,
+      context
+    );
+
+  assert.equal(result.status, 401);
+});

@@ -151,6 +151,50 @@ export class UploadService {
     };
   }
 
+  async uploadToOrganization(input) {
+    const topics =
+      await this.archiveService.listSelectableTopics();
+
+    const organization =
+      topics.find(
+        (item) =>
+          item &&
+          item.type === 'organization'
+      );
+
+    if (
+      !organization ||
+      typeof organization.path !== 'string' ||
+      !organization.path
+    ) {
+      throw new ArchiveInputError(
+        'Organization destination is unavailable'
+      );
+    }
+
+    const validated =
+      validateImageUpload(
+        input?.filename,
+        input?.content
+      );
+
+    const destination =
+      `${organization.path}/${validated.filename}`;
+
+    await this.putImage(
+      destination,
+      input.content,
+      validated.mime
+    );
+
+    return {
+      name: validated.filename,
+      path: destination,
+      mime: validated.mime,
+      size: validated.size,
+    };
+  }
+
   async uploadToInbox(input) {
     if (!this.inboxName) {
       throw new Error(

@@ -80,3 +80,14 @@ test('manager archive uses JSON request body', () => {
     'json'
   );
 });
+
+
+test('organization upload uses binary request body', () => {
+  assert.equal(
+    requestBodyKind(
+      'POST',
+      '/v1/organization/uploads'
+    ),
+    'binary'
+  );
+});
