@@ -39,7 +39,7 @@ test('PROPFIND lists only child collections', async () => {
     const path = new URL(url).pathname;
 
     const topic =
-      encodeURIComponent('80_งานกิจกรรมต้น');
+      encodeURIComponent('80_งานกิจกรรมกลาง');
 
     const file =
       encodeURIComponent('example.jpg');
@@ -84,8 +84,8 @@ test('PROPFIND lists only child collections', async () => {
 
   assert.deepEqual(folders, [
     {
-      name: '80_งานกิจกรรมต้น',
-      path: '80_งานกิจกรรมต้น',
+      name: '80_งานกิจกรรมกลาง',
+      path: '80_งานกิจกรรมกลาง',
     },
   ]);
 
@@ -125,7 +125,7 @@ test('MKCOL creates a folder through WebDAV', async () => {
   });
 
   const result = await dav.createFolder(
-    '80_งานกิจกรรมต้น/2569'
+    '80_งานกิจกรรมกลาง/2569'
   );
 
   assert.equal(result, true);
@@ -148,7 +148,7 @@ test('PUT uploads content with declared MIME type', async () => {
   });
 
   const result = await dav.upload(
-    '80_งานกิจกรรมต้น/2569/2569-09-03_กิจกรรม/test.jpg',
+    '80_งานกิจกรรมกลาง/2569/2569-09-03_กิจกรรม/test.jpg',
     content,
     'image/jpeg'
   );
@@ -172,7 +172,7 @@ test('MOVE sends encoded destination and disables overwrite', async () => {
 
   const result = await dav.move(
     '00_INBOX_รอจัดหมวด/test.jpg',
-    '80_งานกิจกรรมต้น/2569/2569-09-03_กิจกรรม/test.jpg'
+    '80_งานกิจกรรมกลาง/2569/2569-09-03_กิจกรรม/test.jpg'
   );
 
   assert.equal(result, true);
@@ -201,7 +201,7 @@ test('unexpected WebDAV status produces sanitized error', async () => {
   });
 
   await assert.rejects(
-    () => dav.createFolder('80_งานกิจกรรมต้น/2569'),
+    () => dav.createFolder('80_งานกิจกรรมกลาง/2569'),
     (error) => {
       assert.equal(error instanceof WebDavError, true);
       assert.equal(error.statusCode, 500);

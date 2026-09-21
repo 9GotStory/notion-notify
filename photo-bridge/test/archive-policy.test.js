@@ -46,7 +46,7 @@ test('top-level taxonomy classification does not hardcode topic labels', () => {
   );
 
   assert.equal(
-    classifyTopLevel('80_งานกิจกรรมต้น'),
+    classifyTopLevel('80_งานกิจกรรมกลาง'),
     'topic'
   );
 
