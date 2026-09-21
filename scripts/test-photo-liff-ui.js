@@ -138,6 +138,26 @@ async function run() {
     boot,
     requestPhotoTicket,
     photoApi,
+
+    loadTopics:
+      typeof loadTopics === 'function'
+        ? loadTopics
+        : null,
+
+    selectTopic:
+      typeof selectTopic === 'function'
+        ? selectTopic
+        : null,
+
+    selectYear:
+      typeof selectYear === 'function'
+        ? selectYear
+        : null,
+
+    selectActivity:
+      typeof selectActivity === 'function'
+        ? selectActivity
+        : null,
   };
 })();`
   );
@@ -313,6 +333,70 @@ async function run() {
         };
       }
 
+      if (fetchCalls.length === 3) {
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              topics: [
+                {
+                  name:
+                    '80_งานกิจกรรมกลาง',
+                  path:
+                    '80_งานกิจกรรมกลาง',
+                  type: 'topic',
+                },
+                {
+                  name:
+                    '90_ภาพองค์กร',
+                  path:
+                    '90_ภาพองค์กร',
+                  type:
+                    'organization',
+                },
+              ],
+            };
+          },
+        };
+      }
+
+      if (
+        fetchCalls.length === 4 ||
+        fetchCalls.length === 5
+      ) {
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              activities: [
+                {
+                  name:
+                    '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+                  path:
+                    '80_งานกิจกรรมกลาง/2569/' +
+                    '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+                },
+                {
+                  name:
+                    '2569-01-15_กิจกรรมแรก',
+                  path:
+                    '80_งานกิจกรรมกลาง/2569/' +
+                    '2569-01-15_กิจกรรมแรก',
+                },
+              ],
+            };
+          },
+        };
+      }
+
       throw new Error(
         'unexpected extra fetch: ' + url
       );
@@ -362,8 +446,8 @@ async function run() {
   // ---------- Apps Script issuer ----------
 
   assert(
-    fetchCalls.length === 2,
-    'boot must make exactly issuer + session requests'
+    fetchCalls.length === 3,
+    'boot must load selectable topics after verified session'
   );
 
   const issuer =
@@ -424,6 +508,35 @@ async function run() {
     'Photo Bridge must receive Photo Ticket as Bearer token'
   );
 
+  // ---------- Topics ----------
+
+  const topicsRequest =
+    fetchCalls[2];
+
+  assert(
+    topicsRequest.url ===
+      context.CONFIG.PHOTO_API_URL +
+        '/v1/topics',
+    'boot must load topics from Photo Bridge'
+  );
+
+  assert(
+    topicsRequest.method === 'GET',
+    'topics request must use GET'
+  );
+
+  assert(
+    topicsRequest.headers.Authorization ===
+      'Bearer runtime-photo-ticket',
+    'topics request must use Photo Ticket'
+  );
+
+  assert(
+    Array.isArray(ui.state.topics) &&
+      ui.state.topics.length === 2,
+    'boot must retain selectable topics'
+  );
+
   // ---------- Runtime-only ticket ----------
 
   assert(
@@ -452,9 +565,190 @@ async function run() {
     'UI must not trust issuer actor as final authority'
   );
 
-  console.log(
-    'Photo LIFF boot/auth contract passed'
+  // ---------- Destination selection ----------
+
+  assert(
+    typeof ui.loadTopics === 'function',
+    'photo UI must provide loadTopics()'
   );
+
+  assert(
+    typeof ui.selectTopic === 'function',
+    'photo UI must provide selectTopic()'
+  );
+
+  assert(
+    typeof ui.selectYear === 'function',
+    'photo UI must provide selectYear()'
+  );
+
+  assert(
+    typeof ui.selectActivity === 'function',
+    'photo UI must provide selectActivity()'
+  );
+
+  // 90_ภาพองค์กร จบที่ topic โดยตรง
+  const beforeOrganization =
+    fetchCalls.length;
+
+  await ui.selectTopic(
+    '90_ภาพองค์กร'
+  );
+
+  assert(
+    fetchCalls.length ===
+      beforeOrganization,
+    'organization destination must not request activities'
+  );
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.type ===
+        'organization' &&
+      ui.state.destination.topic ===
+        '90_ภาพองค์กร' &&
+      ui.state.destination.path ===
+        '90_ภาพองค์กร',
+    'organization topic must become destination directly'
+  );
+
+  assert(
+    !Object.prototype.hasOwnProperty.call(
+      ui.state.destination,
+      'year'
+    ) &&
+      !Object.prototype.hasOwnProperty.call(
+        ui.state.destination,
+        'activity'
+      ),
+    'organization destination must not contain year/activity'
+  );
+
+  // topic ปกติยังไม่เป็น destination
+  await ui.selectTopic(
+    '80_งานกิจกรรมกลาง'
+  );
+
+  assert(
+    ui.state.destination === null,
+    'normal topic requires year and activity'
+  );
+
+  assert(
+    /^\d{4}$/.test(
+      ui.state.selectedYear
+    ),
+    'normal topic must default to current Buddhist year'
+  );
+
+  assert(
+    fetchCalls.length === 4,
+    'normal topic must immediately load current-year activities'
+  );
+
+  assert(
+    Array.isArray(ui.state.activities) &&
+      ui.state.activities.length === 2,
+    'current-year activities must be retained after topic selection'
+  );
+
+  // ปีผิดต้องหยุดที่ client และไม่ยิง API
+  const beforeInvalidYear =
+    fetchCalls.length;
+
+  let invalidYearError = null;
+
+  try {
+    await ui.selectYear(
+      '2026-09'
+    );
+  } catch (err) {
+    invalidYearError = err;
+  }
+
+  assert(
+    invalidYearError,
+    'invalid Buddhist year must be rejected'
+  );
+
+  assert(
+    fetchCalls.length ===
+      beforeInvalidYear,
+    'invalid year must not call Photo Bridge'
+  );
+
+  // ปี พ.ศ. ถูกต้อง → โหลดกิจกรรม
+  await ui.selectYear(
+    '2569'
+  );
+
+  assert(
+    fetchCalls.length === 5,
+    'valid year must load activities'
+  );
+
+  const activitiesRequest =
+    fetchCalls[4];
+
+  const expectedActivitiesUrl =
+    context.CONFIG.PHOTO_API_URL +
+    '/v1/activities?topic=' +
+    encodeURIComponent(
+      '80_งานกิจกรรมกลาง'
+    ) +
+    '&year=2569';
+
+  assert(
+    activitiesRequest.url ===
+      expectedActivitiesUrl,
+    'activities request URL mismatch'
+  );
+
+  assert(
+    activitiesRequest.method === 'GET',
+    'activities request must use GET'
+  );
+
+  assert(
+    activitiesRequest.headers.Authorization ===
+      'Bearer runtime-photo-ticket',
+    'activities request must use Photo Ticket'
+  );
+
+  assert(
+    Array.isArray(ui.state.activities) &&
+      ui.state.activities.length === 2,
+    'activities response must be retained'
+  );
+
+  // เลือก activity → destination พร้อม
+  const activityName =
+    '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง';
+
+  await ui.selectActivity(
+    activityName
+  );
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.type ===
+        'activity' &&
+      ui.state.destination.topic ===
+        '80_งานกิจกรรมกลาง' &&
+      ui.state.destination.year ===
+        '2569' &&
+      ui.state.destination.activity ===
+        activityName &&
+      ui.state.destination.path ===
+        '80_งานกิจกรรมกลาง/2569/' +
+        activityName,
+    'activity selection must produce canonical destination'
+  );
+
+  console.log(
+    'Photo LIFF destination selection contract passed'
+  );
+
 }
 
 run().catch(err => {

@@ -112,10 +112,108 @@
               </dd>
             </div>
           </dl>
+        </div>
+      </div>
 
-          <p class="ui-help">
-            ขั้นตอนถัดไปจะเพิ่มการเลือกหมวด กิจกรรม และอัปโหลดภาพ
-          </p>
+      <div class="ui-card">
+        <div class="ui-card-body space-y-4">
+          <div>
+            <h2 class="ui-section-title">
+              เลือกปลายทางจัดเก็บ
+            </h2>
+
+            <p class="ui-help">
+              เลือกหมวดงาน ปี พ.ศ. และกิจกรรมที่ต้องการจัดเก็บภาพ
+            </p>
+          </div>
+
+          <div>
+            <label
+              for="topicSelect"
+              class="mb-1.5 block text-sm font-medium text-text"
+            >
+              หมวดงาน
+            </label>
+
+            <select
+              id="topicSelect"
+              class="ui-input w-full"
+            >
+              <option value="">
+                เลือกหมวดงาน
+              </option>
+            </select>
+          </div>
+
+          <div
+            id="yearField"
+            class="hidden"
+          >
+            <label
+              for="yearInput"
+              class="mb-1.5 block text-sm font-medium text-text"
+            >
+              ปี พ.ศ.
+            </label>
+
+            <input
+              id="yearInput"
+              type="text"
+              inputmode="numeric"
+              maxlength="4"
+              autocomplete="off"
+              class="ui-input w-full"
+              placeholder="เช่น 2569"
+            >
+
+            <p class="ui-help">
+              ใช้ปี พ.ศ. 4 หลัก
+            </p>
+          </div>
+
+          <div
+            id="activityField"
+            class="hidden"
+          >
+            <label
+              for="activitySelect"
+              class="mb-1.5 block text-sm font-medium text-text"
+            >
+              กิจกรรม
+            </label>
+
+            <select
+              id="activitySelect"
+              class="ui-input w-full"
+            >
+              <option value="">
+                เลือกกิจกรรม
+              </option>
+            </select>
+
+            <p
+              id="activityHelp"
+              class="ui-help"
+            >
+              เลือกปีก่อนเพื่อโหลดรายการกิจกรรม
+            </p>
+          </div>
+
+          <div
+            id="destinationSummary"
+            class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <p class="text-xs font-medium uppercase tracking-wide text-text-muted">
+              ปลายทางที่เลือก
+            </p>
+
+            <p
+              id="destinationLabel"
+              class="mt-1 break-words text-sm font-semibold text-text"
+            >
+              -
+            </p>
+          </div>
         </div>
       </div>
     </section>
@@ -165,6 +263,15 @@
       photoTicket: '',
       actor: null,
       ready: false,
+
+      topics: [],
+      activities: [],
+
+      selectedTopic: null,
+      selectedYear: '',
+      selectedActivity: null,
+
+      destination: null,
     };
 
     function $(id) {
@@ -460,6 +567,377 @@
       return data;
     }
 
+    function currentBuddhistYear_() {
+      return String(
+        new Date().getFullYear() + 543
+      );
+    }
+
+    function topicByName_(name) {
+      const value =
+        String(name || '').trim();
+
+      return state.topics.find(
+        item =>
+          item &&
+          item.name === value
+      ) || null;
+    }
+
+    function activityByName_(name) {
+      const value =
+        String(name || '').trim();
+
+      return state.activities.find(
+        item =>
+          item &&
+          item.name === value
+      ) || null;
+    }
+
+    function renderTopicOptions_() {
+      const select =
+        $('topicSelect');
+
+      if (!select) return;
+
+      const options = [
+        '<option value="">เลือกหมวดงาน</option>',
+      ];
+
+      state.topics.forEach(topic => {
+        if (
+          !topic ||
+          typeof topic.name !== 'string'
+        ) {
+          return;
+        }
+
+        const option =
+          document.createElement('option');
+
+        option.value =
+          topic.name;
+
+        option.textContent =
+          topic.name;
+
+        // ใช้ outerHTML เฉพาะ element ที่เราสร้างเอง
+        // เพื่อให้ textContent escape ค่า backend ให้ก่อน
+        options.push(
+          option.outerHTML
+        );
+      });
+
+      select.innerHTML =
+        options.join('');
+
+      select.value =
+        state.selectedTopic
+          ? state.selectedTopic.name
+          : '';
+    }
+
+    function renderActivityOptions_() {
+      const select =
+        $('activitySelect');
+
+      if (!select) return;
+
+      const options = [
+        '<option value="">เลือกกิจกรรม</option>',
+      ];
+
+      state.activities.forEach(activity => {
+        if (
+          !activity ||
+          typeof activity.name !== 'string'
+        ) {
+          return;
+        }
+
+        const option =
+          document.createElement('option');
+
+        option.value =
+          activity.name;
+
+        option.textContent =
+          activity.name;
+
+        options.push(
+          option.outerHTML
+        );
+      });
+
+      select.innerHTML =
+        options.join('');
+
+      select.value =
+        state.selectedActivity
+          ? state.selectedActivity.name
+          : '';
+    }
+
+    function renderDestinationState_() {
+      const topic =
+        state.selectedTopic;
+
+      const isActivityTopic =
+        Boolean(
+          topic &&
+          topic.type === 'topic'
+        );
+
+      const yearField =
+        $('yearField');
+
+      const activityField =
+        $('activityField');
+
+      if (yearField) {
+        yearField.classList.toggle(
+          'hidden',
+          !isActivityTopic
+        );
+      }
+
+      if (activityField) {
+        activityField.classList.toggle(
+          'hidden',
+          !isActivityTopic
+        );
+      }
+
+      const yearInput =
+        $('yearInput');
+
+      if (
+        yearInput &&
+        yearInput.value !==
+          state.selectedYear
+      ) {
+        yearInput.value =
+          state.selectedYear;
+      }
+
+      renderActivityOptions_();
+
+      const activityHelp =
+        $('activityHelp');
+
+      if (activityHelp) {
+        if (!state.selectedYear) {
+          activityHelp.textContent =
+            'เลือกปีก่อนเพื่อโหลดรายการกิจกรรม';
+        } else if (
+          !state.activities.length
+        ) {
+          activityHelp.textContent =
+            'ยังไม่มีกิจกรรมในปีที่เลือก';
+        } else {
+          activityHelp.textContent =
+            'เลือกกิจกรรมที่ต้องการจัดเก็บภาพ';
+        }
+      }
+
+      const summary =
+        $('destinationSummary');
+
+      const label =
+        $('destinationLabel');
+
+      if (summary) {
+        summary.classList.toggle(
+          'hidden',
+          !state.destination
+        );
+      }
+
+      if (label) {
+        label.textContent =
+          state.destination
+            ? state.destination.path
+            : '-';
+      }
+    }
+
+    async function loadTopics() {
+      const result =
+        await photoApi('/v1/topics');
+
+      if (!Array.isArray(result.topics)) {
+        throw new Error(
+          'รูปแบบรายการหมวดภาพไม่ถูกต้อง'
+        );
+      }
+
+      state.topics =
+        result.topics.filter(item =>
+          item &&
+          typeof item.name === 'string' &&
+          typeof item.path === 'string' &&
+          (
+            item.type === 'topic' ||
+            item.type === 'organization'
+          )
+        );
+
+      state.selectedTopic = null;
+      state.selectedYear = '';
+      state.selectedActivity = null;
+      state.activities = [];
+      state.destination = null;
+
+      renderTopicOptions_();
+      renderDestinationState_();
+
+      return state.topics;
+    }
+
+    async function selectTopic(name) {
+      const selected =
+        topicByName_(name);
+
+      if (!selected) {
+        throw new Error(
+          'ไม่พบหมวดภาพที่เลือก'
+        );
+      }
+
+      state.selectedTopic =
+        selected;
+
+      state.selectedYear = '';
+      state.selectedActivity = null;
+      state.activities = [];
+      state.destination = null;
+
+      if (
+        selected.type ===
+          'organization'
+      ) {
+        state.destination = {
+          type: 'organization',
+          topic: selected.name,
+          path: selected.path,
+        };
+
+        renderDestinationState_();
+      } else {
+        await selectYear(
+          currentBuddhistYear_()
+        );
+      }
+
+      return state.destination;
+    }
+
+    async function selectYear(year) {
+      if (
+        !state.selectedTopic ||
+        state.selectedTopic.type !==
+          'topic'
+      ) {
+        throw new Error(
+          'กรุณาเลือกหมวดงานก่อน'
+        );
+      }
+
+      const value =
+        String(year || '').trim();
+
+      if (!/^\d{4}$/.test(value)) {
+        throw new Error(
+          'กรุณาระบุปี พ.ศ. 4 หลัก'
+        );
+      }
+
+      state.selectedYear =
+        value;
+
+      state.selectedActivity = null;
+      state.activities = [];
+      state.destination = null;
+
+      renderDestinationState_();
+
+      const result =
+        await photoApi(
+          '/v1/activities?topic=' +
+          encodeURIComponent(
+            state.selectedTopic.name
+          ) +
+          '&year=' +
+          encodeURIComponent(value)
+        );
+
+      if (
+        !Array.isArray(
+          result.activities
+        )
+      ) {
+        throw new Error(
+          'รูปแบบรายการกิจกรรมไม่ถูกต้อง'
+        );
+      }
+
+      state.activities =
+        result.activities.filter(
+          item =>
+            item &&
+            typeof item.name ===
+              'string' &&
+            typeof item.path ===
+              'string'
+        );
+
+      renderDestinationState_();
+
+      return state.activities;
+    }
+
+    async function selectActivity(name) {
+      if (
+        !state.selectedTopic ||
+        state.selectedTopic.type !==
+          'topic' ||
+        !state.selectedYear
+      ) {
+        throw new Error(
+          'กรุณาเลือกหมวดงานและปีก่อน'
+        );
+      }
+
+      const selected =
+        activityByName_(name);
+
+      if (!selected) {
+        throw new Error(
+          'ไม่พบกิจกรรมที่เลือก'
+        );
+      }
+
+      state.selectedActivity =
+        selected;
+
+      state.destination = {
+        type: 'activity',
+        topic:
+          state.selectedTopic.name,
+        year:
+          state.selectedYear,
+        activity:
+          selected.name,
+        path:
+          selected.path,
+      };
+
+      renderDestinationState_();
+
+      return state.destination;
+    }
+
     function roleLabel_(role) {
       if (role === 'admin') {
         return 'ผู้ดูแลระบบ';
@@ -492,6 +970,9 @@
           roleLabel_(actor.role);
       }
 
+      renderTopicOptions_();
+      renderDestinationState_();
+
       state.ready = true;
       show('ready');
     }
@@ -500,6 +981,13 @@
       state.photoTicket = '';
       state.actor = null;
       state.ready = false;
+
+      state.topics = [];
+      state.activities = [];
+      state.selectedTopic = null;
+      state.selectedYear = '';
+      state.selectedActivity = null;
+      state.destination = null;
 
       show('loading');
 
@@ -566,6 +1054,12 @@
         state.actor =
           session.actor;
 
+        setBootStatus_(
+          'กำลังโหลดหมวดภาพ…'
+        );
+
+        await loadTopics();
+
         renderReady_();
       } catch (err) {
         const message =
@@ -589,6 +1083,107 @@
 
         showError(message);
       }
+    }
+
+    const topicSelect =
+      $('topicSelect');
+
+    if (topicSelect) {
+      topicSelect.addEventListener(
+        'change',
+        async event => {
+          const value =
+            event.target.value;
+
+          if (!value) {
+            state.selectedTopic = null;
+            state.selectedYear = '';
+            state.selectedActivity = null;
+            state.activities = [];
+            state.destination = null;
+
+            renderDestinationState_();
+            return;
+          }
+
+          try {
+            await selectTopic(value);
+          } catch (err) {
+            showError(
+              err && err.message
+                ? err.message
+                : String(err)
+            );
+          }
+        }
+      );
+    }
+
+    const yearInput =
+      $('yearInput');
+
+    if (yearInput) {
+      yearInput.addEventListener(
+        'change',
+        async event => {
+          try {
+            await selectYear(
+              event.target.value
+            );
+          } catch (err) {
+            const message =
+              err && err.message
+                ? err.message
+                : String(err);
+
+            const activityHelp =
+              $('activityHelp');
+
+            if (activityHelp) {
+              activityHelp.textContent =
+                message;
+            }
+          }
+        }
+      );
+    }
+
+    const activitySelect =
+      $('activitySelect');
+
+    if (activitySelect) {
+      activitySelect.addEventListener(
+        'change',
+        async event => {
+          const value =
+            event.target.value;
+
+          if (!value) {
+            state.selectedActivity =
+              null;
+
+            state.destination =
+              null;
+
+            renderDestinationState_();
+            return;
+          }
+
+          try {
+            await selectActivity(value);
+          } catch (err) {
+            const activityHelp =
+              $('activityHelp');
+
+            if (activityHelp) {
+              activityHelp.textContent =
+                err && err.message
+                  ? err.message
+                  : String(err);
+            }
+          }
+        }
+      );
     }
 
     const retryButton =
