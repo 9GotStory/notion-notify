@@ -364,3 +364,84 @@ test('create activity requires authentication', async () => {
 
   assert.equal(result.status, 401);
 });
+
+test('authenticated user can upload to activity', async () => {
+  const uploadContext = {
+    ...context,
+
+    uploadService: {
+      async uploadToActivity(input) {
+        assert.equal(
+          input.topic,
+          '80_งานกิจกรรมกลาง'
+        );
+
+        assert.equal(input.year, '2569');
+
+        assert.equal(
+          input.activityName,
+          '2569-09-03_กิจกรรม'
+        );
+
+        assert.equal(
+          input.filename,
+          'photo.png'
+        );
+
+        assert.equal(
+          Buffer.isBuffer(input.content),
+          true
+        );
+
+        return {
+          name: 'photo.jpg',
+          path:
+            '80_งานกิจกรรมกลาง/2569/2569-09-03_กิจกรรม/photo.jpg',
+          mime: 'image/jpeg',
+          size: input.content.length,
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/uploads?' +
+      'topic=' +
+      encodeURIComponent('80_งานกิจกรรมกลาง') +
+      '&year=2569' +
+      '&activity=' +
+      encodeURIComponent('2569-09-03_กิจกรรม') +
+      '&filename=' +
+      encodeURIComponent('photo.png'),
+    ticket()
+  );
+
+  req.method = 'POST';
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result = await handleHttpRequest(
+    req,
+    uploadContext
+  );
+
+  assert.equal(result.status, 201);
+  assert.equal(result.body.file.name, 'photo.jpg');
+});
+
+test('upload requires authentication', async () => {
+  const req = request(
+    '/v1/uploads?topic=x&year=2569',
+  );
+
+  req.method = 'POST';
+  req.body = Buffer.from([1]);
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 401);
+});

@@ -27,6 +27,7 @@ Environment=PHOTO_ARCHIVE=99_ARCHIVE_คลังภาพเก่า
 
 Environment=PHOTO_TICKET_SECRET_FILE=/run/secrets/photo_ticket_secret
 Environment=PHOTO_TICKET_TTL_SECONDS=300
+Environment=PHOTO_MAX_UPLOAD_BYTES=26214400
 
 Environment=PHOTO_LISTEN_HOST=0.0.0.0
 Environment=PHOTO_LISTEN_PORT=18089

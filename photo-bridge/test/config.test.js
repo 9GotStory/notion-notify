@@ -139,3 +139,24 @@ test('missing secret file fails closed', () => {
     });
   }
 });
+
+test('default upload limit is 25 MiB', () => {
+  const fixture = secretFixture();
+
+  try {
+    const env = envFor(fixture);
+    delete env.PHOTO_MAX_UPLOAD_BYTES;
+
+    const config = loadConfig(env);
+
+    assert.equal(
+      config.maxUploadBytes,
+      26214400
+    );
+  } finally {
+    rmSync(fixture.dir, {
+      recursive: true,
+      force: true,
+    });
+  }
+});

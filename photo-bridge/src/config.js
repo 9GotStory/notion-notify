@@ -78,5 +78,10 @@ export function loadConfig(env = process.env) {
       env.PHOTO_TICKET_TTL_SECONDS,
       300
     ),
+    maxUploadBytes: positiveInteger(
+      'PHOTO_MAX_UPLOAD_BYTES',
+      env.PHOTO_MAX_UPLOAD_BYTES,
+      26214400
+    ),
   });
 }

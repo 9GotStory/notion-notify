@@ -6,6 +6,11 @@ import {
 
 import { ArchiveInputError } from './archive-service.js';
 
+import {
+  UploadConflictError,
+  UploadPolicyError,
+} from './upload-service.js';
+
 function response(status, body) {
   return {
     status,
@@ -121,6 +126,31 @@ export async function handleHttpRequest(request, context) {
     }
 
     if (
+      method === 'POST' &&
+      url.pathname === '/v1/uploads'
+    ) {
+      if (!context.uploadService) {
+        throw new Error('Upload service unavailable');
+      }
+
+      const file =
+        await context.uploadService.uploadToActivity({
+          topic: url.searchParams.get('topic'),
+          year: url.searchParams.get('year'),
+          activityName:
+            url.searchParams.get('activity'),
+          filename:
+            url.searchParams.get('filename'),
+          content: request.body,
+        });
+
+      return response(201, {
+        ok: true,
+        file,
+      });
+    }
+
+    if (
       method === 'GET' &&
       url.pathname === '/v1/manager/session'
     ) {
@@ -139,7 +169,9 @@ export async function handleHttpRequest(request, context) {
   } catch (error) {
     if (
       error instanceof AuthError ||
-      error instanceof ArchiveInputError
+      error instanceof ArchiveInputError ||
+      error instanceof UploadPolicyError ||
+      error instanceof UploadConflictError
     ) {
       return response(error.statusCode, {
         ok: false,
