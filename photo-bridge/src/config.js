@@ -39,8 +39,17 @@ function validateNextcloudUrl(value) {
     throw new Error('PHOTO_NEXTCLOUD_URL must use http or https');
   }
 
-  if (!['127.0.0.1', 'localhost', '::1'].includes(url.hostname)) {
-    throw new Error('PHOTO_NEXTCLOUD_URL must use a loopback host');
+  const allowedHosts = new Set([
+    '127.0.0.1',
+    'localhost',
+    '::1',
+    'nextcloud',
+  ]);
+
+  if (!allowedHosts.has(url.hostname)) {
+    throw new Error(
+      'PHOTO_NEXTCLOUD_URL must use an approved internal host'
+    );
   }
 
   return url.toString().replace(/\/$/, '');
