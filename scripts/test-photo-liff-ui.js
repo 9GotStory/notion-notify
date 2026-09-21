@@ -168,6 +168,11 @@ async function run() {
       typeof createActivity === 'function'
         ? createActivity
         : null,
+
+    uploadFiles:
+      typeof uploadFiles === 'function'
+        ? uploadFiles
+        : null,
   };
 })();`
   );
@@ -302,6 +307,7 @@ async function run() {
           options.body == null
             ? ''
             : String(options.body),
+        rawBody: (options && options.body),
       });
 
       if (fetchCalls.length === 1) {
@@ -423,6 +429,78 @@ async function run() {
                 path:
                   '80_งานกิจกรรมกลาง/2569/' +
                   '2569-09-21_ทดสอบ Photo Bridge',
+              },
+            };
+          },
+        };
+      }
+
+      if (
+        url.includes('/v1/uploads?') ||
+        url.includes('/v1/organization/uploads?')
+      ) {
+        const parsed =
+          new URL(url);
+
+        const filename =
+          parsed.searchParams.get('filename');
+
+        if (filename === 'bad.jpg') {
+          return {
+            ok: false,
+            status: 409,
+
+            async json() {
+              return {
+                ok: false,
+                error:
+                  'A file with this name already exists',
+              };
+            },
+          };
+        }
+
+        return {
+          ok: true,
+          status: 201,
+
+          async json() {
+            return {
+              ok: true,
+
+              file: {
+                name:
+                  filename === 'photo.png'
+                    ? 'photo.jpg'
+                    : filename,
+
+                path:
+                  (
+                    url.includes(
+                      '/v1/organization/uploads?'
+                    )
+                      ? '90_ภาพองค์กร/'
+                      : (
+                          '80_งานกิจกรรมกลาง/2569/' +
+                          '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง/'
+                        )
+                  ) +
+                  (
+                    filename === 'photo.png'
+                      ? 'photo.jpg'
+                      : filename
+                  ),
+
+                mime:
+                  'image/jpeg',
+
+                size:
+                  options &&
+                  options.body &&
+                  typeof options.body.size ===
+                    'number'
+                    ? options.body.size
+                    : 3,
               },
             };
           },
@@ -595,6 +673,27 @@ async function run() {
     ui.state.actor.role !==
       'admin',
     'UI must not trust issuer actor as final authority'
+  );
+
+  // ---------- Upload UI ----------
+
+  [
+    'id="photoInput"',
+    'id="uploadButton"',
+    'id="uploadStatus"',
+    'id="uploadResults"',
+  ].forEach(required => {
+    assert(
+      html.includes(required),
+      'upload UI missing: ' + required
+    );
+  });
+
+  assert(
+    /id="photoInput"[^>]*multiple/s.test(
+      html
+    ),
+    'photo input must support multiple files'
   );
 
   // ---------- Create activity UI ----------
@@ -956,8 +1055,242 @@ async function run() {
     'created activity must appear in current activity list'
   );
 
+  // ---------- Multi-file upload ----------
+
+  assert(
+    typeof ui.uploadFiles === 'function',
+    'photo UI must provide uploadFiles()'
+  );
+
+  // ไม่มี destination ต้องไม่ยิง API
+  ui.state.destination = null;
+
+  const beforeNoDestination =
+    fetchCalls.length;
+
+  let noDestinationError = null;
+
+  try {
+    await ui.uploadFiles([
+      {
+        name: 'photo.jpg',
+        size: 3,
+        type: 'image/jpeg',
+      },
+    ]);
+  } catch (err) {
+    noDestinationError = err;
+  }
+
+  assert(
+    noDestinationError,
+    'upload without destination must be rejected'
+  );
+
+  assert(
+    fetchCalls.length ===
+      beforeNoDestination,
+    'upload without destination must not call Photo Bridge'
+  );
+
+  // เกิน 25 MiB ต้องหยุดฝั่ง browser
+  ui.state.destination = {
+    type: 'activity',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activity:
+      '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+    path:
+      '80_งานกิจกรรมกลาง/2569/' +
+      '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+  };
+
+  const beforeOversize =
+    fetchCalls.length;
+
+  const oversizeResults =
+    await ui.uploadFiles([
+      {
+        name: 'too-large.jpg',
+        size: 26214401,
+        type: 'image/jpeg',
+      },
+    ]);
+
+  assert(
+    fetchCalls.length ===
+      beforeOversize,
+    'file over 25 MiB must not call Photo Bridge'
+  );
+
+  assert(
+    Array.isArray(oversizeResults) &&
+      oversizeResults.length === 1 &&
+      oversizeResults[0].ok === false,
+    'oversize file must return per-file failure result'
+  );
+
+  // activity: หลายไฟล์ + failure หนึ่งไฟล์
+  // ต้องทำไฟล์ถัดไปต่อ ไม่ abort ทั้ง batch
+  const activityStart =
+    fetchCalls.length;
+
+  const activityFiles = [
+    {
+      name: 'photo.png',
+      size: 3,
+      type: 'image/png',
+    },
+    {
+      name: 'bad.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'third.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ];
+
+  const activityResults =
+    await ui.uploadFiles(
+      activityFiles
+    );
+
+  assert(
+    fetchCalls.length ===
+      activityStart + 3,
+    'activity upload must attempt every valid file'
+  );
+
+  assert(
+    activityResults.length === 3 &&
+      activityResults[0].ok === true &&
+      activityResults[1].ok === false &&
+      activityResults[2].ok === true,
+    'one failed upload must not cancel remaining files'
+  );
+
+  const firstActivityUpload =
+    fetchCalls[activityStart];
+
+  const expectedActivityUrl =
+    context.CONFIG.PHOTO_API_URL +
+    '/v1/uploads?topic=' +
+    encodeURIComponent(
+      '80_งานกิจกรรมกลาง'
+    ) +
+    '&year=2569' +
+    '&activity=' +
+    encodeURIComponent(
+      '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง'
+    ) +
+    '&filename=' +
+    encodeURIComponent(
+      'photo.png'
+    );
+
+  assert(
+    firstActivityUpload.url ===
+      expectedActivityUrl,
+    'activity upload URL mismatch'
+  );
+
+  assert(
+    firstActivityUpload.method ===
+      'POST',
+    'activity upload must use POST'
+  );
+
+  assert(
+    firstActivityUpload.headers.Authorization ===
+      'Bearer runtime-photo-ticket',
+    'activity upload must use Photo Ticket'
+  );
+
+  assert(
+    firstActivityUpload.rawBody ===
+      activityFiles[0],
+    'browser must send raw file body'
+  );
+
+  // Backend magic bytes เป็น authority:
+  // browser ต้องยอมรับชื่อ normalize ที่ server คืนมา
+  assert(
+    activityResults[0].file &&
+      activityResults[0].file.name ===
+        'photo.jpg',
+    'upload result must use backend normalized filename'
+  );
+
+  // 90_ภาพองค์กร ใช้ endpoint แยก
+  ui.state.destination = {
+    type: 'organization',
+    topic: '90_ภาพองค์กร',
+    path: '90_ภาพองค์กร',
+  };
+
+  const organizationStart =
+    fetchCalls.length;
+
+  const organizationFile = {
+    name: 'logo.png',
+    size: 3,
+    type: 'image/png',
+  };
+
+  const organizationResults =
+    await ui.uploadFiles([
+      organizationFile,
+    ]);
+
+  assert(
+    fetchCalls.length ===
+      organizationStart + 1,
+    'organization upload must make one request'
+  );
+
+  const organizationUpload =
+    fetchCalls[organizationStart];
+
+  assert(
+    organizationUpload.url ===
+      context.CONFIG.PHOTO_API_URL +
+        '/v1/organization/uploads?filename=' +
+        encodeURIComponent(
+          'logo.png'
+        ),
+    'organization upload endpoint mismatch'
+  );
+
+  assert(
+    organizationUpload.method ===
+      'POST',
+    'organization upload must use POST'
+  );
+
+  assert(
+    organizationUpload.headers.Authorization ===
+      'Bearer runtime-photo-ticket',
+    'organization upload must use Photo Ticket'
+  );
+
+  assert(
+    organizationUpload.rawBody ===
+      organizationFile,
+    'organization upload must send raw file body'
+  );
+
+  assert(
+    organizationResults.length === 1 &&
+      organizationResults[0].ok ===
+        true,
+    'organization upload must return per-file success'
+  );
+
   console.log(
-    'Photo LIFF create activity contract passed'
+    'Photo LIFF upload contract passed'
   );
 
 }
