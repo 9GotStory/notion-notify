@@ -87,6 +87,104 @@ function checkDirectModeContracts() {
   });
 }
 
+function checkPhotoLiffFoundationContracts() {
+  const pageFile = 'web/liff-photo/index.html';
+
+  const testRunnerFile =
+    'scripts/test-apps-script.js';
+
+  const testRunner = fs.readFileSync(
+    path.join(root, testRunnerFile),
+    'utf8'
+  );
+
+  if (!testRunner.includes('test-photo-liff-ui.js')) {
+    console.error(
+      testRunnerFile +
+      ' must run test-photo-liff-ui.js'
+    );
+    process.exitCode = 1;
+  }
+
+  if (!fs.existsSync(path.join(root, pageFile))) {
+    console.error(pageFile + ' photo LIFF foundation missing');
+    process.exitCode = 1;
+    return;
+  }
+
+  const page = fs.readFileSync(
+    path.join(root, pageFile),
+    'utf8'
+  );
+
+  const required = [
+    "__PHOTO_LIFF_ID__",
+    "__API_URL__",
+    "__PHOTO_API_URL__",
+    "../liff-form/sdk.js",
+    "../liff-form/styles.css",
+  ];
+
+  const missing =
+    required.filter(value => !page.includes(value));
+
+  if (missing.length) {
+    console.error(
+      pageFile +
+      ' photo LIFF foundation failed; missing: ' +
+      missing.join(', ')
+    );
+    process.exitCode = 1;
+  }
+
+  const workflowFile =
+    '.github/workflows/deploy-liff-form.yml';
+
+  const workflow = fs.readFileSync(
+    path.join(root, workflowFile),
+    'utf8'
+  );
+
+  const workflowRequired = [
+    "web/liff-photo/**",
+    "PHOTO_LIFF_ID:",
+    "PHOTO_API_URL:",
+    "__PHOTO_LIFF_ID__",
+    "__PHOTO_API_URL__",
+    "site/web/liff-photo",
+  ];
+
+  const workflowMissing =
+    workflowRequired.filter(
+      value => !workflow.includes(value)
+    );
+
+  if (workflowMissing.length) {
+    console.error(
+      workflowFile +
+      ' photo LIFF deploy contract failed; missing: ' +
+      workflowMissing.join(', ')
+    );
+    process.exitCode = 1;
+  }
+
+  const stylesFile =
+    'web/liff-form/src/styles.css';
+
+  const styles = fs.readFileSync(
+    path.join(root, stylesFile),
+    'utf8'
+  );
+
+  if (!styles.includes('@source "../../liff-photo";')) {
+    console.error(
+      stylesFile +
+      ' must scan web/liff-photo for Tailwind classes'
+    );
+    process.exitCode = 1;
+  }
+}
+
 function checkLiffFormUxContracts() {
   const filename = 'web/liff-form/index.html';
   const source = fs.readFileSync(path.join(root, filename), 'utf8');
@@ -811,6 +909,7 @@ walk(path.join(root, 'web'))
 
 checkAdminViewContracts();
 checkDirectModeContracts();
+checkPhotoLiffFoundationContracts();
 checkLiffFormUxContracts();
 checkAdminStaffUxContracts();
 checkDesignSystemContracts();

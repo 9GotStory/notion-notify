@@ -5,6 +5,8 @@ const path = require('path');
 const vm = require('vm');
 const { execFileSync } = require('child_process');
 
+const mainCrypto = require('crypto');
+
 function dateParts(date, timeZone) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: timeZone === 'UTC' ? 'UTC' : timeZone,
@@ -37,7 +39,54 @@ const context = vm.createContext({
   Map,
   Utilities: {
     formatDate,
-    getUuid: () => '123e4567-e89b-42d3-a456-426614174000',
+
+    getUuid: () =>
+      '123e4567-e89b-42d3-a456-426614174000',
+
+    Charset: {
+      UTF_8: 'UTF_8',
+    },
+
+    DigestAlgorithm: {
+      SHA_256: 'SHA_256',
+    },
+
+    computeDigest: (algorithm, value) => {
+      if (algorithm !== 'SHA_256') {
+        throw new Error(
+          'Unsupported digest algorithm: ' + algorithm
+        );
+      }
+
+      return mainCrypto
+        .createHash('sha256')
+        .update(String(value), 'utf8')
+        .digest();
+    },
+
+    computeHmacSha256Signature: (
+      value,
+      key
+    ) => mainCrypto
+      .createHmac(
+        'sha256',
+        String(key)
+      )
+      .update(
+        String(value),
+        'utf8'
+      )
+      .digest(),
+
+    base64EncodeWebSafe: value =>
+      Buffer
+        .from(value)
+        .toString('base64url'),
+
+    base64Encode: value =>
+      Buffer
+        .from(value)
+        .toString('base64'),
   },
   PropertiesService: {
     getScriptProperties() {
@@ -404,6 +453,7 @@ testLineVerifier('webapp', webappVerifierSources, token => 'verifyAdminLineToken
 
 try {
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-liff-ui.js')], { stdio: 'inherit' });
+  execFileSync(process.execPath, [path.resolve(__dirname, 'test-photo-liff-ui.js')], { stdio: 'inherit' });
 } catch (err) {
   process.exitCode = 1;
 }

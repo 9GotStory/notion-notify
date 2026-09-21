@@ -211,12 +211,28 @@
 
 1. ถ้า repository นี้เป็น **private** ต้องเลือกก่อน: เปิดเป็น public (ไฟล์ใน repo ไม่มี secret ใดๆ — token ทั้งหมดอยู่ใน Script Properties / Environment เท่านั้น) หรือสร้าง repository สาธารณะใหม่แยกให้ฟอร์มโดยเฉพาะ
 2. **Settings > Environments > New environment** ตั้งชื่อ `liff` แล้วเพิ่มค่า:
-   - `LIFF_ID` = จากข้อ 11.3
+   - `LIFF_ID` = LIFF ID ของหน้าฟอร์มลาจากข้อ 11.3
    - `API_URL` = URL `/exec` ของ Apps Script หลัก
    - `ADMIN_API_URL` = URL `/exec` ของ Apps Script webapp
    - `SCHEDULE_LIFF_ID` = LIFF ID สำหรับหน้าตาราง (ไม่บังคับ ถ้ายังใช้โหมดสาธารณะอย่างเดียว)
+   - `PHOTO_LIFF_ID` = LIFF ID ของหน้าคลังภาพ (บังคับเมื่อ deploy Photo LIFF)
+   - `PHOTO_API_URL` = HTTPS origin สาธารณะของ Photo Bridge เท่านั้น เช่น `https://photo.example.ts.net:8443` ห้ามมี path, query หรือ credential
 3. **Settings > Pages > Source: "GitHub Actions"** (สำคัญ — ถ้ายังเป็น "Deploy from a branch" ให้เปลี่ยน ไม่งั้น workflow deploy ไม่ได้ และหน้าที่ถูกเสิร์ฟจะเป็นไฟล์ placeholder ที่ยังไม่ถูกแทนที่ ฟอร์มจะขึ้นว่า "ระบบยังไม่พร้อมใช้งาน")
 4. `git push` — Actions จะรันเอง (ดูได้ที่แท็บ Actions) หน้าฟอร์มอยู่ที่ `https://<username>.github.io/notion-notify/web/liff-form/` และเสิร์ฟเฉพาะหน้าเว็บ ไม่โฮสต์ไฟล์ .gs ของ repo
+
+### 11.5.1 ตั้งค่า LIFF สำหรับคลังภาพ (`/web/liff-photo/`)
+
+หน้าคลังภาพใช้ LINE Login channel เดียวกับฟอร์มลา แต่ต้องสร้าง **LIFF app แยก** เพราะแต่ละ LIFF app ผูกกับ Endpoint URL ของตัวเอง
+
+1. LINE Developers Console > provider เดิม > **LINE Login channel เดิม** > แท็บ **LIFF** > **Add**
+2. ตั้ง **Endpoint URL** เป็น `https://<user>.github.io/notion-notify/web/liff-photo/` และต้องมี `/` ปิดท้าย
+3. ตั้ง **Size: Full**, **Scopes: `profile`, `openid`**, **Module mode: Off**
+4. ตั้ง **Bot link feature: Off หรือ Normal** — คลังภาพไม่ต้องบังคับเพิ่ม OA เพราะไม่ได้พึ่ง push notification สำหรับการทำงานหลัก
+5. คัดลอก LIFF ID ใหม่ไปตั้ง GitHub Environment `liff` เป็น `PHOTO_LIFF_ID`
+6. ตั้ง `PHOTO_API_URL` เป็น **HTTPS origin ของ Photo Bridge** เท่านั้น เช่น `https://photo.example.ts.net:8443` ห้ามใส่ path/query และห้ามใส่ secret ลง URL
+7. หน้าเว็บขอ Photo Ticket อายุสั้นจาก Apps Script ด้วย LINE access token แล้วเรียก Photo Bridge ด้วย `Authorization: Bearer <Photo Ticket>`; browser ไม่เก็บ Photo Ticket ใน `localStorage` หรือ `sessionStorage`
+
+ฝั่ง Apps Script หลักต้องมี Script Property `PHOTO_TICKET_SECRET` ซึ่งเป็น secret เดียวกับที่ Photo Bridge ใช้ตรวจลายเซ็น เก็บเฉพาะฝั่ง server เท่านั้น **ห้าม**นำไปใส่ GitHub Environment, JavaScript ฝั่ง browser หรือ repository
 
 **แก้ค่าภายหลัง** (เช่น เปลี่ยน deployment ของ Apps Script): แก้ใน Settings > Environments > liff แล้วไปแท็บ Actions > Deploy LIFF form > Run workflow — ไม่ต้องแก้โค้ดและไม่ต้อง commit
 

@@ -28,9 +28,9 @@ notion-notify/
 
 | ที่เก็บ | ค่า |
 |---|---|
-| Script Properties โปรเจกต์หลัก | `LINE_CHANNEL_ACCESS_TOKEN`, `NOTION_TOKEN`, `LOGIN_CHANNEL_ID`, `ADMIN_TOKEN`, `ALLOW_LEGACY_DIRECT=TRUE`; และ `GATEWAY_SHARED_SECRET` (แนะนำ) หรือ `ALLOW_UNSIGNED_LINE_WEBHOOK=TRUE` (ข้อยกเว้น) |
+| Script Properties โปรเจกต์หลัก | `LINE_CHANNEL_ACCESS_TOKEN`, `NOTION_TOKEN`, `LOGIN_CHANNEL_ID`, `PHOTO_TICKET_SECRET`, `ADMIN_TOKEN`, `ALLOW_LEGACY_DIRECT=TRUE`; และ `GATEWAY_SHARED_SECRET` (แนะนำ) หรือ `ALLOW_UNSIGNED_LINE_WEBHOOK=TRUE` (ข้อยกเว้น) |
 | Script Properties โปรเจกต์ webapp | `ADMIN_TOKEN`, `SPREADSHEET_ID`, `NOTION_TOKEN_READONLY`, `ALLOW_LEGACY_DIRECT=TRUE` |
-| GitHub Environment `liff` | `LIFF_ID`, `SCHEDULE_LIFF_ID`, `API_URL`, `ADMIN_API_URL` |
+| GitHub Environment `liff` | `LIFF_ID`, `PHOTO_LIFF_ID`, `SCHEDULE_LIFF_ID`, `API_URL`, `PHOTO_API_URL`, `ADMIN_API_URL` |
 | gateway | ตัวแปรตาม `SECURITY-DEPLOYMENT.md` เมื่อใช้รับ LINE webhook หรือย้าย browser traffic |
 
 `ADMIN_TOKEN` ต้องเป็นค่าสุ่มอย่างน้อย 32 ตัวอักษร และต้องตั้งค่าเดียวกันในทั้งโปรเจกต์หลักและ webapp เพื่อให้หน้า Admin จัดการใบลาผ่าน backend หลักได้ ห้าม commit token, secret หรือ URL ที่มี credential ลง repository

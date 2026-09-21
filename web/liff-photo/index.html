@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+  <meta
+    name="color-scheme"
+    content="light"
+  >
+
+  <title>คลังภาพ สสอ.สอง</title>
+
+  <link
+    rel="stylesheet"
+    href="../liff-form/styles.css"
+  >
+
+  <script>
+    const CONFIG = Object.freeze({
+      LIFF_ID: '__PHOTO_LIFF_ID__',
+      API_URL: '__API_URL__',
+      PHOTO_API_URL: '__PHOTO_API_URL__',
+    });
+  </script>
+</head>
+
+<body class="min-h-screen bg-canvas font-sans text-text">
+  <main class="mx-auto min-h-screen max-w-lg px-4 pb-10 pt-6">
+    <header class="ui-page-header">
+      <p class="ui-page-eyebrow">
+        สำนักงานสาธารณสุขอำเภอสอง
+      </p>
+
+      <h1 class="ui-page-title">
+        คลังภาพ
+      </h1>
+
+      <p class="ui-page-description">
+        จัดเก็บภาพกิจกรรมของหน่วยงานอย่างเป็นระบบ
+      </p>
+    </header>
+
+    <!-- Loading -->
+    <section
+      id="view-loading"
+      class="ui-card"
+      aria-live="polite"
+    >
+      <div class="ui-card-body py-10 text-center">
+        <img
+          src="../liff-form/logo.png"
+          alt=""
+          width="72"
+          height="72"
+          class="mx-auto mb-4 h-18 w-18 object-contain"
+        >
+
+        <h2 class="text-base font-semibold text-text">
+          กำลังเตรียมคลังภาพ
+        </h2>
+
+        <p
+          id="bootStatus"
+          class="mt-2 text-sm text-text-muted"
+        >
+          กำลังเชื่อมต่อ LINE
+        </p>
+      </div>
+    </section>
+
+    <!-- Ready -->
+    <section
+      id="view-ready"
+      class="hidden space-y-4"
+      aria-live="polite"
+    >
+      <div class="ui-alert ui-alert-success">
+        ยืนยันตัวตนสำเร็จ พร้อมใช้งานคลังภาพ
+      </div>
+
+      <div class="ui-card">
+        <div class="ui-card-body">
+          <h2 class="ui-section-title">
+            สถานะการเข้าใช้งาน
+          </h2>
+
+          <dl class="mt-3 divide-y divide-slate-100 text-sm">
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-text-muted">
+                ผู้ใช้งาน
+              </dt>
+              <dd
+                id="actorStaff"
+                class="text-right font-semibold text-text"
+              >
+                -
+              </dd>
+            </div>
+
+            <div class="flex items-center justify-between gap-4 py-3">
+              <dt class="text-text-muted">
+                สิทธิ์
+              </dt>
+              <dd
+                id="actorRole"
+                class="ui-badge ui-badge-neutral"
+              >
+                -
+              </dd>
+            </div>
+          </dl>
+
+          <p class="ui-help">
+            ขั้นตอนถัดไปจะเพิ่มการเลือกหมวด กิจกรรม และอัปโหลดภาพ
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Error -->
+    <section
+      id="view-error"
+      class="hidden"
+      aria-live="assertive"
+    >
+      <div class="ui-alert ui-alert-danger">
+        <p class="font-semibold">
+          เปิดคลังภาพไม่สำเร็จ
+        </p>
+
+        <p
+          id="errorMessage"
+          class="mt-1"
+        >
+          เกิดข้อผิดพลาด
+        </p>
+      </div>
+
+      <button
+        id="retryButton"
+        type="button"
+        class="ui-btn-secondary mt-4 w-full"
+      >
+        ลองอีกครั้ง
+      </button>
+    </section>
+
+    <noscript>
+      <div class="ui-alert ui-alert-danger mt-4">
+        กรุณาเปิด JavaScript เพื่อใช้งานคลังภาพ
+      </div>
+    </noscript>
+  </main>
+
+  <script src="../liff-form/sdk.js"></script>
+
+  <script>
+  (() => {
+    'use strict';
+
+    const state = {
+      photoTicket: '',
+      actor: null,
+      ready: false,
+    };
+
+    function $(id) {
+      return document.getElementById(id);
+    }
+
+    function show(view) {
+      [
+        'loading',
+        'ready',
+        'error',
+      ].forEach(name => {
+        const element =
+          $('view-' + name);
+
+        if (!element) return;
+
+        element.classList.toggle(
+          'hidden',
+          name !== view
+        );
+      });
+    }
+
+    function setBootStatus_(message) {
+      const element =
+        $('bootStatus');
+
+      if (element) {
+        element.textContent =
+          String(message || '');
+      }
+    }
+
+    function showError(message) {
+      state.ready = false;
+
+      const element =
+        $('errorMessage');
+
+      if (element) {
+        element.textContent =
+          message ||
+          'เกิดข้อผิดพลาดที่ไม่ทราบสาเหตุ';
+      }
+
+      show('error');
+    }
+
+    function configReady_() {
+      return Boolean(
+        CONFIG.LIFF_ID &&
+        CONFIG.LIFF_ID.indexOf('__') !== 0 &&
+        CONFIG.API_URL &&
+        CONFIG.API_URL.indexOf('__') !== 0 &&
+        CONFIG.PHOTO_API_URL &&
+        CONFIG.PHOTO_API_URL.indexOf('__') !== 0
+      );
+    }
+
+    function relogin_() {
+      const attempts =
+        Number(
+          sessionStorage.getItem(
+            'photoReloginAttempts'
+          ) || '0'
+        );
+
+      const since =
+        Number(
+          sessionStorage.getItem(
+            'photoReloginSince'
+          ) || '0'
+        );
+
+      const freshWindow =
+        Date.now() - since > 60000;
+
+      const count =
+        freshWindow
+          ? 1
+          : attempts + 1;
+
+      sessionStorage.setItem(
+        'photoReloginAttempts',
+        String(count)
+      );
+
+      if (freshWindow) {
+        sessionStorage.setItem(
+          'photoReloginSince',
+          String(Date.now())
+        );
+      }
+
+      if (count > 2) {
+        showError(
+          'เข้าสู่ระบบใหม่หลายครั้งแล้วยังไม่สำเร็จ ' +
+          'กรุณาปิดหน้านี้แล้วเปิดใหม่ ' +
+          'หรือติดต่อผู้ดูแลระบบ'
+        );
+
+        return;
+      }
+
+      try {
+        if (liff.isLoggedIn()) {
+          liff.logout();
+        }
+      } catch (err) {
+        // ไปต่อได้
+      }
+
+      if (
+        typeof liff.isInClient === 'function' &&
+        liff.isInClient()
+      ) {
+        location.reload();
+        return;
+      }
+
+      liff.login();
+    }
+
+    async function readJson_(response) {
+      try {
+        return await response.json();
+      } catch (err) {
+        return null;
+      }
+    }
+
+    async function requestPhotoTicket() {
+      // อ่าน LINE access token สดทุกครั้ง
+      // ห้ามเก็บ token นี้ไว้ใน state/storage
+      const accessToken =
+        liff.getAccessToken();
+
+      if (!accessToken) {
+        relogin_();
+
+        throw new Error(
+          'กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่'
+        );
+      }
+
+      const controller =
+        new AbortController();
+
+      const timeout =
+        setTimeout(
+          () => controller.abort(),
+          20000
+        );
+
+      let response;
+
+      try {
+        response = await fetch(
+          CONFIG.API_URL,
+          {
+            method: 'POST',
+
+            // Apps Script direct mode:
+            // text/plain ทำให้ยังเป็น simple request
+            // และ credential ไม่อยู่ใน URL
+            headers: {
+              'Content-Type':
+                'text/plain;charset=utf-8',
+            },
+
+            body: JSON.stringify({
+              apiAction: 'photoTicket',
+              accessToken: accessToken,
+            }),
+
+            signal: controller.signal,
+          }
+        );
+      } catch (err) {
+        throw new Error(
+          err && err.name === 'AbortError'
+            ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+            : 'เชื่อมต่อระบบยืนยันตัวตนไม่สำเร็จ กรุณาลองอีกครั้ง'
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      const data =
+        await readJson_(response);
+
+      if (
+        !response.ok ||
+        !data ||
+        data.ok === false
+      ) {
+        throw new Error(
+          data && data.error
+            ? data.error
+            : 'ขอสิทธิ์เข้าใช้งานคลังภาพไม่สำเร็จ'
+        );
+      }
+
+      if (
+        typeof data.ticket !== 'string' ||
+        !data.ticket.trim()
+      ) {
+        throw new Error(
+          'ระบบไม่ได้รับ Photo Ticket ที่ถูกต้อง'
+        );
+      }
+
+      // Photo Ticket อายุสั้น เก็บเฉพาะ memory ของหน้านี้
+      state.photoTicket =
+        data.ticket.trim();
+
+      // ไม่ใช้ data.actor เป็น authorization authority
+      return state.photoTicket;
+    }
+
+    async function photoApi(path, options) {
+      if (!state.photoTicket) {
+        throw new Error(
+          'ยังไม่มีสิทธิ์เข้าใช้งานคลังภาพ'
+        );
+      }
+
+      const request =
+        options || {};
+
+      const headers =
+        Object.assign(
+          {},
+          request.headers || {},
+          {
+            Authorization:
+              'Bearer ' + state.photoTicket,
+          }
+        );
+
+      const controller =
+        new AbortController();
+
+      const timeout =
+        setTimeout(
+          () => controller.abort(),
+          20000
+        );
+
+      let response;
+
+      try {
+        response = await fetch(
+          CONFIG.PHOTO_API_URL + path,
+          Object.assign(
+            {},
+            request,
+            {
+              method:
+                request.method || 'GET',
+              headers: headers,
+              signal:
+                controller.signal,
+            }
+          )
+        );
+      } catch (err) {
+        throw new Error(
+          err && err.name === 'AbortError'
+            ? 'คลังภาพใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+            : 'เชื่อมต่อคลังภาพไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต'
+        );
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      const data =
+        await readJson_(response);
+
+      if (
+        !response.ok ||
+        !data ||
+        data.ok === false
+      ) {
+        throw new Error(
+          data && data.error
+            ? data.error
+            : 'คลังภาพตอบกลับไม่สำเร็จ'
+        );
+      }
+
+      return data;
+    }
+
+    function roleLabel_(role) {
+      if (role === 'admin') {
+        return 'ผู้ดูแลระบบ';
+      }
+
+      if (role === 'manager') {
+        return 'ผู้จัดการคลังภาพ';
+      }
+
+      return 'ผู้ใช้งาน';
+    }
+
+    function renderReady_() {
+      const actor =
+        state.actor || {};
+
+      const staff =
+        $('actorStaff');
+
+      const role =
+        $('actorRole');
+
+      if (staff) {
+        staff.textContent =
+          actor.staffKey || '-';
+      }
+
+      if (role) {
+        role.textContent =
+          roleLabel_(actor.role);
+      }
+
+      state.ready = true;
+      show('ready');
+    }
+
+    async function boot() {
+      state.photoTicket = '';
+      state.actor = null;
+      state.ready = false;
+
+      show('loading');
+
+      if (
+        typeof liff === 'undefined'
+      ) {
+        showError(
+          'โหลดส่วนเชื่อมต่อ LINE ไม่สำเร็จ ' +
+          'กรุณาตรวจสอบอินเทอร์เน็ตแล้วเปิดใหม่'
+        );
+
+        return;
+      }
+
+      if (!configReady_()) {
+        showError(
+          'ระบบยังไม่พร้อมใช้งาน ' +
+          '(ค่าตั้งค่ายังไม่ถูกใส่) ' +
+          'กรุณาติดต่อผู้ดูแลระบบ'
+        );
+
+        return;
+      }
+
+      try {
+        setBootStatus_(
+          'กำลังเชื่อมต่อ LINE…'
+        );
+
+        await liff.init({
+          liffId: CONFIG.LIFF_ID,
+          withLoginOnExternalBrowser: true,
+        });
+
+        if (!liff.isLoggedIn()) {
+          relogin_();
+          return;
+        }
+
+        setBootStatus_(
+          'กำลังยืนยันสิทธิ์เข้าใช้คลังภาพ…'
+        );
+
+        await requestPhotoTicket();
+
+        setBootStatus_(
+          'กำลังตรวจสอบสิทธิ์กับคลังภาพ…'
+        );
+
+        // Photo Bridge เป็น authority สุดท้ายของ actor
+        const session =
+          await photoApi('/v1/session');
+
+        if (
+          !session.actor ||
+          !session.actor.staffKey ||
+          !session.actor.role
+        ) {
+          throw new Error(
+            'ไม่สามารถตรวจสอบสิทธิ์ผู้ใช้งานได้'
+          );
+        }
+
+        state.actor =
+          session.actor;
+
+        renderReady_();
+      } catch (err) {
+        const message =
+          String(
+            err && err.message
+              ? err.message
+              : ''
+          );
+
+        if (
+          message.indexOf(
+            'เซสชันหมดอายุ'
+          ) !== -1 ||
+          message.indexOf(
+            'ไม่พบข้อมูลการเข้าสู่ระบบ'
+          ) !== -1
+        ) {
+          relogin_();
+          return;
+        }
+
+        showError(message);
+      }
+    }
+
+    const retryButton =
+      $('retryButton');
+
+    if (retryButton) {
+      retryButton.addEventListener(
+        'click',
+        () => boot()
+      );
+    }
+
+    boot();
+  })();
+  </script>
+</body>
+</html>
