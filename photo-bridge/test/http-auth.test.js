@@ -238,3 +238,129 @@ test('activities endpoint requires authentication', async () => {
 
   assert.equal(result.status, 401);
 });
+
+test('authenticated user can create activity', async () => {
+  const activityContext = {
+    ...context,
+    archiveService: {
+      async createActivity(topic, year, activityName) {
+        assert.equal(
+          topic,
+          '80_งานกิจกรรมกลาง'
+        );
+
+        assert.equal(year, '2569');
+
+        assert.equal(
+          activityName,
+          '2569-09-21_ทดสอบ Photo Bridge'
+        );
+
+        return {
+          created: true,
+          activity: {
+            name: activityName,
+            path:
+              `80_งานกิจกรรมกลาง/2569/${activityName}`,
+          },
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/activities',
+    ticket()
+  );
+
+  req.method = 'POST';
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-21_ทดสอบ Photo Bridge',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    activityContext
+  );
+
+  assert.equal(result.status, 201);
+  assert.equal(result.body.created, true);
+});
+
+test('existing activity returns idempotent 200', async () => {
+  const activityContext = {
+    ...context,
+    archiveService: {
+      async createActivity() {
+        return {
+          created: false,
+          activity: {
+            name:
+              '2569-09-21_ทดสอบ Photo Bridge',
+            path:
+              '80_งานกิจกรรมกลาง/2569/2569-09-21_ทดสอบ Photo Bridge',
+          },
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/activities',
+    ticket()
+  );
+
+  req.method = 'POST';
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-21_ทดสอบ Photo Bridge',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    activityContext
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(result.body.created, false);
+});
+
+test('create activity requires JSON body', async () => {
+  const req = request(
+    '/v1/activities',
+    ticket()
+  );
+
+  req.method = 'POST';
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 400);
+});
+
+test('create activity requires authentication', async () => {
+  const req = request('/v1/activities');
+  req.method = 'POST';
+
+  req.body = {
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activityName:
+      '2569-09-21_ทดสอบ Photo Bridge',
+  };
+
+  const result = await handleHttpRequest(
+    req,
+    context
+  );
+
+  assert.equal(result.status, 401);
+});

@@ -198,3 +198,141 @@ test('organization destination does not use activities', async () => {
     /does not use activities/
   );
 });
+
+test('create activity creates year and activity folders', async () => {
+  const created = [];
+
+  const dav = {
+    async listFolders(path = '') {
+      if (path === '') {
+        return [
+          {
+            name: '80_งานกิจกรรมกลาง',
+            path: '80_งานกิจกรรมกลาง',
+          },
+        ];
+      }
+
+      return [];
+    },
+
+    async createFolder(path) {
+      created.push(path);
+      return true;
+    },
+  };
+
+  const service = new ArchiveService({ dav });
+
+  const result = await service.createActivity(
+    '80_งานกิจกรรมกลาง',
+    '2569',
+    '2569-09-21_ทดสอบ Photo Bridge'
+  );
+
+  assert.equal(result.created, true);
+
+  assert.deepEqual(created, [
+    '80_งานกิจกรรมกลาง/2569',
+    '80_งานกิจกรรมกลาง/2569/2569-09-21_ทดสอบ Photo Bridge',
+  ]);
+});
+
+test('create activity is idempotent when folders already exist', async () => {
+  const { WebDavError } =
+    await import('../src/webdav-client.js');
+
+  const activity =
+    '2569-09-21_ทดสอบ Photo Bridge';
+
+  const dav = {
+    async createFolder() {
+      throw new WebDavError('already exists', 405);
+    },
+
+    async listFolders(path = '') {
+      if (path === '') {
+        return [
+          {
+            name: '80_งานกิจกรรมกลาง',
+            path: '80_งานกิจกรรมกลาง',
+          },
+        ];
+      }
+
+      if (path === '80_งานกิจกรรมกลาง') {
+        return [
+          {
+            name: '2569',
+            path: '80_งานกิจกรรมกลาง/2569',
+          },
+        ];
+      }
+
+      if (path === '80_งานกิจกรรมกลาง/2569') {
+        return [
+          {
+            name: activity,
+            path:
+              `80_งานกิจกรรมกลาง/2569/${activity}`,
+          },
+        ];
+      }
+
+      return [];
+    },
+  };
+
+  const service = new ArchiveService({ dav });
+
+  const result = await service.createActivity(
+    '80_งานกิจกรรมกลาง',
+    '2569',
+    activity
+  );
+
+  assert.equal(result.created, false);
+  assert.equal(result.activity.name, activity);
+});
+
+test('activity year must match selected year', async () => {
+  const service = serviceWithFolders([
+    '80_งานกิจกรรมกลาง',
+  ]);
+
+  await assert.rejects(
+    () => service.createActivity(
+      '80_งานกิจกรรมกลาง',
+      '2569',
+      '2568-09-21_ปีไม่ตรงกัน'
+    ),
+    /does not match/
+  );
+});
+
+test('invalid activity name is rejected before WebDAV write', async () => {
+  let wrote = false;
+
+  const dav = {
+    async listFolders() {
+      return [];
+    },
+
+    async createFolder() {
+      wrote = true;
+    },
+  };
+
+  const service = new ArchiveService({ dav });
+
+  await assert.rejects(
+    () => service.createActivity(
+      '80_งานกิจกรรมกลาง',
+      '2569',
+      '../bad'
+    ),
+    /Invalid activity/
+  );
+
+  assert.equal(wrote, false);
+});

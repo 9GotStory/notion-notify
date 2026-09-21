@@ -86,6 +86,41 @@ export async function handleHttpRequest(request, context) {
     }
 
     if (
+      method === 'POST' &&
+      url.pathname === '/v1/activities'
+    ) {
+      if (
+        !request.body ||
+        typeof request.body !== 'object' ||
+        Array.isArray(request.body)
+      ) {
+        throw new ArchiveInputError(
+          'JSON body is required'
+        );
+      }
+
+      if (!context.archiveService) {
+        throw new Error('Archive service unavailable');
+      }
+
+      const result =
+        await context.archiveService.createActivity(
+          request.body.topic,
+          request.body.year,
+          request.body.activityName
+        );
+
+      return response(
+        result.created ? 201 : 200,
+        {
+          ok: true,
+          created: result.created,
+          activity: result.activity,
+        }
+      );
+    }
+
+    if (
       method === 'GET' &&
       url.pathname === '/v1/manager/session'
     ) {
