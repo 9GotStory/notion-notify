@@ -183,6 +183,11 @@ async function run() {
       typeof renderIdentity_ === 'function'
         ? renderIdentity_
         : null,
+
+    setDestinationMode:
+      typeof setDestinationMode_ === 'function'
+        ? setDestinationMode_
+        : null,
   };
 })();`
   );
@@ -747,6 +752,7 @@ async function run() {
   const uxP01RedFailures = [];
   const uxP02RedFailures = [];
   const uxP03RedFailures = [];
+  const uxP04RedFailures = [];
 
   await ui.boot();
 
@@ -2120,6 +2126,185 @@ async function run() {
     uxP03RedFailures.length === 0,
     'UX-P03 RED contracts failed:\n- ' +
       uxP03RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P04: Destination modes ----------
+
+  const modeMarkupOk =
+    html.includes(
+      'id="destinationModeActivity"'
+    ) &&
+    html.includes(
+      'id="destinationModeOrganization"'
+    ) &&
+    html.includes(
+      'id="activityDestinationFields"'
+    ) &&
+    typeof ui.setDestinationMode ===
+      'function';
+
+  if (!modeMarkupOk) {
+    uxP04RedFailures.push(
+      'destination mode: explicit Activity/Organization controls and setDestinationMode() must exist'
+    );
+  }
+
+  const initialModeOk =
+    ui.state.mode === 'activity';
+
+  if (!initialModeOk) {
+    uxP04RedFailures.push(
+      'destination mode: initial mode must be activity'
+    );
+  }
+
+  // Activity category selector must contain only
+  // normal activity topics — organization is its own mode.
+  const topicSelect =
+    elements.get('topicSelect');
+
+  const activityTopicsOnly =
+    topicSelect &&
+    !String(
+      topicSelect.innerHTML || ''
+    ).includes(
+      '90_ภาพองค์กร'
+    );
+
+  if (!activityTopicsOnly) {
+    uxP04RedFailures.push(
+      'destination mode: organization must not appear as an activity category option'
+    );
+  }
+
+  // ---------- UX-P04: Organization mode ----------
+
+  if (
+    typeof ui.setDestinationMode ===
+      'function'
+  ) {
+    await Promise.resolve(
+      ui.setDestinationMode(
+        'organization'
+      )
+    );
+
+    const activityFields =
+      elements.get(
+        'activityDestinationFields'
+      );
+
+    const destinationSummary =
+      elements.get(
+        'destinationSummary'
+      );
+
+    const destinationLabel =
+      elements.get(
+        'destinationLabel'
+      );
+
+    const organizationStateOk =
+      ui.state.mode ===
+        'organization' &&
+      ui.state.selectedTopic &&
+      ui.state.selectedTopic.type ===
+        'organization' &&
+      ui.state.selectedTopic.name ===
+        '90_ภาพองค์กร' &&
+      ui.state.destination &&
+      ui.state.destination.type ===
+        'organization' &&
+      ui.state.destination.topic ===
+        '90_ภาพองค์กร' &&
+      ui.state.destination.path ===
+        '90_ภาพองค์กร';
+
+    if (!organizationStateOk) {
+      uxP04RedFailures.push(
+        'organization mode: must resolve directly to canonical 90_ภาพองค์กร destination'
+      );
+    }
+
+    const organizationUiOk =
+      activityFields &&
+      activityFields.classList.contains(
+        'hidden'
+      ) &&
+      destinationSummary &&
+      !destinationSummary.classList.contains(
+        'hidden'
+      );
+
+    if (!organizationUiOk) {
+      uxP04RedFailures.push(
+        'organization mode: activity-only controls must be hidden and destination confirmation shown'
+      );
+    }
+
+    const organizationSummary =
+      destinationLabel
+        ? String(
+            destinationLabel.textContent ||
+            ''
+          ).trim()
+        : '';
+
+    const friendlyOrganizationSummaryOk =
+      organizationSummary ===
+        'ภาพองค์กร' &&
+      !organizationSummary.includes(
+        '/'
+      ) &&
+      organizationSummary !==
+        ui.state.destination.path;
+
+    if (!friendlyOrganizationSummaryOk) {
+      uxP04RedFailures.push(
+        'destination summary: organization must display friendly "ภาพองค์กร" instead of canonical path'
+      );
+    }
+
+    // ---------- UX-P04: Back to Activity ----------
+
+    await Promise.resolve(
+      ui.setDestinationMode(
+        'activity'
+      )
+    );
+
+    const activityModeOk =
+      ui.state.mode === 'activity' &&
+      ui.state.destination === null &&
+      ui.state.selectedTopic === null &&
+      activityFields &&
+      !activityFields.classList.contains(
+        'hidden'
+      );
+
+    if (!activityModeOk) {
+      uxP04RedFailures.push(
+        'activity mode: switching from organization must clear the old destination and reveal activity controls'
+      );
+    }
+
+    const summaryHiddenAgain =
+      destinationSummary &&
+      destinationSummary.classList.contains(
+        'hidden'
+      );
+
+    if (!summaryHiddenAgain) {
+      uxP04RedFailures.push(
+        'destination summary: must hide again when activity mode has no confirmed destination'
+      );
+    }
+  }
+
+  assert(
+    uxP04RedFailures.length === 0,
+    'UX-P04 RED contracts failed:\n- ' +
+      uxP04RedFailures.join('\n- ')
   );
 
   console.log(

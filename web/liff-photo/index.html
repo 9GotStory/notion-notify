@@ -122,13 +122,41 @@
             </h2>
 
             <p class="ui-help">
-              เลือกหมวดงาน ปี พ.ศ. และกิจกรรมที่ต้องการจัดเก็บภาพ
+              เลือกว่าจะจัดเก็บเป็นภาพกิจกรรมหรือภาพองค์กร
             </p>
           </div>
 
-          <div>
-            <label
-              for="topicSelect"
+          <div
+            class="grid grid-cols-2 gap-2"
+            role="group"
+            aria-label="ประเภทการจัดเก็บภาพ"
+          >
+            <button
+              id="destinationModeActivity"
+              type="button"
+              class="ui-btn-primary min-h-11 w-full"
+              aria-pressed="true"
+            >
+              ภาพกิจกรรม
+            </button>
+
+            <button
+              id="destinationModeOrganization"
+              type="button"
+              class="ui-btn-secondary min-h-11 w-full"
+              aria-pressed="false"
+            >
+              ภาพองค์กร
+            </button>
+          </div>
+
+          <div
+            id="activityDestinationFields"
+            class="space-y-4"
+          >
+            <div>
+              <label
+                for="topicSelect"
               class="mb-1.5 block text-sm font-medium text-text"
             >
               หมวดงาน
@@ -265,6 +293,24 @@
             </div>
           </div>
 
+          </div>
+
+          <div
+            id="destinationSummary"
+            class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <p class="text-xs font-medium uppercase tracking-wide text-text-muted">
+              ปลายทางที่เลือก
+            </p>
+
+            <p
+              id="destinationLabel"
+              class="mt-1 break-words text-sm font-semibold text-text"
+            >
+              -
+            </p>
+          </div>
+
           <div
             id="uploadPanel"
             class="mt-4 border-t border-slate-200 pt-4"
@@ -310,21 +356,6 @@
             </div>
           </div>
 
-          <div
-            id="destinationSummary"
-            class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4"
-          >
-            <p class="text-xs font-medium uppercase tracking-wide text-text-muted">
-              ปลายทางที่เลือก
-            </p>
-
-            <p
-              id="destinationLabel"
-              class="mt-1 break-words text-sm font-semibold text-text"
-            >
-              -
-            </p>
-          </div>
         </div>
       </div>
     </section>
@@ -377,6 +408,8 @@
 
       topics: [],
       activities: [],
+
+      mode: 'activity',
 
       selectedTopic: null,
       selectedYear: '',
@@ -761,7 +794,13 @@
         '<option value="">เลือกหมวดงาน</option>',
       ];
 
-      state.topics.forEach(topic => {
+      state.topics
+        .filter(
+          topic =>
+            topic &&
+            topic.type === 'topic'
+        )
+        .forEach(topic => {
         if (
           !topic ||
           typeof topic.name !== 'string'
@@ -789,7 +828,10 @@
         options.join('');
 
       select.value =
-        state.selectedTopic
+        state.mode === 'activity' &&
+        state.selectedTopic &&
+        state.selectedTopic.type ===
+          'topic'
           ? state.selectedTopic.name
           : '';
     }
@@ -835,12 +877,137 @@
           : '';
     }
 
+    function friendlyTopicLabel_(name) {
+      const value =
+        String(name || '').trim();
+
+      if (value === '90_ภาพองค์กร') {
+        return 'ภาพองค์กร';
+      }
+
+      return value
+        .replace(/^\d+_/, '')
+        .replace(/_/g, ' ');
+    }
+
+    function friendlyActivityLabel_(name) {
+      return String(name || '')
+        .trim()
+        .replace(/_/g, ' ');
+    }
+
+    function destinationDisplayLabel_() {
+      const destination =
+        state.destination;
+
+      if (!destination) {
+        return '-';
+      }
+
+      if (
+        destination.type ===
+          'organization'
+      ) {
+        return 'ภาพองค์กร';
+      }
+
+      if (
+        destination.type ===
+          'activity'
+      ) {
+        return [
+          friendlyTopicLabel_(
+            destination.topic
+          ),
+          destination.year
+            ? 'พ.ศ. ' +
+              destination.year
+            : '',
+          friendlyActivityLabel_(
+            destination.activity
+          ),
+        ]
+          .filter(Boolean)
+          .join(' • ');
+      }
+
+      return '-';
+    }
+
     function renderDestinationState_() {
       const topic =
         state.selectedTopic;
 
+      const isActivityMode =
+        state.mode === 'activity';
+
+      const activityFields =
+        $('activityDestinationFields');
+
+      if (activityFields) {
+        activityFields.classList.toggle(
+          'hidden',
+          !isActivityMode
+        );
+      }
+
+      const activityModeButton =
+        $('destinationModeActivity');
+
+      const organizationModeButton =
+        $('destinationModeOrganization');
+
+      if (activityModeButton) {
+        activityModeButton.classList.toggle(
+          'ui-btn-primary',
+          isActivityMode
+        );
+
+        activityModeButton.classList.toggle(
+          'ui-btn-secondary',
+          !isActivityMode
+        );
+
+        if (
+          typeof activityModeButton.setAttribute ===
+            'function'
+        ) {
+          activityModeButton.setAttribute(
+            'aria-pressed',
+            isActivityMode
+              ? 'true'
+              : 'false'
+          );
+        }
+      }
+
+      if (organizationModeButton) {
+        organizationModeButton.classList.toggle(
+          'ui-btn-primary',
+          !isActivityMode
+        );
+
+        organizationModeButton.classList.toggle(
+          'ui-btn-secondary',
+          isActivityMode
+        );
+
+        if (
+          typeof organizationModeButton.setAttribute ===
+            'function'
+        ) {
+          organizationModeButton.setAttribute(
+            'aria-pressed',
+            isActivityMode
+              ? 'false'
+              : 'true'
+          );
+        }
+      }
+
       const isActivityTopic =
         Boolean(
+          isActivityMode &&
           topic &&
           topic.type === 'topic'
         );
@@ -912,9 +1079,7 @@
 
       if (label) {
         label.textContent =
-          state.destination
-            ? state.destination.path
-            : '-';
+          destinationDisplayLabel_();
       }
     }
 
@@ -939,6 +1104,7 @@
           )
         );
 
+      state.mode = 'activity';
       state.selectedTopic = null;
       state.selectedYear = '';
       state.selectedActivity = null;
@@ -951,6 +1117,66 @@
       return state.topics;
     }
 
+    function setDestinationMode_(mode) {
+      const value =
+        String(mode || '').trim();
+
+      if (
+        value !== 'activity' &&
+        value !== 'organization'
+      ) {
+        throw new Error(
+          'ประเภทการจัดเก็บไม่ถูกต้อง'
+        );
+      }
+
+      let organization = null;
+
+      if (value === 'organization') {
+        organization =
+          state.topics.find(
+            item =>
+              item &&
+              item.type ===
+                'organization' &&
+              item.name ===
+                '90_ภาพองค์กร'
+          ) || null;
+
+        if (!organization) {
+          throw new Error(
+            'ไม่พบพื้นที่จัดเก็บภาพองค์กร'
+          );
+        }
+      }
+
+      state.mode = value;
+
+      state.selectedTopic = null;
+      state.selectedYear = '';
+      state.selectedActivity = null;
+      state.activities = [];
+      state.destination = null;
+
+      if (value === 'organization') {
+        state.selectedTopic =
+          organization;
+
+        state.destination = {
+          type: 'organization',
+          topic:
+            organization.name,
+          path:
+            organization.path,
+        };
+      }
+
+      renderTopicOptions_();
+      renderDestinationState_();
+
+      return state.destination;
+    }
+
     async function selectTopic(name) {
       const selected =
         topicByName_(name);
@@ -960,6 +1186,12 @@
           'ไม่พบหมวดภาพที่เลือก'
         );
       }
+
+      state.mode =
+        selected.type ===
+          'organization'
+          ? 'organization'
+          : 'activity';
 
       state.selectedTopic =
         selected;
@@ -1687,6 +1919,8 @@
 
       state.topics = [];
       state.activities = [];
+      state.mode = 'activity';
+
       state.selectedTopic = null;
       state.selectedYear = '';
       state.selectedActivity = null;
@@ -1794,6 +2028,50 @@
 
         showError(message);
       }
+    }
+
+    const destinationModeActivity =
+      $('destinationModeActivity');
+
+    if (destinationModeActivity) {
+      destinationModeActivity.addEventListener(
+        'click',
+        () => {
+          try {
+            setDestinationMode_(
+              'activity'
+            );
+          } catch (err) {
+            showError(
+              err && err.message
+                ? err.message
+                : String(err)
+            );
+          }
+        }
+      );
+    }
+
+    const destinationModeOrganization =
+      $('destinationModeOrganization');
+
+    if (destinationModeOrganization) {
+      destinationModeOrganization.addEventListener(
+        'click',
+        () => {
+          try {
+            setDestinationMode_(
+              'organization'
+            );
+          } catch (err) {
+            showError(
+              err && err.message
+                ? err.message
+                : String(err)
+            );
+          }
+        }
+      );
     }
 
     const topicSelect =
