@@ -52,6 +52,7 @@ class FakeElement {
     this.attributes = {};
     this.listeners = {};
     this.disabled = false;
+    this.clickCalls = 0;
     this.textContent = '';
     this.innerHTML = '';
     this.value = '';
@@ -59,6 +60,10 @@ class FakeElement {
 
   addEventListener(type, listener) {
     this.listeners[type] = listener;
+  }
+
+  click() {
+    this.clickCalls += 1;
   }
 
   setAttribute(name, value) {
@@ -212,6 +217,21 @@ async function run() {
       typeof renderCreateActivityPreview_ === 'function'
         ? renderCreateActivityPreview_
         : null,
+
+    addSelectedFiles:
+      typeof addSelectedFiles_ === 'function'
+        ? addSelectedFiles_
+        : null,
+
+    removeSelectedFile:
+      typeof removeSelectedFile_ === 'function'
+        ? removeSelectedFile_
+        : null,
+
+    renderSelectedFiles:
+      typeof renderSelectedFiles_ === 'function'
+        ? renderSelectedFiles_
+        : null,
   };
 })();`
   );
@@ -243,6 +263,11 @@ async function run() {
 
   const fetchCalls = [];
   const liffInitCalls = [];
+
+  const objectUrlCalls = {
+    created: [],
+    revoked: [],
+  };
 
   // Contract สำหรับ Photo Ticket หมดอายุ:
   // request แรกได้ 401 -> ขอ ticket ใหม่ -> retry เดิม 1 ครั้ง
@@ -348,6 +373,30 @@ async function run() {
     Map,
     Set,
     Math,
+
+    URL: {
+      createObjectURL(file) {
+        const value =
+          'blob:photo-preview-' +
+          String(
+            objectUrlCalls.created.length +
+            1
+          );
+
+        objectUrlCalls.created.push({
+          file,
+          url: value,
+        });
+
+        return value;
+      },
+
+      revokeObjectURL(value) {
+        objectUrlCalls.revoked.push(
+          String(value)
+        );
+      },
+    },
 
     setTimeout() {
       return 1;
@@ -842,6 +891,7 @@ async function run() {
   const uxP04RedFailures = [];
   const uxP05RedFailures = [];
   const uxP06RedFailures = [];
+  const uxP07RedFailures = [];
 
   await ui.boot();
 
@@ -2813,6 +2863,269 @@ async function run() {
     uxP06RedFailures.length === 0,
     'UX-P06 RED contracts failed:\n- ' +
       uxP06RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P07: Photo Picker v2 ----------
+
+  const pickerMarkupOk =
+    html.includes(
+      'id="photoPickerButton"'
+    ) &&
+    html.includes(
+      'id="selectedPhotoSummary"'
+    ) &&
+    html.includes(
+      'id="selectedPhotoList"'
+    ) &&
+    html.includes(
+      'id="addMorePhotosButton"'
+    );
+
+  const pickerHelpersOk =
+    typeof ui.addSelectedFiles ===
+      'function' &&
+    typeof ui.removeSelectedFile ===
+      'function' &&
+    typeof ui.renderSelectedFiles ===
+      'function';
+
+  if (
+    !pickerMarkupOk ||
+    !pickerHelpersOk
+  ) {
+    uxP07RedFailures.push(
+      'photo picker: custom picker, selected-file summary/list, add-more action, and picker helpers must exist'
+    );
+  }
+
+  const selectedFilesStartEmpty =
+    Array.isArray(
+      ui.state.selectedFiles
+    ) &&
+    ui.state.selectedFiles.length === 0;
+
+  if (!selectedFilesStartEmpty) {
+    uxP07RedFailures.push(
+      'photo picker: selected files must start empty'
+    );
+  }
+
+  // P07 behavior checks activate once all helpers exist.
+  if (pickerHelpersOk) {
+    const photoInput =
+      document.getElementById(
+        'photoInput'
+      );
+
+    const pickerButton =
+      document.getElementById(
+        'photoPickerButton'
+      );
+
+    const addMoreButton =
+      document.getElementById(
+        'addMorePhotosButton'
+      );
+
+    const summary =
+      document.getElementById(
+        'selectedPhotoSummary'
+      );
+
+    const list =
+      document.getElementById(
+        'selectedPhotoList'
+      );
+
+    // Primary picker and "add more" must both reopen
+    // the same native multiple-file chooser.
+    const beforePickerClicks =
+      photoInput.clickCalls;
+
+    if (
+      pickerButton &&
+      pickerButton.listeners &&
+      typeof pickerButton.listeners.click ===
+        'function'
+    ) {
+      pickerButton.listeners.click({
+        preventDefault() {},
+      });
+    }
+
+    if (
+      addMoreButton &&
+      addMoreButton.listeners &&
+      typeof addMoreButton.listeners.click ===
+        'function'
+    ) {
+      addMoreButton.listeners.click({
+        preventDefault() {},
+      });
+    }
+
+    const pickerActionsOk =
+      photoInput.clickCalls ===
+        beforePickerClicks + 2;
+
+    if (!pickerActionsOk) {
+      uxP07RedFailures.push(
+        'photo picker: primary and add-more actions must reopen the native file chooser'
+      );
+    }
+
+    const jpegFile = {
+      name: 'photo.jpg',
+      size: 1024 * 1024,
+      type: 'image/jpeg',
+    };
+
+    const heicFile = {
+      name: 'iphone.heic',
+      size: 2 * 1024 * 1024,
+      type: 'image/heic',
+    };
+
+    const avifFile = {
+      name: 'camera.avif',
+      size: 2 * 1024 * 1024,
+      type: 'image/avif',
+    };
+
+    ui.state.selectedFiles = [];
+
+    objectUrlCalls.created.length = 0;
+    objectUrlCalls.revoked.length = 0;
+
+    ui.addSelectedFiles([
+      jpegFile,
+      heicFile,
+      avifFile,
+    ]);
+
+    const selectedHtml =
+      String(
+        list.innerHTML || ''
+      );
+
+    const summaryText =
+      String(
+        summary.textContent || ''
+      );
+
+    const selectionSummaryOk =
+      ui.state.selectedFiles.length === 3 &&
+      summaryText.includes(
+        '3 รูป'
+      ) &&
+      /5(?:\.0)?\s*MB/i.test(
+        summaryText
+      );
+
+    if (!selectionSummaryOk) {
+      uxP07RedFailures.push(
+        'photo picker: selected-file summary must show file count and total size'
+      );
+    }
+
+    const thumbnailAndFallbackOk =
+      objectUrlCalls.created.length === 1 &&
+      objectUrlCalls.created[0].file ===
+        jpegFile &&
+      selectedHtml.includes(
+        'photo.jpg'
+      ) &&
+      selectedHtml.includes(
+        'iphone.heic'
+      ) &&
+      selectedHtml.includes(
+        'camera.avif'
+      ) &&
+      selectedHtml.includes(
+        objectUrlCalls.created[0].url
+      );
+
+    if (!thumbnailAndFallbackOk) {
+      uxP07RedFailures.push(
+        'photo picker: previewable images need thumbnails while HEIC/AVIF remain visible with fallback UI'
+      );
+    }
+
+    const jpegPreviewUrl =
+      objectUrlCalls.created.length
+        ? objectUrlCalls.created[0].url
+        : '';
+
+    ui.removeSelectedFile(0);
+
+    const removeOk =
+      ui.state.selectedFiles.length === 2 &&
+      !ui.state.selectedFiles.some(
+        file =>
+          file &&
+          file.name ===
+            'photo.jpg'
+      ) &&
+      (
+        !jpegPreviewUrl ||
+        objectUrlCalls.revoked.includes(
+          jpegPreviewUrl
+        )
+      );
+
+    if (!removeOk) {
+      uxP07RedFailures.push(
+        'photo picker: removing a file must update selectedFiles and revoke its object URL'
+      );
+    }
+
+    const pngFile = {
+      name: 'more.png',
+      size: 1024,
+      type: 'image/png',
+    };
+
+    ui.addSelectedFiles([
+      pngFile,
+    ]);
+
+    const addMoreOk =
+      ui.state.selectedFiles.length === 3 &&
+      ui.state.selectedFiles[0] ===
+        heicFile &&
+      ui.state.selectedFiles[1] ===
+        avifFile &&
+      ui.state.selectedFiles[2] ===
+        pngFile;
+
+    if (!addMoreOk) {
+      uxP07RedFailures.push(
+        'photo picker: selecting more files must append instead of replacing the existing selection'
+      );
+    }
+
+    const conversionApiUsed =
+      source.includes(
+        'toDataURL('
+      ) ||
+      source.includes(
+        'convertToBlob('
+      ) ||
+      source.includes(
+        'OffscreenCanvas'
+      );
+
+    if (conversionApiUsed) {
+      uxP07RedFailures.push(
+        'photo picker: HEIC/AVIF fallback must not convert image files in the browser'
+      );
+    }
+  }
+
+  assert(
+    uxP07RedFailures.length === 0,
+    'UX-P07 RED contracts failed:\n- ' +
+      uxP07RedFailures.join('\n- ')
   );
 
   console.log(
