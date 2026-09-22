@@ -28,18 +28,20 @@
 </head>
 
 <body class="min-h-screen bg-canvas font-sans text-text">
-  <main class="mx-auto min-h-screen max-w-lg px-4 pb-10 pt-6">
+  <main
+    class="mx-auto min-h-screen max-w-lg px-4"
+    style="
+      padding-top: calc(1.5rem + env(safe-area-inset-top));
+      padding-bottom: calc(2.5rem + env(safe-area-inset-bottom));
+    "
+  >
     <header class="ui-page-header">
-      <p class="ui-page-eyebrow">
-        สำนักงานสาธารณสุขอำเภอสอง
-      </p>
-
-      <h1 class="ui-page-title">
-        คลังภาพ
+      <h1 class="ui-page-title mt-0">
+        คลังภาพ สสอ.สอง
       </h1>
 
       <p class="ui-page-description">
-        จัดเก็บภาพกิจกรรมของหน่วยงานอย่างเป็นระบบ
+        อัปโหลดและจัดเก็บภาพกิจกรรม
       </p>
     </header>
 
@@ -77,43 +79,40 @@
       class="hidden space-y-4"
       aria-live="polite"
     >
-      <div class="ui-alert ui-alert-success">
-        ยืนยันตัวตนสำเร็จ พร้อมใช้งานคลังภาพ
-      </div>
+      <details
+        id="identityDisclosure"
+        class="rounded-control border border-border bg-surface px-3 py-2.5 text-sm shadow-card"
+      >
+        <summary
+          class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3"
+        >
+          <span class="font-medium text-text-muted">
+            ข้อมูลผู้ใช้งาน
+          </span>
 
-      <div class="ui-card">
-        <div class="ui-card-body">
-          <h2 class="ui-section-title">
-            สถานะการเข้าใช้งาน
-          </h2>
+          <span
+            id="actorRole"
+            class="ui-badge ui-badge-neutral hidden"
+          >
+            -
+          </span>
+        </summary>
 
-          <dl class="mt-3 divide-y divide-slate-100 text-sm">
-            <div class="flex items-center justify-between gap-4 py-3">
-              <dt class="text-text-muted">
-                ผู้ใช้งาน
-              </dt>
-              <dd
-                id="actorStaff"
-                class="text-right font-semibold text-text"
-              >
-                -
-              </dd>
-            </div>
+        <div
+          class="flex items-center justify-between gap-4 border-t border-slate-100 pt-2.5"
+        >
+          <span class="text-text-muted">
+            บัญชี
+          </span>
 
-            <div class="flex items-center justify-between gap-4 py-3">
-              <dt class="text-text-muted">
-                สิทธิ์
-              </dt>
-              <dd
-                id="actorRole"
-                class="ui-badge ui-badge-neutral"
-              >
-                -
-              </dd>
-            </div>
-          </dl>
+          <span
+            id="actorStaff"
+            class="break-all text-right font-semibold text-text"
+          >
+            -
+          </span>
         </div>
-      </div>
+      </details>
 
       <div class="ui-card">
         <div class="ui-card-body space-y-4">
@@ -1632,9 +1631,12 @@
       return 'ผู้ใช้งาน';
     }
 
-    function renderReady_() {
+    function renderIdentity_() {
       const actor =
         state.actor || {};
+
+      const disclosure =
+        $('identityDisclosure');
 
       const staff =
         $('actorStaff');
@@ -1647,10 +1649,29 @@
           actor.staffKey || '-';
       }
 
+      const showRoleBadge =
+        actor.role === 'manager' ||
+        actor.role === 'admin';
+
       if (role) {
         role.textContent =
           roleLabel_(actor.role);
+
+        role.classList.toggle(
+          'hidden',
+          !showRoleBadge
+        );
       }
+
+      if (disclosure) {
+        disclosure.classList.remove(
+          'hidden'
+        );
+      }
+    }
+
+    function renderReady_() {
+      renderIdentity_();
 
       renderTopicOptions_();
       renderDestinationState_();

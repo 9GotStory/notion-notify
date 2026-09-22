@@ -178,6 +178,11 @@ async function run() {
       typeof retryFailedFiles === 'function'
         ? retryFailedFiles
         : null,
+
+    renderIdentity:
+      typeof renderIdentity_ === 'function'
+        ? renderIdentity_
+        : null,
   };
 })();`
   );
@@ -741,6 +746,7 @@ async function run() {
 
   const uxP01RedFailures = [];
   const uxP02RedFailures = [];
+  const uxP03RedFailures = [];
 
   await ui.boot();
 
@@ -1957,6 +1963,163 @@ async function run() {
     uxP02RedFailures.length === 0,
     'UX-P02 RED contracts failed:\n- ' +
       uxP02RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P03: Compact app shell ----------
+
+  const compactHeaderOk =
+    /<h1[^>]*>[\s\n]*คลังภาพ สสอ\.สอง[\s\n]*<\/h1>/s.test(
+      html
+    ) &&
+    html.includes(
+      'อัปโหลดและจัดเก็บภาพกิจกรรม'
+    );
+
+  if (!compactHeaderOk) {
+    uxP03RedFailures.push(
+      'app shell: header must use "คลังภาพ สสอ.สอง" with the compact upload description'
+    );
+  }
+
+  // success banner + large access-status card
+  // ต้องไม่กินพื้นที่หลักอีกต่อไป
+  const legacyIdentityUiGone =
+    !html.includes(
+      'ยืนยันตัวตนสำเร็จ พร้อมใช้งานคลังภาพ'
+    ) &&
+    !html.includes(
+      'สถานะการเข้าใช้งาน'
+    );
+
+  if (!legacyIdentityUiGone) {
+    uxP03RedFailures.push(
+      'app shell: legacy success banner and full access-status card must be removed'
+    );
+  }
+
+  // ---------- UX-P03: Compact identity ----------
+
+  const compactIdentityMarkupOk =
+    html.includes(
+      'id="identityDisclosure"'
+    ) &&
+    html.includes(
+      'id="actorStaff"'
+    ) &&
+    html.includes(
+      'id="actorRole"'
+    ) &&
+    typeof ui.renderIdentity ===
+      'function';
+
+  if (!compactIdentityMarkupOk) {
+    uxP03RedFailures.push(
+      'identity: compact disclosure and renderIdentity() contract must exist'
+    );
+  }
+
+  if (
+    typeof ui.renderIdentity ===
+      'function'
+  ) {
+    const actorRole =
+      elements.get('actorRole');
+
+    const identityDisclosure =
+      elements.get(
+        'identityDisclosure'
+      );
+
+    // normal user:
+    // identity detail available via disclosure,
+    // role badge must not occupy primary UI
+    ui.state.actor = {
+      staffKey: 'normal-user',
+      role: 'user',
+    };
+
+    ui.renderIdentity();
+
+    const normalUserIdentityOk =
+      actorRole &&
+      actorRole.classList.contains(
+        'hidden'
+      ) &&
+      identityDisclosure &&
+      !identityDisclosure.classList.contains(
+        'hidden'
+      );
+
+    if (!normalUserIdentityOk) {
+      uxP03RedFailures.push(
+        'identity: normal user must hide the role badge while keeping identity disclosure available'
+      );
+    }
+
+    // manager/admin อาจมี compact role badge
+    ui.state.actor = {
+      staffKey: 'manager-user',
+      role: 'manager',
+    };
+
+    ui.renderIdentity();
+
+    const managerIdentityOk =
+      actorRole &&
+      !actorRole.classList.contains(
+        'hidden'
+      ) &&
+      actorRole.textContent ===
+        'ผู้จัดการคลังภาพ';
+
+    if (!managerIdentityOk) {
+      uxP03RedFailures.push(
+        'identity: manager must receive the compact manager role badge'
+      );
+    }
+
+    ui.state.actor = {
+      staffKey: 'admin-user',
+      role: 'admin',
+    };
+
+    ui.renderIdentity();
+
+    const adminIdentityOk =
+      actorRole &&
+      !actorRole.classList.contains(
+        'hidden'
+      ) &&
+      actorRole.textContent ===
+        'ผู้ดูแลระบบ';
+
+    if (!adminIdentityOk) {
+      uxP03RedFailures.push(
+        'identity: admin must receive the compact admin role badge'
+      );
+    }
+  }
+
+  // ---------- UX-P03: Safe area ----------
+
+  const safeAreaOk =
+    html.includes(
+      'env(safe-area-inset-top)'
+    ) &&
+    html.includes(
+      'env(safe-area-inset-bottom)'
+    );
+
+  if (!safeAreaOk) {
+    uxP03RedFailures.push(
+      'safe area: app shell must account for both top and bottom device safe-area insets'
+    );
+  }
+
+  assert(
+    uxP03RedFailures.length === 0,
+    'UX-P03 RED contracts failed:\n- ' +
+      uxP03RedFailures.join('\n- ')
   );
 
   console.log(
