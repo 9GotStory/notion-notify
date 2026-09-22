@@ -65,6 +65,15 @@ class FakeElement {
     this.attributes[name] = String(value);
   }
 
+  getAttribute(name) {
+    return Object.prototype.hasOwnProperty.call(
+      this.attributes,
+      name
+    )
+      ? this.attributes[name]
+      : null;
+  }
+
   removeAttribute(name) {
     delete this.attributes[name];
   }
@@ -192,6 +201,16 @@ async function run() {
     setActivitySearchQuery:
       typeof setActivitySearchQuery_ === 'function'
         ? setActivitySearchQuery_
+        : null,
+
+    setCreateActivityOpen:
+      typeof setCreateActivityOpen_ === 'function'
+        ? setCreateActivityOpen_
+        : null,
+
+    renderCreateActivityPreview:
+      typeof renderCreateActivityPreview_ === 'function'
+        ? renderCreateActivityPreview_
         : null,
   };
 })();`
@@ -620,6 +639,69 @@ async function run() {
         };
       }
 
+      // Generic create-activity response for later UX contracts.
+      //
+      // Baseline create test above intentionally keeps its original
+      // positional response. P02 also has its own delayed one-shot probe.
+      // Any later POST /v1/activities must remain deterministic instead
+      // of falling through to the unexpected-network guard.
+      if (
+        requestUrl ===
+          'https://photo.example.test:8443/v1/activities' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        let body = {};
+
+        try {
+          body = JSON.parse(
+            String(options.body || '{}')
+          );
+        } catch (err) {
+          body = {};
+        }
+
+        const activityName =
+          String(
+            body.activityName || ''
+          );
+
+        const topic =
+          String(
+            body.topic || ''
+          );
+
+        const year =
+          String(
+            body.year || ''
+          );
+
+        return {
+          ok: true,
+          status: 201,
+
+          async json() {
+            return {
+              ok: true,
+              created: true,
+
+              activity: {
+                name:
+                  activityName,
+
+                path:
+                  topic +
+                  '/' +
+                  year +
+                  '/' +
+                  activityName,
+              },
+            };
+          },
+        };
+      }
+
       if (
         url.includes('/v1/uploads?') ||
         url.includes('/v1/organization/uploads?')
@@ -759,6 +841,7 @@ async function run() {
   const uxP03RedFailures = [];
   const uxP04RedFailures = [];
   const uxP05RedFailures = [];
+  const uxP06RedFailures = [];
 
   await ui.boot();
 
@@ -2512,6 +2595,224 @@ async function run() {
     uxP05RedFailures.length === 0,
     'UX-P05 RED contracts failed:\n- ' +
       uxP05RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P06: Create Activity v2 ----------
+
+  const createV2MarkupOk =
+    html.includes(
+      'id="createActivityToggle"'
+    ) &&
+    html.includes(
+      'id="createActivityForm"'
+    ) &&
+    html.includes(
+      'id="activityNamePreview"'
+    ) &&
+    html.includes(
+      'id="cancelCreateActivityButton"'
+    ) &&
+    typeof ui.setCreateActivityOpen ===
+      'function' &&
+    typeof ui.renderCreateActivityPreview ===
+      'function';
+
+  if (!createV2MarkupOk) {
+    uxP06RedFailures.push(
+      'create activity: collapsible form, canonical preview, cancel action, and UI helpers must exist'
+    );
+  }
+
+  const initialCreateStateOk =
+    ui.state.createActivityOpen === false;
+
+  if (!initialCreateStateOk) {
+    uxP06RedFailures.push(
+      'create activity: form must start collapsed'
+    );
+  }
+
+  // Behavior checks activate once the P06 helpers exist.
+  if (
+    typeof ui.setCreateActivityOpen ===
+      'function' &&
+    typeof ui.renderCreateActivityPreview ===
+      'function'
+  ) {
+    const toggle =
+      elements.get(
+        'createActivityToggle'
+      );
+
+    const form =
+      elements.get(
+        'createActivityForm'
+      );
+
+    const dateInput =
+      elements.get(
+        'activityDate'
+      );
+
+    const nameInput =
+      elements.get(
+        'activityNameInput'
+      );
+
+    const preview =
+      document.getElementById(
+        'activityNamePreview'
+      );
+
+    ui.setCreateActivityOpen(true);
+
+    const openedOk =
+      ui.state.createActivityOpen ===
+        true &&
+      form &&
+      !form.classList.contains(
+        'hidden'
+      );
+
+    if (!openedOk) {
+      uxP06RedFailures.push(
+        'create activity: opening must reveal the secondary form'
+      );
+    }
+
+    if (toggle) {
+      const expanded =
+        typeof toggle.getAttribute ===
+          'function'
+          ? toggle.getAttribute(
+              'aria-expanded'
+            )
+          : null;
+
+      if (expanded !== 'true') {
+        uxP06RedFailures.push(
+          'create activity: toggle must expose aria-expanded state'
+        );
+      }
+    }
+
+    // Canonical preview must use the same naming contract
+    // as createActivity().
+    if (dateInput) {
+      dateInput.value =
+        '2026-09-22';
+    }
+
+    if (nameInput) {
+      nameInput.value =
+        'UI State Foundation';
+    }
+
+    const previewValue =
+      ui.renderCreateActivityPreview();
+
+    const previewOk =
+      previewValue ===
+        '2569-09-22_UI State Foundation' &&
+      preview &&
+      String(
+        preview.textContent || ''
+      ).includes(
+        '2569-09-22_UI State Foundation'
+      );
+
+    if (!previewOk) {
+      uxP06RedFailures.push(
+        'create activity: preview must show the canonical activity name before creation'
+      );
+    }
+
+    // Cancel collapses without creating anything.
+    const beforeCancelFetches =
+      fetchCalls.length;
+
+    ui.setCreateActivityOpen(false);
+
+    const cancelOk =
+      ui.state.createActivityOpen ===
+        false &&
+      form &&
+      form.classList.contains(
+        'hidden'
+      ) &&
+      fetchCalls.length ===
+        beforeCancelFetches;
+
+    if (!cancelOk) {
+      uxP06RedFailures.push(
+        'create activity: cancel must collapse the form without an API request'
+      );
+    }
+
+    // Create + select + collapse + focus back to discovery.
+    ui.state.mode = 'activity';
+
+    ui.state.selectedTopic =
+      ui.state.topics.find(
+        item =>
+          item &&
+          item.name ===
+            '80_งานกิจกรรมกลาง'
+      );
+
+    ui.state.selectedYear =
+      '2569';
+
+    ui.setCreateActivityOpen(true);
+
+    let discoveryFocusCount = 0;
+
+    const searchInput =
+      elements.get(
+        'activitySearchInput'
+      );
+
+    if (searchInput) {
+      searchInput.focus = () => {
+        discoveryFocusCount += 1;
+      };
+    }
+
+    const created =
+      await ui.createActivity(
+        '2026-09-22',
+        'UI State Foundation'
+      );
+
+    const createAndSelectOk =
+      created &&
+      ui.state.selectedActivity &&
+      ui.state.selectedActivity.name ===
+        created.name &&
+      ui.state.destination &&
+      ui.state.destination.type ===
+        'activity' &&
+      ui.state.destination.activity ===
+        created.name &&
+      ui.state.createActivityOpen ===
+        false &&
+      form &&
+      form.classList.contains(
+        'hidden'
+      ) &&
+      discoveryFocusCount === 1;
+
+    if (!createAndSelectOk) {
+      uxP06RedFailures.push(
+        'create activity: successful creation must auto-select, collapse the form, and return focus to activity discovery'
+      );
+    }
+  }
+
+  assert(
+    uxP06RedFailures.length === 0,
+    'UX-P06 RED contracts failed:\n- ' +
+      uxP06RedFailures.join('\n- ')
   );
 
   console.log(

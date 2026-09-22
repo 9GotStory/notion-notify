@@ -250,17 +250,24 @@
             id="createActivityPanel"
             class="mt-4 border-t border-slate-200 pt-4"
           >
-            <div>
-              <h3 class="text-sm font-semibold text-text">
-                สร้างกิจกรรมใหม่
-              </h3>
+            <button
+              id="createActivityToggle"
+              type="button"
+              class="ui-btn-secondary min-h-11 w-full"
+              aria-expanded="false"
+              aria-controls="createActivityForm"
+            >
+              สร้างกิจกรรมใหม่
+            </button>
 
+            <div
+              id="createActivityForm"
+              class="hidden mt-4 space-y-4"
+            >
               <p class="ui-help">
-                ใช้เมื่อยังไม่พบกิจกรรมที่ต้องการในรายการด้านบน
+                ใช้เมื่อยังไม่พบกิจกรรมที่ต้องการ
               </p>
-            </div>
 
-            <div class="mt-4 space-y-4">
               <div>
                 <label
                   for="activityDate"
@@ -291,19 +298,41 @@
                   class="ui-input w-full"
                   placeholder="เช่น ประชุมประจำเดือน"
                 >
+              </div>
 
-                <p class="ui-help">
-                  ระบบจะสร้างชื่อโฟลเดอร์จากวันที่และชื่อกิจกรรมให้อัตโนมัติ
+              <div
+                class="rounded-control border border-border bg-surface-subtle px-3 py-3"
+              >
+                <p class="text-xs font-medium text-text-muted">
+                  ชื่อกิจกรรมที่จะสร้าง
+                </p>
+
+                <p
+                  id="activityNamePreview"
+                  class="mt-1 break-words text-sm font-semibold text-text"
+                  aria-live="polite"
+                >
+                  กรอกวันที่และชื่อกิจกรรม
                 </p>
               </div>
 
-              <button
-                id="createActivityButton"
-                type="button"
-                class="ui-btn-secondary w-full"
-              >
-                สร้างกิจกรรม
-              </button>
+              <div class="grid grid-cols-2 gap-2">
+                <button
+                  id="cancelCreateActivityButton"
+                  type="button"
+                  class="ui-btn-secondary min-h-11 w-full"
+                >
+                  ยกเลิก
+                </button>
+
+                <button
+                  id="createActivityButton"
+                  type="button"
+                  class="ui-btn-primary min-h-11 w-full"
+                >
+                  สร้างและเลือก
+                </button>
+              </div>
 
               <p
                 id="createActivityStatus"
@@ -443,6 +472,7 @@
       uploading: false,
       activitiesLoading: false,
       creatingActivity: false,
+      createActivityOpen: false,
 
       // UX-P01:
       // successful files จะไม่ค้างใน retry queue
@@ -1354,6 +1384,8 @@
       state.mode = value;
       state.activitySearchQuery = '';
 
+      setCreateActivityOpen_(false);
+
       state.selectedTopic = null;
       state.selectedYear = '';
       state.selectedActivity = null;
@@ -1399,6 +1431,8 @@
         selected;
 
       state.activitySearchQuery = '';
+      setCreateActivityOpen_(false);
+
       state.selectedYear = '';
       state.selectedActivity = null;
       state.activities = [];
@@ -1448,6 +1482,8 @@
         value;
 
       state.activitySearchQuery = '';
+      setCreateActivityOpen_(false);
+
       state.selectedActivity = null;
       state.activities = [];
       state.destination = null;
@@ -1938,6 +1974,96 @@
       );
     }
 
+    function setCreateActivityOpen_(open) {
+      const isOpen =
+        Boolean(open);
+
+      state.createActivityOpen =
+        isOpen;
+
+      const form =
+        $('createActivityForm');
+
+      const toggle =
+        $('createActivityToggle');
+
+      if (form) {
+        form.classList.toggle(
+          'hidden',
+          !isOpen
+        );
+      }
+
+      if (
+        toggle &&
+        typeof toggle.setAttribute ===
+          'function'
+      ) {
+        toggle.setAttribute(
+          'aria-expanded',
+          isOpen
+            ? 'true'
+            : 'false'
+        );
+      }
+
+      if (isOpen) {
+        renderCreateActivityPreview_();
+      }
+
+      return isOpen;
+    }
+
+    function renderCreateActivityPreview_() {
+      const dateInput =
+        $('activityDate');
+
+      const nameInput =
+        $('activityNameInput');
+
+      const preview =
+        $('activityNamePreview');
+
+      const dateValue =
+        dateInput
+          ? String(
+              dateInput.value || ''
+            ).trim()
+          : '';
+
+      const activityName =
+        nameInput
+          ? String(
+              nameInput.value || ''
+            ).trim()
+          : '';
+
+      let canonicalName = '';
+
+      if (
+        dateValue &&
+        activityName
+      ) {
+        try {
+          canonicalName =
+            buildActivityName(
+              dateValue,
+              activityName
+            );
+        } catch (err) {
+          canonicalName = '';
+        }
+      }
+
+      if (preview) {
+        preview.textContent =
+          canonicalName ||
+          'กรอกวันที่และชื่อกิจกรรม';
+      }
+
+      return canonicalName;
+    }
+
     async function createActivity(
       dateValue,
       activityName
@@ -2047,7 +2173,31 @@
             activity.path,
         };
 
+        // กลับสู่ recent activities เพื่อให้กิจกรรม
+        // ที่เพิ่งสร้างมองเห็นได้ทันที
+        state.activitySearchQuery = '';
+
+        const searchInput =
+          $('activitySearchInput');
+
+        if (
+          searchInput &&
+          searchInput.value
+        ) {
+          searchInput.value = '';
+        }
+
         renderDestinationState_();
+
+        setCreateActivityOpen_(false);
+
+        if (
+          searchInput &&
+          typeof searchInput.focus ===
+            'function'
+        ) {
+          searchInput.focus();
+        }
 
         return activity;
       } finally {
@@ -2135,6 +2285,7 @@
       state.uploading = false;
       state.activitiesLoading = false;
       state.creatingActivity = false;
+      state.createActivityOpen = false;
 
       state.failedFiles = [];
       state.failedDestination = null;
@@ -2579,6 +2730,70 @@
             uploadButton.disabled =
               false;
           }
+        }
+      );
+    }
+
+    const createActivityToggle =
+      $('createActivityToggle');
+
+    if (createActivityToggle) {
+      createActivityToggle.addEventListener(
+        'click',
+        () => {
+          setCreateActivityOpen_(
+            !state.createActivityOpen
+          );
+        }
+      );
+    }
+
+    const cancelCreateActivityButton =
+      $('cancelCreateActivityButton');
+
+    if (cancelCreateActivityButton) {
+      cancelCreateActivityButton.addEventListener(
+        'click',
+        () => {
+          setCreateActivityOpen_(false);
+
+          const status =
+            $('createActivityStatus');
+
+          if (status) {
+            status.textContent = '';
+          }
+        }
+      );
+    }
+
+    const activityDate =
+      $('activityDate');
+
+    if (activityDate) {
+      activityDate.addEventListener(
+        'input',
+        () => {
+          renderCreateActivityPreview_();
+        }
+      );
+
+      activityDate.addEventListener(
+        'change',
+        () => {
+          renderCreateActivityPreview_();
+        }
+      );
+    }
+
+    const activityNameInput =
+      $('activityNameInput');
+
+    if (activityNameInput) {
+      activityNameInput.addEventListener(
+        'input',
+        () => {
+          renderCreateActivityPreview_();
         }
       );
     }
