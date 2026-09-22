@@ -257,6 +257,16 @@ async function run() {
       typeof clearRecoverableError_ === 'function'
         ? clearRecoverableError_
         : null,
+
+    friendlyTopicLabel:
+      typeof friendlyTopicLabel_ === 'function'
+        ? friendlyTopicLabel_
+        : null,
+
+    destinationDisplayLabel:
+      typeof destinationDisplayLabel_ === 'function'
+        ? destinationDisplayLabel_
+        : null,
   };
 })();`
   );
@@ -4591,6 +4601,601 @@ async function run() {
     retryBackoffFailures.length === 0,
     'PHOTO-REL-P04-A RED contracts failed:\n- ' +
       retryBackoffFailures.join('\n- ')
+  );
+
+  // ---------- UX-F01-A: Friendly category labels ----------
+
+  const friendlyCategoryFailures = [];
+
+  assert(
+    typeof ui.friendlyTopicLabel === 'function',
+    'UX-F01: friendlyTopicLabel_ test hook missing'
+  );
+
+  const friendlyTopicCases = [
+    [
+      '80_กิจกรรมกลาง',
+      'กิจกรรมกลาง',
+    ],
+    [
+      '80_งานกิจกรรมกลาง',
+      'กิจกรรมกลาง',
+    ],
+    [
+      '10_งานบริหาร',
+      'งานบริหาร',
+    ],
+    [
+      '90_ภาพองค์กร',
+      'ภาพองค์กร',
+    ],
+  ];
+
+  friendlyTopicCases.forEach(
+    ([canonical, expected]) => {
+      const actual =
+        ui.friendlyTopicLabel(
+          canonical
+        );
+
+      if (actual !== expected) {
+        friendlyCategoryFailures.push(
+          canonical +
+          ' must display as "' +
+          expected +
+          '" but got "' +
+          actual +
+          '"'
+        );
+      }
+    }
+  );
+
+  // Dropdown must preserve canonical value for API/state,
+  // while rendering the friendly label to the user.
+  const topicOptionUsesCanonicalValue =
+    /option\.value\s*=\s*topic\.name\s*;/.test(
+      source
+    );
+
+  const topicOptionUsesFriendlyLabel =
+    /option\.textContent\s*=\s*friendlyTopicLabel_\(\s*topic\.name\s*\)\s*;/.test(
+      source
+    );
+
+  if (!topicOptionUsesCanonicalValue) {
+    friendlyCategoryFailures.push(
+      'topic option value must remain canonical topic.name'
+    );
+  }
+
+  if (!topicOptionUsesFriendlyLabel) {
+    friendlyCategoryFailures.push(
+      'topic dropdown must display friendlyTopicLabel_(topic.name)'
+    );
+  }
+
+  assert(
+    friendlyCategoryFailures.length === 0,
+    'UX-F01-A RED contracts failed:\n- ' +
+      friendlyCategoryFailures.join('\n- ')
+  );
+
+  // ---------- UX-F02-A: Contextual create activity ----------
+
+  const contextualCreateFailures = [];
+
+  const createActivityPanel =
+    document.getElementById(
+      'createActivityPanel'
+    );
+
+  const createPanelStartsHidden =
+    /id="createActivityPanel"[\s\S]{0,160}class="[^"]*\bhidden\b/.test(
+      html
+    );
+
+  if (!createPanelStartsHidden) {
+    contextualCreateFailures.push(
+      'create activity panel must start hidden before activity context is ready'
+    );
+  }
+
+  ui.state.mode = 'activity';
+
+  ui.state.selectedTopic = {
+    type: 'topic',
+    name: '80_งานกิจกรรมกลาง',
+    path: '80_งานกิจกรรมกลาง',
+  };
+
+  ui.state.selectedYear = '2569';
+
+  ui.state.activities = [
+    {
+      name:
+        '2569-09-22_ประชุมประจำเดือน',
+      path:
+        '80_งานกิจกรรมกลาง/2569/2569-09-22_ประชุมประจำเดือน',
+    },
+    {
+      name:
+        '2569-09-20_อบรมเจ้าหน้าที่',
+      path:
+        '80_งานกิจกรรมกลาง/2569/2569-09-20_อบรมเจ้าหน้าที่',
+    },
+  ];
+
+  ui.state.activitiesLoading = false;
+  ui.state.createActivityOpen = false;
+
+  // Existing activities + no search:
+  // normal discovery should be primary UX.
+  createActivityPanel.classList.add(
+    'hidden'
+  );
+
+  ui.setActivitySearchQuery('');
+
+  if (
+    !createActivityPanel.classList.contains(
+      'hidden'
+    )
+  ) {
+    contextualCreateFailures.push(
+      'create activity panel must stay hidden when activities already exist and search is empty'
+    );
+  }
+
+  // Search with no result:
+  // offer create as contextual fallback.
+  createActivityPanel.classList.add(
+    'hidden'
+  );
+
+  ui.setActivitySearchQuery(
+    'กิจกรรมที่ไม่มีอยู่แน่นอน'
+  );
+
+  if (
+    createActivityPanel.classList.contains(
+      'hidden'
+    )
+  ) {
+    contextualCreateFailures.push(
+      'no-result activity search must reveal create activity panel'
+    );
+  }
+
+  // If create form is already open and the search starts
+  // matching an existing activity again, hide and close it.
+  ui.setCreateActivityOpen(true);
+
+  ui.setActivitySearchQuery(
+    'ประชุม'
+  );
+
+  if (
+    !createActivityPanel.classList.contains(
+      'hidden'
+    ) ||
+    ui.state.createActivityOpen !== false
+  ) {
+    contextualCreateFailures.push(
+      'matching search result must hide create panel and close its open form'
+    );
+  }
+
+  // No activities in selected year:
+  // create becomes the useful next action.
+  ui.state.activities = [];
+  ui.state.activitiesLoading = false;
+
+  createActivityPanel.classList.add(
+    'hidden'
+  );
+
+  ui.setActivitySearchQuery('');
+
+  if (
+    createActivityPanel.classList.contains(
+      'hidden'
+    )
+  ) {
+    contextualCreateFailures.push(
+      'an empty selected year must reveal create activity panel'
+    );
+  }
+
+  // While the year is still loading, do not flash the create
+  // affordance before we know whether activities exist.
+  ui.state.activitiesLoading = true;
+
+  createActivityPanel.classList.add(
+    'hidden'
+  );
+
+  ui.setActivitySearchQuery('');
+
+  if (
+    !createActivityPanel.classList.contains(
+      'hidden'
+    )
+  ) {
+    contextualCreateFailures.push(
+      'create activity panel must remain hidden while activities are loading'
+    );
+  }
+
+  assert(
+    contextualCreateFailures.length === 0,
+    'UX-F02-A RED contracts failed:\n- ' +
+      contextualCreateFailures.join('\n- ')
+  );
+
+  // ---------- UX-F03-A: Destination breadcrumb ----------
+
+  const destinationBreadcrumbFailures = [];
+
+  assert(
+    typeof ui.destinationDisplayLabel === 'function',
+    'UX-F03: destinationDisplayLabel_ test hook missing'
+  );
+
+  const canonicalDestination = {
+    type: 'activity',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activity:
+      '2569-09-22_ประชุมประจำเดือน',
+    path:
+      '80_งานกิจกรรมกลาง/2569/2569-09-22_ประชุมประจำเดือน',
+  };
+
+  ui.state.destination =
+    Object.assign(
+      {},
+      canonicalDestination
+    );
+
+  const activityBreadcrumb =
+    ui.destinationDisplayLabel();
+
+  const expectedBreadcrumb =
+    'กิจกรรมกลาง / พ.ศ. 2569 / ประชุมประจำเดือน';
+
+  if (
+    activityBreadcrumb !==
+      expectedBreadcrumb
+  ) {
+    destinationBreadcrumbFailures.push(
+      'activity destination must display "' +
+      expectedBreadcrumb +
+      '" but got "' +
+      activityBreadcrumb +
+      '"'
+    );
+  }
+
+  // Presentation must never mutate canonical routing data.
+  [
+    'topic',
+    'year',
+    'activity',
+    'path',
+  ].forEach(key => {
+    if (
+      ui.state.destination[key] !==
+        canonicalDestination[key]
+    ) {
+      destinationBreadcrumbFailures.push(
+        'destination display must not mutate canonical ' +
+        key
+      );
+    }
+  });
+
+  ui.state.destination = {
+    type: 'organization',
+    topic: '90_ภาพองค์กร',
+    path: '90_ภาพองค์กร',
+  };
+
+  if (
+    ui.destinationDisplayLabel() !==
+      'ภาพองค์กร'
+  ) {
+    destinationBreadcrumbFailures.push(
+      'organization destination must remain "ภาพองค์กร"'
+    );
+  }
+
+  assert(
+    destinationBreadcrumbFailures.length === 0,
+    'UX-F03-A RED contracts failed:\n- ' +
+      destinationBreadcrumbFailures.join('\n- ')
+  );
+
+  // ---------- UX-F04-A: Accessible inline validation ----------
+
+  const inlineValidationFailures = [];
+
+  // Static accessibility surface:
+  // error descriptions exist, but fields are not invalid
+  // before the user attempts submission.
+  const dateHasDescription =
+    /id="activityDate"[\s\S]{0,260}aria-describedby="activityDateError"/.test(
+      html
+    );
+
+  const nameHasDescription =
+    /id="activityNameInput"[\s\S]{0,260}aria-describedby="activityNameError"/.test(
+      html
+    );
+
+  const dateErrorExists =
+    /id="activityDateError"[\s\S]{0,160}class="[^"]*\bhidden\b[^"]*text-danger/.test(
+      html
+    );
+
+  const nameErrorExists =
+    /id="activityNameError"[\s\S]{0,160}class="[^"]*\bhidden\b[^"]*text-danger/.test(
+      html
+    );
+
+  if (!dateHasDescription) {
+    inlineValidationFailures.push(
+      'activity date must reference activityDateError with aria-describedby'
+    );
+  }
+
+  if (!nameHasDescription) {
+    inlineValidationFailures.push(
+      'activity name must reference activityNameError with aria-describedby'
+    );
+  }
+
+  if (!dateErrorExists) {
+    inlineValidationFailures.push(
+      'activityDateError must exist hidden initially'
+    );
+  }
+
+  if (!nameErrorExists) {
+    inlineValidationFailures.push(
+      'activityNameError must exist hidden initially'
+    );
+  }
+
+  const activityDateMarkup =
+    html.match(
+      /<input[\s\S]{0,500}?id="activityDate"[\s\S]{0,500}?>/
+    );
+
+  const activityNameMarkup =
+    html.match(
+      /<input[\s\S]{0,500}?id="activityNameInput"[\s\S]{0,500}?>/
+    );
+
+  if (
+    activityDateMarkup &&
+    /aria-invalid="true"/.test(
+      activityDateMarkup[0]
+    )
+  ) {
+    inlineValidationFailures.push(
+      'activity date must not start aria-invalid=true'
+    );
+  }
+
+  if (
+    activityNameMarkup &&
+    /aria-invalid="true"/.test(
+      activityNameMarkup[0]
+    )
+  ) {
+    inlineValidationFailures.push(
+      'activity name must not start aria-invalid=true'
+    );
+  }
+
+  const dateInput =
+    document.getElementById(
+      'activityDate'
+    );
+
+  const nameInput =
+    document.getElementById(
+      'activityNameInput'
+    );
+
+  const dateError =
+    document.getElementById(
+      'activityDateError'
+    );
+
+  const nameError =
+    document.getElementById(
+      'activityNameError'
+    );
+
+  const createButton =
+    document.getElementById(
+      'createActivityButton'
+    );
+
+  // Give createActivity() otherwise-valid destination context.
+  ui.state.mode = 'activity';
+
+  ui.state.selectedTopic = {
+    type: 'topic',
+    name: '80_งานกิจกรรมกลาง',
+    path: '80_งานกิจกรรมกลาง',
+  };
+
+  ui.state.selectedYear = '2569';
+
+  dateInput.value = '';
+  nameInput.value = '';
+
+  const createClick =
+    createButton &&
+    createButton.listeners
+      ? createButton.listeners.click
+      : null;
+
+  assert(
+    typeof createClick === 'function',
+    'UX-F04: create activity click handler missing'
+  );
+
+  const activityPostCountBefore =
+    fetchCalls.filter(
+      call =>
+        call.method === 'POST' &&
+        call.url ===
+          'https://photo.example.test:8443/v1/activities'
+    ).length;
+
+  await createClick();
+
+  const activityPostCountAfter =
+    fetchCalls.filter(
+      call =>
+        call.method === 'POST' &&
+        call.url ===
+          'https://photo.example.test:8443/v1/activities'
+    ).length;
+
+  if (
+    activityPostCountAfter !==
+      activityPostCountBefore
+  ) {
+    inlineValidationFailures.push(
+      'invalid create form must not send POST /v1/activities'
+    );
+  }
+
+  if (
+    dateInput.getAttribute(
+      'aria-invalid'
+    ) !== 'true'
+  ) {
+    inlineValidationFailures.push(
+      'missing activity date must set aria-invalid=true'
+    );
+  }
+
+  if (
+    nameInput.getAttribute(
+      'aria-invalid'
+    ) !== 'true'
+  ) {
+    inlineValidationFailures.push(
+      'missing activity name must set aria-invalid=true'
+    );
+  }
+
+  if (
+    dateError.classList.contains(
+      'hidden'
+    ) ||
+    dateError.textContent !==
+      'กรุณาระบุวันที่กิจกรรม'
+  ) {
+    inlineValidationFailures.push(
+      'missing activity date must show its inline error message'
+    );
+  }
+
+  if (
+    nameError.classList.contains(
+      'hidden'
+    ) ||
+    nameError.textContent !==
+      'กรุณาระบุชื่อกิจกรรม'
+  ) {
+    inlineValidationFailures.push(
+      'missing activity name must show its inline error message'
+    );
+  }
+
+  if (
+    !dateInput.classList.contains(
+      'border-red-300'
+    ) ||
+    !nameInput.classList.contains(
+      'border-red-300'
+    )
+  ) {
+    inlineValidationFailures.push(
+      'invalid create fields must show a visible error border'
+    );
+  }
+
+  // Correcting each field should clear that field's error
+  // without requiring another submission.
+  dateInput.value = '2026-09-22';
+
+  if (
+    dateInput.listeners &&
+    typeof dateInput.listeners.input ===
+      'function'
+  ) {
+    dateInput.listeners.input({
+      target: dateInput,
+    });
+  }
+
+  if (
+    dateInput.getAttribute(
+      'aria-invalid'
+    ) === 'true' ||
+    !dateError.classList.contains(
+      'hidden'
+    ) ||
+    dateInput.classList.contains(
+      'border-red-300'
+    )
+  ) {
+    inlineValidationFailures.push(
+      'correcting activity date must clear its inline validation state'
+    );
+  }
+
+  nameInput.value =
+    'ประชุมประจำเดือน';
+
+  if (
+    nameInput.listeners &&
+    typeof nameInput.listeners.input ===
+      'function'
+  ) {
+    nameInput.listeners.input({
+      target: nameInput,
+    });
+  }
+
+  if (
+    nameInput.getAttribute(
+      'aria-invalid'
+    ) === 'true' ||
+    !nameError.classList.contains(
+      'hidden'
+    ) ||
+    nameInput.classList.contains(
+      'border-red-300'
+    )
+  ) {
+    inlineValidationFailures.push(
+      'correcting activity name must clear its inline validation state'
+    );
+  }
+
+  assert(
+    inlineValidationFailures.length === 0,
+    'UX-F04-A RED contracts failed:\n- ' +
+      inlineValidationFailures.join('\n- ')
   );
 
   console.log(

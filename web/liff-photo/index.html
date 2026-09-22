@@ -256,7 +256,7 @@
 
           <div
             id="createActivityPanel"
-            class="mt-4 border-t border-slate-200 pt-4"
+            class="hidden mt-4 border-t border-slate-200 pt-4"
           >
             <button
               id="createActivityToggle"
@@ -288,7 +288,14 @@
                   id="activityDate"
                   type="date"
                   class="ui-input w-full"
+                  aria-describedby="activityDateError"
                 >
+
+                <p
+                  id="activityDateError"
+                  class="hidden mt-1 text-xs text-danger"
+                  aria-live="polite"
+                ></p>
               </div>
 
               <div>
@@ -305,7 +312,14 @@
                   autocomplete="off"
                   class="ui-input w-full"
                   placeholder="เช่น ประชุมประจำเดือน"
+                  aria-describedby="activityNameError"
                 >
+
+                <p
+                  id="activityNameError"
+                  class="hidden mt-1 text-xs text-danger"
+                  aria-live="polite"
+                ></p>
               </div>
 
               <div
@@ -1250,7 +1264,9 @@
           topic.name;
 
         option.textContent =
-          topic.name;
+          friendlyTopicLabel_(
+            topic.name
+          );
 
         // ใช้ outerHTML เฉพาะ element ที่เราสร้างเอง
         // เพื่อให้ textContent escape ค่า backend ให้ก่อน
@@ -1350,6 +1366,69 @@
       });
     }
 
+    function renderCreateActivityAvailability_(
+      discoveryItems
+    ) {
+      const panel =
+        $('createActivityPanel');
+
+      if (!panel) {
+        return false;
+      }
+
+      const query =
+        String(
+          state.activitySearchQuery || ''
+        ).trim();
+
+      const items =
+        Array.isArray(discoveryItems)
+          ? discoveryItems
+          : [];
+
+      const hasActivityContext =
+        Boolean(
+          state.mode === 'activity' &&
+          state.selectedTopic &&
+          state.selectedTopic.type ===
+            'topic' &&
+          state.selectedYear
+        );
+
+      const yearIsEmpty =
+        state.activities.length === 0;
+
+      const searchHasNoResult =
+        Boolean(
+          query &&
+          items.length === 0
+        );
+
+      const shouldShow =
+        Boolean(
+          hasActivityContext &&
+          !state.activitiesLoading &&
+          (
+            yearIsEmpty ||
+            searchHasNoResult
+          )
+        );
+
+      panel.classList.toggle(
+        'hidden',
+        !shouldShow
+      );
+
+      if (
+        !shouldShow &&
+        state.createActivityOpen
+      ) {
+        setCreateActivityOpen_(false);
+      }
+
+      return shouldShow;
+    }
+
     function renderActivityDiscovery_() {
       const container =
         $('activityDiscoveryList');
@@ -1360,6 +1439,10 @@
 
       const items =
         activityDiscoveryItems_();
+
+      renderCreateActivityAvailability_(
+        items
+      );
 
       if (!items.length) {
         container.innerHTML =
@@ -1498,6 +1581,13 @@
         return 'ภาพองค์กร';
       }
 
+      if (
+        value === '80_กิจกรรมกลาง' ||
+        value === '80_งานกิจกรรมกลาง'
+      ) {
+        return 'กิจกรรมกลาง';
+      }
+
       return value
         .replace(/^\d+_/, '')
         .replace(/_/g, ' ');
@@ -1506,6 +1596,10 @@
     function friendlyActivityLabel_(name) {
       return String(name || '')
         .trim()
+        .replace(
+          /^\d{4}-\d{2}-\d{2}_/,
+          ''
+        )
         .replace(/_/g, ' ');
     }
 
@@ -1541,7 +1635,7 @@
           ),
         ]
           .filter(Boolean)
-          .join(' • ');
+          .join(' / ');
       }
 
       return '-';
@@ -1872,9 +1966,9 @@
       state.activities = [];
       state.destination = null;
 
-      renderDestinationState_();
-
       state.activitiesLoading = true;
+
+      renderDestinationState_();
 
       try {
         const result =
@@ -1906,13 +2000,13 @@
               typeof item.path ===
                 'string'
           );
-
-        renderDestinationState_();
-
-        return state.activities;
       } finally {
         state.activitiesLoading = false;
       }
+
+      renderDestinationState_();
+
+      return state.activities;
     }
 
     async function selectActivity(name) {
@@ -3056,6 +3150,169 @@
       );
     }
 
+    function setCreateActivityFieldError_(
+      inputId,
+      errorId,
+      message
+    ) {
+      const input =
+        $(inputId);
+
+      const error =
+        $(errorId);
+
+      const value =
+        String(message || '');
+
+      if (input) {
+        if (value) {
+          input.setAttribute(
+            'aria-invalid',
+            'true'
+          );
+
+          input.classList.add(
+            'border-red-300'
+          );
+        } else {
+          input.removeAttribute(
+            'aria-invalid'
+          );
+
+          input.classList.remove(
+            'border-red-300'
+          );
+        }
+      }
+
+      if (error) {
+        error.textContent =
+          value;
+
+        error.classList.toggle(
+          'hidden',
+          !value
+        );
+      }
+    }
+
+    function clearCreateActivityFieldError_(
+      inputId,
+      errorId
+    ) {
+      setCreateActivityFieldError_(
+        inputId,
+        errorId,
+        ''
+      );
+    }
+
+    function clearCreateActivityValidation_() {
+      clearCreateActivityFieldError_(
+        'activityDate',
+        'activityDateError'
+      );
+
+      clearCreateActivityFieldError_(
+        'activityNameInput',
+        'activityNameError'
+      );
+    }
+
+    function validateCreateActivityFields_(
+      dateValue,
+      activityName
+    ) {
+      const dateText =
+        String(dateValue || '').trim();
+
+      const name =
+        String(activityName || '')
+          .trim()
+          .normalize('NFC');
+
+      let dateError = '';
+      let nameError = '';
+
+      if (!dateText) {
+        dateError =
+          'กรุณาระบุวันที่กิจกรรม';
+      } else {
+        try {
+          const parsed =
+            parseGregorianDate_(
+              dateText
+            );
+
+          const buddhistYear =
+            parsed.year + 543;
+
+          if (
+            state.selectedYear &&
+            String(buddhistYear) !==
+              String(
+                state.selectedYear
+              )
+          ) {
+            dateError =
+              'วันที่กิจกรรมไม่อยู่ในปี พ.ศ. ที่เลือก';
+          }
+        } catch (err) {
+          dateError =
+            err && err.message
+              ? err.message
+              : 'วันที่กิจกรรมไม่ถูกต้อง';
+        }
+      }
+
+      if (!name) {
+        nameError =
+          'กรุณาระบุชื่อกิจกรรม';
+      } else if (
+        name.includes('/') ||
+        name.includes('\\') ||
+        name.includes('\0') ||
+        name === '.' ||
+        name === '..' ||
+        name.includes('../') ||
+        name.includes('..\\')
+      ) {
+        nameError =
+          'ชื่อกิจกรรมมีอักขระที่ไม่อนุญาต';
+      }
+
+      setCreateActivityFieldError_(
+        'activityDate',
+        'activityDateError',
+        dateError
+      );
+
+      setCreateActivityFieldError_(
+        'activityNameInput',
+        'activityNameError',
+        nameError
+      );
+
+      if (dateError || nameError) {
+        const firstInvalid =
+          dateError
+            ? $('activityDate')
+            : $('activityNameInput');
+
+        if (
+          firstInvalid &&
+          typeof firstInvalid.focus ===
+            'function'
+        ) {
+          firstInvalid.focus();
+        }
+
+        return false;
+      }
+
+      return true;
+    }
+
     function setCreateActivityOpen_(open) {
       const isOpen =
         Boolean(open);
@@ -3091,6 +3348,8 @@
 
       if (isOpen) {
         renderCreateActivityPreview_();
+      } else {
+        clearCreateActivityValidation_();
       }
 
       return isOpen;
@@ -4052,6 +4311,17 @@
       activityDate.addEventListener(
         'input',
         () => {
+          if (
+            String(
+              activityDate.value || ''
+            ).trim()
+          ) {
+            clearCreateActivityFieldError_(
+              'activityDate',
+              'activityDateError'
+            );
+          }
+
           renderCreateActivityPreview_();
         }
       );
@@ -4071,6 +4341,18 @@
       activityNameInput.addEventListener(
         'input',
         () => {
+          if (
+            String(
+              activityNameInput.value ||
+                ''
+            ).trim()
+          ) {
+            clearCreateActivityFieldError_(
+              'activityNameInput',
+              'activityNameError'
+            );
+          }
+
           renderCreateActivityPreview_();
         }
       );
@@ -4091,6 +4373,30 @@
 
           const status =
             $('createActivityStatus');
+
+          const dateValue =
+            dateInput
+              ? dateInput.value
+              : '';
+
+          const nameValue =
+            nameInput
+              ? nameInput.value
+              : '';
+
+          if (
+            !validateCreateActivityFields_(
+              dateValue,
+              nameValue
+            )
+          ) {
+            if (status) {
+              status.textContent =
+                'กรุณาตรวจสอบข้อมูลที่ระบุ';
+            }
+
+            return;
+          }
 
           createActivityButton.disabled =
             true;
