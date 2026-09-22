@@ -384,6 +384,11 @@
       selectedActivity: null,
 
       destination: null,
+
+      // UX-P01:
+      // successful files จะไม่ค้างใน retry queue
+      failedFiles: [],
+      failedDestination: null,
     };
 
     function $(id) {
@@ -1087,7 +1092,10 @@
     const MAX_UPLOAD_BYTES =
       25 * 1024 * 1024;
 
-    function uploadUrlForFile_(file) {
+    function uploadUrlForFile_(
+      file,
+      destination
+    ) {
       const filename =
         String(file?.name || '');
 
@@ -1097,9 +1105,12 @@
         );
       }
 
+      const target =
+        destination;
+
       if (
-        !state.destination ||
-        !state.destination.type
+        !target ||
+        !target.type
       ) {
         throw new Error(
           'กรุณาเลือกปลายทางก่อนอัปโหลด'
@@ -1107,7 +1118,7 @@
       }
 
       if (
-        state.destination.type ===
+        target.type ===
           'organization'
       ) {
         return (
@@ -1118,22 +1129,22 @@
       }
 
       if (
-        state.destination.type ===
+        target.type ===
           'activity'
       ) {
         return (
           '/v1/uploads' +
           '?topic=' +
           encodeURIComponent(
-            state.destination.topic
+            target.topic
           ) +
           '&year=' +
           encodeURIComponent(
-            state.destination.year
+            target.year
           ) +
           '&activity=' +
           encodeURIComponent(
-            state.destination.activity
+            target.activity
           ) +
           '&filename=' +
           encodeURIComponent(filename)
@@ -1145,12 +1156,30 @@
       );
     }
 
-    async function uploadFiles(files) {
-      if (!state.destination) {
+    async function uploadFiles(
+      files,
+      destinationOverride
+    ) {
+      const destinationSource =
+        destinationOverride ||
+        state.destination;
+
+      if (!destinationSource) {
         throw new Error(
           'กรุณาเลือกปลายทางก่อนอัปโหลด'
         );
       }
+
+      // P0 data-integrity contract:
+      // snapshot ครั้งเดียวก่อนเริ่ม batch
+      //
+      // ห้ามให้ URL ของไฟล์ถัดไปอ่าน
+      // state.destination สดระหว่าง loop
+      const destinationSnapshot =
+        Object.assign(
+          {},
+          destinationSource
+        );
 
       const list =
         Array.from(files || []);
@@ -1213,7 +1242,10 @@
         try {
           const result =
             await photoApi(
-              uploadUrlForFile_(file),
+              uploadUrlForFile_(
+                file,
+                destinationSnapshot
+              ),
               {
                 method: 'POST',
                 body: file,
@@ -1251,7 +1283,57 @@
         }
       }
 
+      // P0 retry contract:
+      // queue รอบถัดไปประกอบด้วยเฉพาะไฟล์
+      // ที่ไม่สำเร็จจาก batch นี้
+      //
+      // เก็บ File object เดิมไว้เพื่อ retry raw body
+      state.failedFiles =
+        list.filter(
+          (file, index) =>
+            results[index] &&
+            results[index].ok ===
+              false
+        );
+
+      // Retry ต้องกลับไป destination เดิมของ batch
+      // แม้ live destination จะเปลี่ยนไปแล้ว
+      state.failedDestination =
+        state.failedFiles.length
+          ? destinationSnapshot
+          : null;
+
       return results;
+    }
+
+    async function retryFailedFiles() {
+      const files =
+        Array.from(
+          state.failedFiles || []
+        );
+
+      if (!files.length) {
+        return [];
+      }
+
+      const destination =
+        state.failedDestination
+          ? Object.assign(
+              {},
+              state.failedDestination
+            )
+          : null;
+
+      if (!destination) {
+        throw new Error(
+          'ไม่พบปลายทางเดิมสำหรับลองอัปโหลดอีกครั้ง'
+        );
+      }
+
+      return uploadFiles(
+        files,
+        destination
+      );
     }
 
     function renderUploadResults_(results) {
@@ -1568,6 +1650,8 @@
       state.selectedYear = '';
       state.selectedActivity = null;
       state.destination = null;
+      state.failedFiles = [];
+      state.failedDestination = null;
 
       show('loading');
 
@@ -1766,6 +1850,19 @@
       );
     }
 
+    const photoInput =
+      $('photoInput');
+
+    if (photoInput) {
+      photoInput.addEventListener(
+        'change',
+        () => {
+          state.failedFiles = [];
+          state.failedDestination = null;
+        }
+      );
+    }
+
     const uploadButton =
       $('uploadButton');
 
@@ -1784,14 +1881,29 @@
               ? Array.from(input.files)
               : [];
 
+          const failedFiles =
+            Array.isArray(
+              state.failedFiles
+            )
+              ? state.failedFiles.slice()
+              : [];
+
+          const retrying =
+            failedFiles.length > 0;
+
+          const batchFiles =
+            retrying
+              ? failedFiles
+              : files;
+
           uploadButton.disabled = true;
 
           if (status) {
             status.textContent =
-              files.length
+              batchFiles.length
                 ? (
                     'กำลังอัปโหลด ' +
-                    files.length +
+                    batchFiles.length +
                     ' ไฟล์…'
                   )
                 : '';
@@ -1799,7 +1911,11 @@
 
           try {
             const results =
-              await uploadFiles(files);
+              retrying
+                ? await retryFailedFiles()
+                : await uploadFiles(
+                    batchFiles
+                  );
 
             renderUploadResults_(
               results

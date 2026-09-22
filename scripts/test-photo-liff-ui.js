@@ -173,6 +173,11 @@ async function run() {
       typeof uploadFiles === 'function'
         ? uploadFiles
         : null,
+
+    retryFailedFiles:
+      typeof retryFailedFiles === 'function'
+        ? retryFailedFiles
+        : null,
   };
 })();`
   );
@@ -208,6 +213,12 @@ async function run() {
   // Contract สำหรับ Photo Ticket หมดอายุ:
   // request แรกได้ 401 -> ขอ ticket ใหม่ -> retry เดิม 1 ครั้ง
   let renewalMode = 'off';
+
+  // UX-P01 contract:
+  // ระหว่าง batch จะจงใจเปลี่ยน state.destination
+  // หลัง request แรก เพื่อพิสูจน์ว่า upload ต้องใช้
+  // destination snapshot เดิมตลอดทั้ง batch
+  let destinationMutationMode = 'off';
 
   const bridgeActor = {
     sub: 'U123',
@@ -520,6 +531,30 @@ async function run() {
         const filename =
           parsed.searchParams.get('filename');
 
+        // UX-P01 destination-snapshot probe:
+        // หลัง request แรกถูกสร้างแล้ว จงใจเปลี่ยน
+        // live destination ก่อน upload ไฟล์ถัดไป
+        if (
+          destinationMutationMode === 'after-first' &&
+          filename === 'snapshot-first.jpg'
+        ) {
+          destinationMutationMode = 'done';
+
+          const testUi =
+            context.__photoUiTest;
+
+          if (
+            testUi &&
+            testUi.state
+          ) {
+            testUi.state.destination = {
+              type: 'organization',
+              topic: '90_ภาพองค์กร',
+              path: '90_ภาพองค์กร',
+            };
+          }
+        }
+
         if (filename === 'bad.jpg') {
           return {
             ok: false,
@@ -606,6 +641,8 @@ async function run() {
     ui,
     'photo LIFF test hook missing'
   );
+
+  const uxP01RedFailures = [];
 
   await ui.boot();
 
@@ -1299,6 +1336,153 @@ async function run() {
     'upload result must use backend normalized filename'
   );
 
+  // ---------- UX-P01: Destination snapshot ----------
+
+  const snapshotActivity =
+    '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง';
+
+  ui.state.destination = {
+    type: 'activity',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activity: snapshotActivity,
+    path:
+      '80_งานกิจกรรมกลาง/2569/' +
+      snapshotActivity,
+  };
+
+  destinationMutationMode =
+    'after-first';
+
+  const snapshotStart =
+    fetchCalls.length;
+
+  await ui.uploadFiles([
+    {
+      name: 'snapshot-first.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'snapshot-second.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ]);
+
+  const snapshotCalls =
+    fetchCalls.slice(snapshotStart);
+
+  const snapshotDestinationOk =
+    destinationMutationMode === 'done' &&
+    snapshotCalls.length === 2 &&
+    snapshotCalls.every(call => {
+      if (
+        !call.url.includes(
+          '/v1/uploads?'
+        )
+      ) {
+        return false;
+      }
+
+      const parsed =
+        new URL(call.url);
+
+      return (
+        parsed.searchParams.get('topic') ===
+          '80_งานกิจกรรมกลาง' &&
+        parsed.searchParams.get('year') ===
+          '2569' &&
+        parsed.searchParams.get('activity') ===
+          snapshotActivity
+      );
+    });
+
+  if (!snapshotDestinationOk) {
+    uxP01RedFailures.push(
+      'destination snapshot: every file in one batch must use the destination captured when the batch started'
+    );
+  }
+
+  // ---------- UX-P01: Retry failed only ----------
+
+  ui.state.destination = {
+    type: 'activity',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activity: snapshotActivity,
+    path:
+      '80_งานกิจกรรมกลาง/2569/' +
+      snapshotActivity,
+  };
+
+  const retryFiles = [
+    {
+      name: 'retry-ok-a.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'bad.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'retry-ok-c.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ];
+
+  const retryBatchResults =
+    await ui.uploadFiles(
+      retryFiles
+    );
+
+  assert(
+    retryBatchResults.length === 3 &&
+      retryBatchResults[0].ok === true &&
+      retryBatchResults[1].ok === false &&
+      retryBatchResults[2].ok === true,
+    'retry contract setup must produce success/failure/success'
+  );
+
+  let retryFailedOnlyOk =
+    Array.isArray(
+      ui.state.failedFiles
+    ) &&
+    ui.state.failedFiles.length === 1 &&
+    ui.state.failedFiles[0] ===
+      retryFiles[1] &&
+    typeof ui.retryFailedFiles ===
+      'function';
+
+  if (retryFailedOnlyOk) {
+    const retryStart =
+      fetchCalls.length;
+
+    await ui.retryFailedFiles();
+
+    const retryCalls =
+      fetchCalls.slice(retryStart);
+
+    retryFailedOnlyOk =
+      retryCalls.length === 1 &&
+      new URL(
+        retryCalls[0].url
+      ).searchParams.get(
+        'filename'
+      ) === 'bad.jpg' &&
+      retryCalls[0].rawBody ===
+        retryFiles[1];
+  }
+
+  if (!retryFailedOnlyOk) {
+    uxP01RedFailures.push(
+      'retry failed only: successful files must leave the pending queue and retry must resend only failed files'
+    );
+  }
+
   // 90_ภาพองค์กร ใช้ endpoint แยก
   ui.state.destination = {
     type: 'organization',
@@ -1448,6 +1632,12 @@ async function run() {
       renewedSession.actor.staffKey ===
         'bridge-staff',
     'retried request must return normal Photo Bridge response'
+  );
+
+  assert(
+    uxP01RedFailures.length === 0,
+    'UX-P01 RED contracts failed:\n- ' +
+      uxP01RedFailures.join('\n- ')
   );
 
   console.log(
