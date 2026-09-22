@@ -423,6 +423,26 @@
               </button>
 
               <p
+                id="uploadProgress"
+                class="text-sm font-medium text-text"
+                aria-live="polite"
+              ></p>
+
+              <div
+                id="uploadQueue"
+                class="space-y-2"
+                aria-live="polite"
+              ></div>
+
+              <button
+                id="retryFailedButton"
+                type="button"
+                class="hidden ui-btn-secondary min-h-11 w-full"
+              >
+                ลองอัปโหลดเฉพาะไฟล์ที่ไม่สำเร็จ
+              </button>
+
+              <p
                 id="uploadStatus"
                 class="ui-help"
                 aria-live="polite"
@@ -500,6 +520,8 @@
 
       // UX-P02 runtime UI state
       selectedFiles: [],
+      uploadQueue: [],
+
       uploading: false,
       activitiesLoading: false,
       creatingActivity: false,
@@ -1947,6 +1969,9 @@
       state.failedFiles = [];
       state.failedDestination = null;
 
+      state.uploadQueue = [];
+      renderUploadQueue_();
+
       return renderSelectedFiles_();
     }
 
@@ -1976,6 +2001,9 @@
       state.failedFiles = [];
       state.failedDestination = null;
 
+      state.uploadQueue = [];
+      renderUploadQueue_();
+
       return renderSelectedFiles_();
     }
 
@@ -1989,6 +2017,237 @@
       state.selectedFiles = [];
 
       return renderSelectedFiles_();
+    }
+
+    function prepareUploadQueue_(files) {
+      state.uploadQueue =
+        Array.from(files || [])
+          .map(file => ({
+            file,
+            status: 'pending',
+            error: '',
+          }));
+
+      renderUploadQueue_();
+
+      return state.uploadQueue;
+    }
+
+    function prepareRetryUploadQueue_(files) {
+      const retryFiles =
+        Array.from(files || []);
+
+      if (
+        !Array.isArray(
+          state.uploadQueue
+        ) ||
+        !state.uploadQueue.length
+      ) {
+        return prepareUploadQueue_(
+          retryFiles
+        );
+      }
+
+      retryFiles.forEach(file => {
+        const item =
+          state.uploadQueue.find(
+            candidate =>
+              candidate &&
+              candidate.file === file
+          );
+
+        if (item) {
+          item.status = 'pending';
+          item.error = '';
+        }
+      });
+
+      renderUploadQueue_();
+
+      return state.uploadQueue;
+    }
+
+    function updateUploadQueueProgress_(
+      progress
+    ) {
+      if (
+        !progress ||
+        !progress.file
+      ) {
+        return;
+      }
+
+      const item =
+        state.uploadQueue.find(
+          candidate =>
+            candidate &&
+            candidate.file ===
+              progress.file
+        );
+
+      if (!item) {
+        return;
+      }
+
+      item.status =
+        String(
+          progress.status ||
+          'pending'
+        );
+
+      item.error =
+        String(
+          progress.error || ''
+        );
+
+      renderUploadQueue_();
+    }
+
+    function renderUploadQueue_() {
+      const items =
+        Array.isArray(
+          state.uploadQueue
+        )
+          ? state.uploadQueue
+          : [];
+
+      const progress =
+        $('uploadProgress');
+
+      const queue =
+        $('uploadQueue');
+
+      const retryButton =
+        $('retryFailedButton');
+
+      const uploadButton =
+        $('uploadButton');
+
+      const completed =
+        items.filter(
+          item =>
+            item &&
+            (
+              item.status ===
+                'success' ||
+              item.status ===
+                'failed'
+            )
+        ).length;
+
+      const failed =
+        items.filter(
+          item =>
+            item &&
+            item.status ===
+              'failed'
+        );
+
+      if (progress) {
+        progress.textContent =
+          items.length
+            ? (
+                completed +
+                '/' +
+                items.length +
+                ' ไฟล์'
+              )
+            : '';
+      }
+
+      if (retryButton) {
+        retryButton.classList.toggle(
+          'hidden',
+          Boolean(
+            state.uploading ||
+            failed.length === 0
+          )
+        );
+      }
+
+      if (uploadButton) {
+        uploadButton.disabled =
+          Boolean(
+            state.uploading ||
+            failed.length > 0
+          );
+      }
+
+      if (!queue) {
+        return items;
+      }
+
+      const statusLabel = {
+        pending: 'รออัปโหลด',
+        uploading: 'กำลังอัปโหลด',
+        success: 'สำเร็จ',
+        failed: 'ไม่สำเร็จ',
+      };
+
+      queue.innerHTML =
+        items
+          .map(item => {
+            const file =
+              item && item.file
+                ? item.file
+                : null;
+
+            const name =
+              String(
+                file && file.name
+                  ? file.name
+                  : 'ไฟล์'
+              );
+
+            const status =
+              String(
+                item &&
+                item.status
+                  ? item.status
+                  : 'pending'
+              );
+
+            const label =
+              statusLabel[status] ||
+              statusLabel.pending;
+
+            const error =
+              String(
+                item &&
+                item.error
+                  ? item.error
+                  : ''
+              );
+
+            return (
+              '<div ' +
+                'class="rounded-control border border-border bg-surface px-3 py-2.5"' +
+              '>' +
+                '<div class="flex items-start justify-between gap-3">' +
+                  '<p class="min-w-0 break-words text-sm font-medium text-text">' +
+                    escapeHtml_(name) +
+                  '</p>' +
+                  '<span class="shrink-0 text-xs font-medium text-text-muted">' +
+                    escapeHtml_(label) +
+                  '</span>' +
+                '</div>' +
+                (
+                  error
+                    ? (
+                        '<p class="mt-1 text-xs text-danger">' +
+                          escapeHtml_(
+                            error
+                          ) +
+                        '</p>'
+                      )
+                    : ''
+                ) +
+              '</div>'
+            );
+          })
+          .join('');
+
+      return items;
     }
 
     const MAX_UPLOAD_BYTES =
@@ -2060,7 +2319,8 @@
 
     async function uploadFiles(
       files,
-      destinationOverride
+      destinationOverride,
+      onProgress
     ) {
       const destinationSource =
         destinationOverride ||
@@ -2091,18 +2351,50 @@
 
       const results = [];
 
+      const reportProgress_ = (
+        index,
+        file,
+        status,
+        error
+      ) => {
+        if (
+          typeof onProgress !==
+            'function'
+        ) {
+          return;
+        }
+
+        onProgress({
+          index,
+          file,
+          status,
+          error:
+            String(error || ''),
+        });
+      };
+
       state.uploading = true;
 
       try {
         // Sequential โดยตั้งใจ:
         // ลด memory/network pressure บนมือถือ
         // และ failure ของไฟล์หนึ่งไม่หยุดไฟล์ถัดไป
-        for (const file of list) {
+        for (
+          const [index, file]
+          of list.entries()
+        ) {
           const filename =
             String(file?.name || '');
 
           const size =
             Number(file?.size || 0);
+
+          reportProgress_(
+            index,
+            file,
+            'uploading',
+            ''
+          );
 
           if (!filename) {
             results.push({
@@ -2111,6 +2403,13 @@
               originalName: '',
               error: 'ไม่พบชื่อไฟล์',
             });
+
+            reportProgress_(
+              index,
+              file,
+              'failed',
+              'ไม่พบชื่อไฟล์'
+            );
 
             continue;
           }
@@ -2126,6 +2425,13 @@
               error: 'ขนาดไฟล์ไม่ถูกต้อง',
             });
 
+            reportProgress_(
+              index,
+              file,
+              'failed',
+              'ขนาดไฟล์ไม่ถูกต้อง'
+            );
+
             continue;
           }
 
@@ -2137,6 +2443,13 @@
               error:
                 'ไฟล์มีขนาดเกิน 25 MiB',
             });
+
+            reportProgress_(
+              index,
+              file,
+              'failed',
+              'ไฟล์มีขนาดเกิน 25 MiB'
+            );
 
             continue;
           }
@@ -2172,16 +2485,32 @@
               originalName: filename,
               error: '',
             });
+
+            reportProgress_(
+              index,
+              file,
+              'success',
+              ''
+            );
           } catch (err) {
+            const message =
+              err && err.message
+                ? err.message
+                : String(err);
+
             results.push({
               ok: false,
               file: null,
               originalName: filename,
-              error:
-                err && err.message
-                  ? err.message
-                  : String(err),
+              error: message,
             });
+
+            reportProgress_(
+              index,
+              file,
+              'failed',
+              message
+            );
           }
         }
 
@@ -2210,7 +2539,9 @@
       }
     }
 
-    async function retryFailedFiles() {
+    async function retryFailedFiles(
+      onProgress
+    ) {
       const files =
         Array.from(
           state.failedFiles || []
@@ -2236,7 +2567,8 @@
 
       return uploadFiles(
         files,
-        destination
+        destination,
+        onProgress
       );
     }
 
@@ -2706,6 +3038,9 @@
       state.creatingActivity = false;
       state.createActivityOpen = false;
 
+      state.uploadQueue = [];
+      renderUploadQueue_();
+
       state.failedFiles = [];
       state.failedDestination = null;
 
@@ -3155,20 +3490,12 @@
               ? state.selectedFiles.slice()
               : [];
 
-          const failedFiles =
-            Array.isArray(
-              state.failedFiles
-            )
-              ? state.failedFiles.slice()
-              : [];
-
-          const retrying =
-            failedFiles.length > 0;
-
           const batchFiles =
-            retrying
-              ? failedFiles
-              : files;
+            files;
+
+          prepareUploadQueue_(
+            batchFiles
+          );
 
           uploadButton.disabled = true;
 
@@ -3185,11 +3512,11 @@
 
           try {
             const results =
-              retrying
-                ? await retryFailedFiles()
-                : await uploadFiles(
-                    batchFiles
-                  );
+              await uploadFiles(
+                batchFiles,
+                null,
+                updateUploadQueueProgress_
+              );
 
             renderSelectedFiles_();
 
@@ -3239,8 +3566,103 @@
                   : String(err);
             }
           } finally {
-            uploadButton.disabled =
+            renderUploadQueue_();
+          }
+        }
+      );
+    }
+
+    const retryFailedButton =
+      $('retryFailedButton');
+
+    if (retryFailedButton) {
+      retryFailedButton.addEventListener(
+        'click',
+        async () => {
+          if (state.uploading) {
+            return;
+          }
+
+          const files =
+            Array.from(
+              state.failedFiles || []
+            );
+
+          if (!files.length) {
+            renderUploadQueue_();
+            return;
+          }
+
+          const status =
+            $('uploadStatus');
+
+          retryFailedButton.disabled =
+            true;
+
+          prepareRetryUploadQueue_(
+            files
+          );
+
+          if (status) {
+            status.textContent =
+              'กำลังลองอัปโหลดอีกครั้ง ' +
+              files.length +
+              ' ไฟล์…';
+          }
+
+          try {
+            const results =
+              await retryFailedFiles(
+                updateUploadQueueProgress_
+              );
+
+            renderSelectedFiles_();
+
+            renderUploadResults_(
+              results
+            );
+
+            const successCount =
+              results.filter(
+                item => item.ok
+              ).length;
+
+            const failedCount =
+              results.length -
+              successCount;
+
+            if (status) {
+              status.textContent =
+                failedCount
+                  ? (
+                      'สำเร็จ ' +
+                      successCount +
+                      ' ไฟล์ • ไม่สำเร็จ ' +
+                      failedCount +
+                      ' ไฟล์'
+                    )
+                  : (
+                      'อัปโหลดสำเร็จ ' +
+                      successCount +
+                      ' ไฟล์'
+                    );
+            }
+
+            if (failedCount === 0) {
+              clearSelectedFiles_();
+            }
+          } catch (err) {
+            if (status) {
+              status.textContent =
+                err && err.message
+                  ? err.message
+                  : String(err);
+            }
+          } finally {
+            retryFailedButton.disabled =
               false;
+
+            renderUploadQueue_();
           }
         }
       );

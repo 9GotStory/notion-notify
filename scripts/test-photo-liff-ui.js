@@ -232,6 +232,16 @@ async function run() {
       typeof renderSelectedFiles_ === 'function'
         ? renderSelectedFiles_
         : null,
+
+    prepareUploadQueue:
+      typeof prepareUploadQueue_ === 'function'
+        ? prepareUploadQueue_
+        : null,
+
+    renderUploadQueue:
+      typeof renderUploadQueue_ === 'function'
+        ? renderUploadQueue_
+        : null,
   };
 })();`
   );
@@ -892,6 +902,7 @@ async function run() {
   const uxP05RedFailures = [];
   const uxP06RedFailures = [];
   const uxP07RedFailures = [];
+  const uxP08RedFailures = [];
 
   await ui.boot();
 
@@ -3126,6 +3137,255 @@ async function run() {
     uxP07RedFailures.length === 0,
     'UX-P07 RED contracts failed:\n- ' +
       uxP07RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P08: Upload queue & confidence ----------
+
+  const uploadQueueMarkupOk =
+    html.includes(
+      'id="uploadProgress"'
+    ) &&
+    html.includes(
+      'id="uploadQueue"'
+    ) &&
+    html.includes(
+      'id="retryFailedButton"'
+    );
+
+  const uploadQueueHelpersOk =
+    typeof ui.prepareUploadQueue ===
+      'function' &&
+    typeof ui.renderUploadQueue ===
+      'function';
+
+  if (
+    !uploadQueueMarkupOk ||
+    !uploadQueueHelpersOk
+  ) {
+    uxP08RedFailures.push(
+      'upload queue: progress, file-level queue, explicit retry action, and queue helpers must exist'
+    );
+  }
+
+  const initialQueueOk =
+    Array.isArray(
+      ui.state.uploadQueue
+    ) &&
+    ui.state.uploadQueue.length === 0;
+
+  if (!initialQueueOk) {
+    uxP08RedFailures.push(
+      'upload queue: queue must start empty'
+    );
+  }
+
+  if (uploadQueueHelpersOk) {
+    const queueFiles = [
+      {
+        name: 'one.jpg',
+        size: 100,
+        type: 'image/jpeg',
+      },
+      {
+        name: 'two.jpg',
+        size: 200,
+        type: 'image/jpeg',
+      },
+      {
+        name: 'three.jpg',
+        size: 300,
+        type: 'image/jpeg',
+      },
+    ];
+
+    ui.prepareUploadQueue(
+      queueFiles
+    );
+
+    const progress =
+      document.getElementById(
+        'uploadProgress'
+      );
+
+    const queue =
+      document.getElementById(
+        'uploadQueue'
+      );
+
+    const retryButton =
+      document.getElementById(
+        'retryFailedButton'
+      );
+
+    const queueUploadButton =
+      document.getElementById(
+        'uploadButton'
+      );
+
+    const initialQueueStateOk =
+      ui.state.uploadQueue.length === 3 &&
+      ui.state.uploadQueue.every(
+        item =>
+          item &&
+          item.status === 'pending'
+      );
+
+    if (!initialQueueStateOk) {
+      uxP08RedFailures.push(
+        'upload queue: preparing a batch must create one pending queue item per file'
+      );
+    }
+
+    ui.renderUploadQueue();
+
+    const initialProgressText =
+      String(
+        progress.textContent || ''
+      );
+
+    const initialQueueHtml =
+      String(
+        queue.innerHTML || ''
+      );
+
+    const realProgressOk =
+      initialProgressText.includes(
+        '0/3'
+      ) &&
+      !initialProgressText.includes(
+        '%'
+      ) &&
+      initialQueueHtml.includes(
+        'one.jpg'
+      ) &&
+      initialQueueHtml.includes(
+        'two.jpg'
+      ) &&
+      initialQueueHtml.includes(
+        'three.jpg'
+      );
+
+    if (!realProgressOk) {
+      uxP08RedFailures.push(
+        'upload queue: progress must use completed/total file counts and show every queued filename without fake percentages'
+      );
+    }
+
+    // Simulate one success, one failure, one still pending.
+    ui.state.uploadQueue[0].status =
+      'success';
+
+    ui.state.uploadQueue[1].status =
+      'failed';
+
+    ui.state.uploadQueue[1].error =
+      'ชื่อไฟล์ซ้ำ';
+
+    ui.renderUploadQueue();
+
+    const mixedProgressText =
+      String(
+        progress.textContent || ''
+      );
+
+    const mixedQueueHtml =
+      String(
+        queue.innerHTML || ''
+      );
+
+    const fileStatusOk =
+      mixedProgressText.includes(
+        '2/3'
+      ) &&
+      mixedQueueHtml.includes(
+        'สำเร็จ'
+      ) &&
+      mixedQueueHtml.includes(
+        'ไม่สำเร็จ'
+      ) &&
+      mixedQueueHtml.includes(
+        'ชื่อไฟล์ซ้ำ'
+      );
+
+    if (!fileStatusOk) {
+      uxP08RedFailures.push(
+        'upload queue: each file must expose pending/success/failed state and progress must count completed files'
+      );
+    }
+
+    // Retry must not become actionable while the
+    // current sequential batch is still running.
+    ui.state.uploading = true;
+    ui.renderUploadQueue();
+
+    const retryHiddenWhileUploading =
+      retryButton &&
+      retryButton.classList.contains(
+        'hidden'
+      ) &&
+      queueUploadButton &&
+      queueUploadButton.disabled === true;
+
+    if (!retryHiddenWhileUploading) {
+      uxP08RedFailures.push(
+        'upload queue: retry action must remain hidden until the active batch has finished'
+      );
+    }
+
+    ui.state.uploading = false;
+    ui.renderUploadQueue();
+
+    const retryVisibilityOk =
+      retryButton &&
+      !retryButton.classList.contains(
+        'hidden'
+      ) &&
+      queueUploadButton &&
+      queueUploadButton.disabled === true;
+
+    if (!retryVisibilityOk) {
+      uxP08RedFailures.push(
+        'upload queue: failed batch must disable primary upload and expose the explicit retry-failed-only action'
+      );
+    }
+
+    ui.state.uploadQueue[1].status =
+      'success';
+
+    ui.state.uploadQueue[2].status =
+      'success';
+
+    ui.renderUploadQueue();
+
+    const completeProgressText =
+      String(
+        progress.textContent || ''
+      );
+
+    const retryHiddenWhenComplete =
+      retryButton &&
+      retryButton.classList.contains(
+        'hidden'
+      );
+
+    if (
+      !completeProgressText.includes(
+        '3/3'
+      ) ||
+      !retryHiddenWhenComplete ||
+      !queueUploadButton ||
+      queueUploadButton.disabled !== false
+    ) {
+      uxP08RedFailures.push(
+        'upload queue: completed batch must show total completion and hide retry when no failures remain'
+      );
+    }
+  }
+
+  assert(
+    uxP08RedFailures.length === 0,
+    'UX-P08 RED contracts failed:\n- ' +
+      uxP08RedFailures.join('\n- ')
   );
 
   console.log(
