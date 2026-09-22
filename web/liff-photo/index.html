@@ -203,15 +203,35 @@
             class="hidden"
           >
             <label
-              for="activitySelect"
+              for="activitySearchInput"
               class="mb-1.5 block text-sm font-medium text-text"
             >
               กิจกรรม
             </label>
 
+            <input
+              id="activitySearchInput"
+              type="search"
+              autocomplete="off"
+              class="ui-input w-full"
+              placeholder="ค้นหาชื่อกิจกรรม"
+            >
+
+            <div
+              id="activityDiscoveryList"
+              class="mt-3 space-y-2"
+              aria-live="polite"
+            ></div>
+
+            <!--
+              เก็บ select เดิมไว้เป็น compatibility surface
+              สำหรับ state/contract เดิม แต่ไม่ใช้เป็น primary UX
+            -->
             <select
               id="activitySelect"
-              class="ui-input w-full"
+              class="hidden"
+              aria-hidden="true"
+              tabindex="-1"
             >
               <option value="">
                 เลือกกิจกรรม
@@ -410,6 +430,7 @@
       activities: [],
 
       mode: 'activity',
+      activitySearchQuery: '',
 
       selectedTopic: null,
       selectedYear: '',
@@ -836,6 +857,182 @@
           : '';
     }
 
+    function escapeHtml_(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function activityDiscoveryLabel_(name) {
+      const value =
+        String(name || '').trim();
+
+      return value
+        .replace(
+          /^\d{4}-\d{2}-\d{2}_/,
+          ''
+        )
+        .replace(/_/g, ' ');
+    }
+
+    function activityDiscoveryItems_() {
+      const query =
+        String(
+          state.activitySearchQuery || ''
+        )
+          .trim()
+          .toLocaleLowerCase('th-TH');
+
+      const ordered =
+        state.activities
+          .filter(
+            activity =>
+              activity &&
+              typeof activity.name ===
+                'string'
+          )
+          .slice()
+          .sort(
+            (left, right) =>
+              String(
+                right.name || ''
+              ).localeCompare(
+                String(
+                  left.name || ''
+                ),
+                'th'
+              )
+          );
+
+      if (!query) {
+        // Recent activities.
+        // state.activities คือ source เดียว
+        // ไม่มี backend search request เพิ่ม
+        return ordered.slice(0, 5);
+      }
+
+      return ordered.filter(activity => {
+        const canonical =
+          String(
+            activity.name || ''
+          ).toLocaleLowerCase(
+            'th-TH'
+          );
+
+        const friendly =
+          activityDiscoveryLabel_(
+            activity.name
+          ).toLocaleLowerCase(
+            'th-TH'
+          );
+
+        return (
+          canonical.includes(query) ||
+          friendly.includes(query)
+        );
+      });
+    }
+
+    function renderActivityDiscovery_() {
+      const container =
+        $('activityDiscoveryList');
+
+      if (!container) {
+        return [];
+      }
+
+      const items =
+        activityDiscoveryItems_();
+
+      if (!items.length) {
+        container.innerHTML =
+          state.activitySearchQuery
+            ? (
+                '<p class="rounded-control border border-border ' +
+                'bg-surface-subtle px-3 py-3 text-sm text-text-muted">' +
+                'ไม่พบกิจกรรม' +
+                '</p>'
+              )
+            : '';
+
+        return items;
+      }
+
+      container.innerHTML =
+        items
+          .map(activity => {
+            const selected =
+              Boolean(
+                state.selectedActivity &&
+                state.selectedActivity.name ===
+                  activity.name
+              );
+
+            const buttonClass =
+              selected
+                ? (
+                    'ui-btn-secondary min-h-11 w-full ' +
+                    'justify-start text-left'
+                  )
+                : (
+                    'min-h-11 w-full rounded-control ' +
+                    'border border-border bg-surface ' +
+                    'px-3 py-2.5 text-left text-sm ' +
+                    'font-medium text-text'
+                  );
+
+            return (
+              '<button ' +
+                'type="button" ' +
+                'class="' +
+                  buttonClass +
+                '" ' +
+                'data-activity-name="' +
+                  escapeHtml_(
+                    activity.name
+                  ) +
+                '" ' +
+                (
+                  selected
+                    ? 'aria-current="true" '
+                    : ''
+                ) +
+              '>' +
+                escapeHtml_(
+                  activityDiscoveryLabel_(
+                    activity.name
+                  )
+                ) +
+              '</button>'
+            );
+          })
+          .join('');
+
+      return items;
+    }
+
+    function setActivitySearchQuery_(query) {
+      state.activitySearchQuery =
+        String(query || '');
+
+      const input =
+        $('activitySearchInput');
+
+      if (
+        input &&
+        input.value !==
+          state.activitySearchQuery
+      ) {
+        input.value =
+          state.activitySearchQuery;
+      }
+
+      return renderActivityDiscovery_();
+    }
+
     function renderActivityOptions_() {
       const select =
         $('activitySelect');
@@ -875,6 +1072,8 @@
         state.selectedActivity
           ? state.selectedActivity.name
           : '';
+
+      renderActivityDiscovery_();
     }
 
     function friendlyTopicLabel_(name) {
@@ -1105,6 +1304,8 @@
         );
 
       state.mode = 'activity';
+      state.activitySearchQuery = '';
+
       state.selectedTopic = null;
       state.selectedYear = '';
       state.selectedActivity = null;
@@ -1151,6 +1352,7 @@
       }
 
       state.mode = value;
+      state.activitySearchQuery = '';
 
       state.selectedTopic = null;
       state.selectedYear = '';
@@ -1196,6 +1398,7 @@
       state.selectedTopic =
         selected;
 
+      state.activitySearchQuery = '';
       state.selectedYear = '';
       state.selectedActivity = null;
       state.activities = [];
@@ -1244,6 +1447,7 @@
       state.selectedYear =
         value;
 
+      state.activitySearchQuery = '';
       state.selectedActivity = null;
       state.activities = [];
       state.destination = null;
@@ -1920,6 +2124,7 @@
       state.topics = [];
       state.activities = [];
       state.mode = 'activity';
+      state.activitySearchQuery = '';
 
       state.selectedTopic = null;
       state.selectedYear = '';
@@ -2131,6 +2336,74 @@
             if (activityHelp) {
               activityHelp.textContent =
                 message;
+            }
+          }
+        }
+      );
+    }
+
+    const activitySearchInput =
+      $('activitySearchInput');
+
+    if (activitySearchInput) {
+      activitySearchInput.addEventListener(
+        'input',
+        event => {
+          setActivitySearchQuery_(
+            event &&
+            event.target
+              ? event.target.value
+              : ''
+          );
+        }
+      );
+    }
+
+    const activityDiscoveryList =
+      $('activityDiscoveryList');
+
+    if (activityDiscoveryList) {
+      activityDiscoveryList.addEventListener(
+        'click',
+        async event => {
+          const target =
+            event && event.target
+              ? event.target
+              : null;
+
+          const button =
+            target &&
+            typeof target.closest ===
+              'function'
+              ? target.closest(
+                  '[data-activity-name]'
+                )
+              : null;
+
+          if (!button) {
+            return;
+          }
+
+          const name =
+            button.getAttribute(
+              'data-activity-name'
+            );
+
+          if (!name) {
+            return;
+          }
+
+          try {
+            await selectActivity(name);
+          } catch (err) {
+            const activityHelp =
+              $('activityHelp');
+
+            if (activityHelp) {
+              activityHelp.textContent =
+                err && err.message
+                  ? err.message
+                  : String(err);
             }
           }
         }

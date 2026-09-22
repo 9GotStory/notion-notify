@@ -188,6 +188,11 @@ async function run() {
       typeof setDestinationMode_ === 'function'
         ? setDestinationMode_
         : null,
+
+    setActivitySearchQuery:
+      typeof setActivitySearchQuery_ === 'function'
+        ? setActivitySearchQuery_
+        : null,
   };
 })();`
   );
@@ -753,6 +758,7 @@ async function run() {
   const uxP02RedFailures = [];
   const uxP03RedFailures = [];
   const uxP04RedFailures = [];
+  const uxP05RedFailures = [];
 
   await ui.boot();
 
@@ -2305,6 +2311,207 @@ async function run() {
     uxP04RedFailures.length === 0,
     'UX-P04 RED contracts failed:\n- ' +
       uxP04RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P05: Activity discovery ----------
+
+  const discoveryMarkupOk =
+    html.includes(
+      'id="activitySearchInput"'
+    ) &&
+    html.includes(
+      'id="activityDiscoveryList"'
+    ) &&
+    typeof ui.setActivitySearchQuery ===
+      'function';
+
+  if (!discoveryMarkupOk) {
+    uxP05RedFailures.push(
+      'activity discovery: search input, discovery list, and client-side search action must exist'
+    );
+  }
+
+  const initialSearchStateOk =
+    ui.state.activitySearchQuery === '';
+
+  if (!initialSearchStateOk) {
+    uxP05RedFailures.push(
+      'activity discovery: search query must start empty'
+    );
+  }
+
+  // Behavior contracts run once the discovery action exists.
+  if (
+    typeof ui.setActivitySearchQuery ===
+      'function'
+  ) {
+    const discoveryList =
+      elements.get(
+        'activityDiscoveryList'
+      );
+
+    ui.state.mode = 'activity';
+
+    ui.state.activities = [
+      {
+        name:
+          '2569-08-28_อบรมการใช้งานระบบ',
+        path:
+          '80_งานกิจกรรมกลาง/2569/' +
+          '2569-08-28_อบรมการใช้งานระบบ',
+      },
+      {
+        name:
+          '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+        path:
+          '80_งานกิจกรรมกลาง/2569/' +
+          '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง',
+      },
+      {
+        name:
+          '2569-09-20_ประชุมประจำเดือน',
+        path:
+          '80_งานกิจกรรมกลาง/2569/' +
+          '2569-09-20_ประชุมประจำเดือน',
+      },
+    ];
+
+    const recentFetchStart =
+      fetchCalls.length;
+
+    const recentActivities =
+      ui.setActivitySearchQuery('');
+
+    const recentFetchEnd =
+      fetchCalls.length;
+
+    const recentHtml =
+      discoveryList
+        ? String(
+            discoveryList.innerHTML ||
+            ''
+          )
+        : '';
+
+    const recentListOk =
+      Array.isArray(
+        recentActivities
+      ) &&
+      recentActivities.length === 3 &&
+      recentActivities[0].name ===
+        '2569-09-20_ประชุมประจำเดือน' &&
+      recentActivities[1].name ===
+        '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง' &&
+      recentFetchEnd ===
+        recentFetchStart;
+
+    if (!recentListOk) {
+      uxP05RedFailures.push(
+        'activity discovery: empty search must show recent activities newest-first without calling the backend'
+      );
+    }
+
+    const friendlyRecentUiOk =
+      recentHtml.includes(
+        'ประชุมประจำเดือน'
+      ) &&
+      recentHtml.includes(
+        'ออกหน่วยรับบริจาคโลหิตอำเภอสอง'
+      ) &&
+      (
+        recentHtml.includes(
+          'min-h-11'
+        ) ||
+        recentHtml.includes(
+          'min-h-[44px]'
+        )
+      ) &&
+      !/>[^<]*2569-09-20_/.test(
+        recentHtml
+      );
+
+    if (!friendlyRecentUiOk) {
+      uxP05RedFailures.push(
+        'activity discovery: recent activity rows must use friendly labels and touch targets of about 44px'
+      );
+    }
+
+    const searchFetchStart =
+      fetchCalls.length;
+
+    const filteredActivities =
+      ui.setActivitySearchQuery(
+        'บริจาค'
+      );
+
+    const searchFetchEnd =
+      fetchCalls.length;
+
+    const filteredHtml =
+      discoveryList
+        ? String(
+            discoveryList.innerHTML ||
+            ''
+          )
+        : '';
+
+    const clientFilterOk =
+      ui.state.activitySearchQuery ===
+        'บริจาค' &&
+      Array.isArray(
+        filteredActivities
+      ) &&
+      filteredActivities.length === 1 &&
+      filteredActivities[0].name ===
+        '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง' &&
+      filteredHtml.includes(
+        'ออกหน่วยรับบริจาคโลหิตอำเภอสอง'
+      ) &&
+      !filteredHtml.includes(
+        'ประชุมประจำเดือน'
+      ) &&
+      searchFetchEnd ===
+        searchFetchStart;
+
+    if (!clientFilterOk) {
+      uxP05RedFailures.push(
+        'activity discovery: search must filter state.activities client-side and must not introduce a backend search request'
+      );
+    }
+
+    const noResultActivities =
+      ui.setActivitySearchQuery(
+        'ไม่มีกิจกรรมนี้'
+      );
+
+    const noResultHtml =
+      discoveryList
+        ? String(
+            discoveryList.innerHTML ||
+            ''
+          )
+        : '';
+
+    const emptyStateOk =
+      Array.isArray(
+        noResultActivities
+      ) &&
+      noResultActivities.length === 0 &&
+      noResultHtml.includes(
+        'ไม่พบกิจกรรม'
+      );
+
+    if (!emptyStateOk) {
+      uxP05RedFailures.push(
+        'activity discovery: unmatched search must preserve context with an inline empty state'
+      );
+    }
+  }
+
+  assert(
+    uxP05RedFailures.length === 0,
+    'UX-P05 RED contracts failed:\n- ' +
+      uxP05RedFailures.join('\n- ')
   );
 
   console.log(
