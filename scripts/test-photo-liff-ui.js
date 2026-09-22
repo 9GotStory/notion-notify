@@ -298,6 +298,18 @@ async function run() {
   // request แรกได้ 401 -> ขอ ticket ใหม่ -> retry เดิม 1 ครั้ง
   let renewalMode = 'off';
 
+  // PHOTO-REL-P01-A runtime reliability probes.
+  let runtimeReliabilityMode = 'off';
+  let runtimeReliabilityAttempts = 0;
+
+  const runtimeReliabilityCalls = {
+    logout: 0,
+    login: 0,
+    reload: 0,
+  };
+
+  const runtimeBackoffDelays = [];
+
   // UX-P01 contract:
   // ระหว่าง batch จะจงใจเปลี่ยน state.destination
   // หลัง request แรก เพื่อพิสูจน์ว่า upload ต้องใช้
@@ -333,7 +345,10 @@ async function run() {
       origin: 'https://9gotstory.github.io',
       pathname:
         '/notion-notify/web/liff-photo/',
-      reload() {},
+      reload() {
+        runtimeReliabilityCalls.reload += 1;
+      },
+
       replace() {},
     },
 
@@ -383,9 +398,13 @@ async function run() {
         return 'line-access-token';
       },
 
-      logout() {},
+      logout() {
+        runtimeReliabilityCalls.logout += 1;
+      },
 
       login() {
+        runtimeReliabilityCalls.login += 1;
+
         throw new Error(
           'login must not be called in logged-in test'
         );
@@ -423,7 +442,27 @@ async function run() {
       },
     },
 
-    setTimeout() {
+    setTimeout(callback, delay) {
+      const ms = Number(delay || 0);
+
+      // Request watchdogs use 20,000 ms and must remain dormant
+      // in this deterministic harness.
+      //
+      // Retry backoff uses short delays; record and resolve
+      // them immediately so tests stay fast.
+      if (
+        ms > 0 &&
+        ms < 20000
+      ) {
+        runtimeBackoffDelays.push(ms);
+
+        if (
+          typeof callback === 'function'
+        ) {
+          callback();
+        }
+      }
+
       return 1;
     },
 
@@ -446,7 +485,308 @@ async function run() {
       const requestUrl =
         String(url);
 
+      // ------------------------------------------------------
+      // PHOTO-REL-P01-A:
+      // deterministic Apps Script / boot reliability probes
+      // ------------------------------------------------------
+
+      if (
+        requestUrl ===
+          'https://script.google.com/macros/s/test/exec' &&
+        runtimeReliabilityMode ===
+          'issuer-line-unavailable-once'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        if (runtimeReliabilityAttempts === 1) {
+          return {
+            ok: true,
+            status: 200,
+
+            async json() {
+              return {
+                ok: false,
+                code: 'LINE_UNAVAILABLE',
+                error:
+                  'ระบบ LINE ขัดข้องชั่วคราว กรุณาลองอีกครั้ง',
+              };
+            },
+          };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              ticket:
+                'recovered-line-photo-ticket',
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          'https://script.google.com/macros/s/test/exec' &&
+        runtimeReliabilityMode ===
+          'issuer-network-fail-once'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        if (runtimeReliabilityAttempts === 1) {
+          throw new Error(
+            'simulated transient network failure'
+          );
+        }
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              ticket:
+                'recovered-network-photo-ticket',
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          'https://script.google.com/macros/s/test/exec' &&
+        runtimeReliabilityMode ===
+          'issuer-line-unavailable-always'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: false,
+              code: 'LINE_UNAVAILABLE',
+              error:
+                'ระบบ LINE ขัดข้องชั่วคราว กรุณาลองอีกครั้ง',
+            };
+          },
+        };
+      }
+
+      if (
+        runtimeReliabilityMode ===
+          'boot-success-reset'
+      ) {
+        if (
+          requestUrl ===
+            'https://script.google.com/macros/s/test/exec'
+        ) {
+          runtimeReliabilityAttempts += 1;
+
+          return {
+            ok: true,
+            status: 200,
+
+            async json() {
+              return {
+                ok: true,
+                ticket:
+                  'boot-recovery-photo-ticket',
+              };
+            },
+          };
+        }
+
+        if (
+          requestUrl ===
+            'https://photo.example.test:8443/v1/session'
+        ) {
+          return {
+            ok: true,
+            status: 200,
+
+            async json() {
+              return {
+                ok: true,
+                actor: bridgeActor,
+              };
+            },
+          };
+        }
+
+        if (
+          requestUrl ===
+            'https://photo.example.test:8443/v1/topics'
+        ) {
+          return {
+            ok: true,
+            status: 200,
+
+            async json() {
+              return {
+                ok: true,
+                topics: [
+                  {
+                    name:
+                      '80_งานกิจกรรมกลาง',
+                    path:
+                      '80_งานกิจกรรมกลาง',
+                    type: 'topic',
+                  },
+                  {
+                    name:
+                      '90_ภาพองค์กร',
+                    path:
+                      '90_ภาพองค์กร',
+                    type:
+                      'organization',
+                  },
+                ],
+              };
+            },
+          };
+        }
+      }
+
+      if (
+        requestUrl ===
+          'https://script.google.com/macros/s/test/exec' &&
+        runtimeReliabilityMode ===
+          'boot-auth-expired'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: false,
+              code: 'UNAUTHORIZED',
+              error:
+                'เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่',
+            };
+          },
+        };
+      }
+
       // UX-P02:
+      // ------------------------------------------------------
+      // PHOTO-REL-P02-A:
+      // Photo Bridge transient-read recovery probes
+      // ------------------------------------------------------
+
+      if (
+        runtimeReliabilityMode ===
+          'bridge-session-network-fail-once' &&
+        requestUrl ===
+          'https://photo.example.test:8443/v1/session'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        if (runtimeReliabilityAttempts === 1) {
+          throw new Error(
+            'simulated Photo Bridge network failure'
+          );
+        }
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              actor: bridgeActor,
+            };
+          },
+        };
+      }
+
+      if (
+        runtimeReliabilityMode ===
+          'bridge-topics-503-once' &&
+        requestUrl ===
+          'https://photo.example.test:8443/v1/topics'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        if (runtimeReliabilityAttempts === 1) {
+          return {
+            ok: false,
+            status: 503,
+
+            async json() {
+              return {
+                ok: false,
+                error:
+                  'Photo Bridge temporarily unavailable',
+              };
+            },
+          };
+        }
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              topics: [],
+            };
+          },
+        };
+      }
+
+      if (
+        runtimeReliabilityMode ===
+          'bridge-activities-503-always' &&
+        requestUrl.includes(
+          '/v1/activities?'
+        )
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        return {
+          ok: false,
+          status: 503,
+
+          async json() {
+            return {
+              ok: false,
+              error:
+                'Photo Bridge temporarily unavailable',
+            };
+          },
+        };
+      }
+
+      // Write request:
+      // network failure must NOT trigger automatic retry.
+      if (
+        runtimeReliabilityMode ===
+          'bridge-post-network-fail' &&
+        requestUrl ===
+          'https://photo.example.test:8443/v1/activities' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        throw new Error(
+          'simulated write response loss'
+        );
+      }
+
       // delay activities response เพื่อพิสูจน์ loading state
       if (
         pauseActivitiesMode &&
@@ -3685,6 +4025,572 @@ async function run() {
     uxP09RedFailures.length === 0,
     'UX-P09 RED contracts failed:\n- ' +
       uxP09RedFailures.join('\n- ')
+  );
+
+  // ---------- PHOTO-REL-P01-A: Runtime recovery ----------
+
+  const runtimeReliabilityFailures = [];
+
+  // Transient LINE upstream failure must recover without
+  // destroying the LIFF login/session.
+  runtimeReliabilityMode =
+    'issuer-line-unavailable-once';
+  runtimeReliabilityAttempts = 0;
+
+  runtimeReliabilityCalls.logout = 0;
+  runtimeReliabilityCalls.login = 0;
+  runtimeReliabilityCalls.reload = 0;
+
+  let lineRecoveryTicket = null;
+  let lineRecoveryError = null;
+
+  try {
+    lineRecoveryTicket =
+      await ui.requestPhotoTicket();
+  } catch (err) {
+    lineRecoveryError = err;
+  }
+
+  if (
+    lineRecoveryError ||
+    lineRecoveryTicket !==
+      'recovered-line-photo-ticket' ||
+    runtimeReliabilityAttempts !== 2 ||
+    runtimeReliabilityCalls.logout !== 0 ||
+    runtimeReliabilityCalls.login !== 0 ||
+    runtimeReliabilityCalls.reload !== 0
+  ) {
+    runtimeReliabilityFailures.push(
+      'Photo Ticket: one LINE_UNAVAILABLE response must retry once and recover without logout/login/reload'
+    );
+  }
+
+  // A one-shot network transport failure to Apps Script is
+  // also transient and should recover automatically.
+  runtimeReliabilityMode =
+    'issuer-network-fail-once';
+  runtimeReliabilityAttempts = 0;
+
+  runtimeReliabilityCalls.logout = 0;
+  runtimeReliabilityCalls.login = 0;
+  runtimeReliabilityCalls.reload = 0;
+
+  let networkRecoveryTicket = null;
+  let networkRecoveryError = null;
+
+  try {
+    networkRecoveryTicket =
+      await ui.requestPhotoTicket();
+  } catch (err) {
+    networkRecoveryError = err;
+  }
+
+  if (
+    networkRecoveryError ||
+    networkRecoveryTicket !==
+      'recovered-network-photo-ticket' ||
+    runtimeReliabilityAttempts !== 2 ||
+    runtimeReliabilityCalls.logout !== 0 ||
+    runtimeReliabilityCalls.login !== 0 ||
+    runtimeReliabilityCalls.reload !== 0
+  ) {
+    runtimeReliabilityFailures.push(
+      'Photo Ticket: one transient network failure must retry once and recover without resetting LIFF auth'
+    );
+  }
+
+  // Retry must be bounded. When transient failure persists,
+  // preserve the machine-readable server code so boot can
+  // distinguish it from an expired authentication session.
+  runtimeReliabilityMode =
+    'issuer-line-unavailable-always';
+  runtimeReliabilityAttempts = 0;
+
+  let exhaustedTransientError = null;
+
+  try {
+    await ui.requestPhotoTicket();
+  } catch (err) {
+    exhaustedTransientError = err;
+  }
+
+  const exhaustedTransientOk =
+    exhaustedTransientError &&
+    exhaustedTransientError.code ===
+      'LINE_UNAVAILABLE' &&
+    runtimeReliabilityAttempts === 3;
+
+  if (!exhaustedTransientOk) {
+    runtimeReliabilityFailures.push(
+      'Photo Ticket: persistent transient failure must stop after 3 total attempts and preserve code LINE_UNAVAILABLE'
+    );
+  }
+
+  // A successful boot is proof that authentication recovered.
+  // Old relogin-loop counters must not poison later retries.
+  context.sessionStorage.setItem(
+    'photoReloginAttempts',
+    '2'
+  );
+
+  context.sessionStorage.setItem(
+    'photoReloginSince',
+    String(Date.now())
+  );
+
+  runtimeReliabilityMode =
+    'boot-success-reset';
+  runtimeReliabilityAttempts = 0;
+
+  await ui.boot();
+
+  if (
+    context.sessionStorage.getItem(
+      'photoReloginAttempts'
+    ) !== null ||
+    context.sessionStorage.getItem(
+      'photoReloginSince'
+    ) !== null
+  ) {
+    runtimeReliabilityFailures.push(
+      'boot recovery: successful boot must clear photoReloginAttempts and photoReloginSince'
+    );
+  }
+
+  // Genuine auth expiry inside the LINE LIFF client may
+  // reload to obtain a fresh LIFF session, but must not
+  // explicitly logout first.
+  context.sessionStorage.removeItem(
+    'photoReloginAttempts'
+  );
+
+  context.sessionStorage.removeItem(
+    'photoReloginSince'
+  );
+
+  runtimeReliabilityMode =
+    'boot-auth-expired';
+  runtimeReliabilityAttempts = 0;
+
+  runtimeReliabilityCalls.logout = 0;
+  runtimeReliabilityCalls.login = 0;
+  runtimeReliabilityCalls.reload = 0;
+
+  await ui.boot();
+
+  if (
+    runtimeReliabilityCalls.reload !== 1 ||
+    runtimeReliabilityCalls.logout !== 0 ||
+    runtimeReliabilityCalls.login !== 0
+  ) {
+    runtimeReliabilityFailures.push(
+      'LIFF auth recovery: expired session inside LINE must reload without calling liff.logout() or liff.login()'
+    );
+  }
+
+  runtimeReliabilityMode = 'off';
+
+  assert(
+    runtimeReliabilityFailures.length === 0,
+    'PHOTO-REL-P01-A RED contracts failed:\n- ' +
+      runtimeReliabilityFailures.join('\n- ')
+  );
+
+  // ---------- PHOTO-REL-P02-A: Bridge GET recovery ----------
+
+  const bridgeReliabilityFailures = [];
+
+  ui.state.photoTicket =
+    'bridge-reliability-ticket';
+
+  // GET /v1/session:
+  // transient network failure should recover.
+  runtimeReliabilityMode =
+    'bridge-session-network-fail-once';
+
+  runtimeReliabilityAttempts = 0;
+
+  let recoveredSession = null;
+  let recoveredSessionError = null;
+
+  try {
+    recoveredSession =
+      await ui.photoApi('/v1/session');
+  } catch (err) {
+    recoveredSessionError = err;
+  }
+
+  if (
+    recoveredSessionError ||
+    !recoveredSession ||
+    !recoveredSession.actor ||
+    recoveredSession.actor.staffKey !==
+      'bridge-staff' ||
+    runtimeReliabilityAttempts !== 2
+  ) {
+    bridgeReliabilityFailures.push(
+      'Photo Bridge GET: /v1/session must retry one transient network failure and recover'
+    );
+  }
+
+  // GET /v1/topics:
+  // transient 503 should recover.
+  runtimeReliabilityMode =
+    'bridge-topics-503-once';
+
+  runtimeReliabilityAttempts = 0;
+
+  let recoveredTopics = null;
+  let recoveredTopicsError = null;
+
+  try {
+    recoveredTopics =
+      await ui.photoApi('/v1/topics');
+  } catch (err) {
+    recoveredTopicsError = err;
+  }
+
+  if (
+    recoveredTopicsError ||
+    !recoveredTopics ||
+    !Array.isArray(
+      recoveredTopics.topics
+    ) ||
+    runtimeReliabilityAttempts !== 2
+  ) {
+    bridgeReliabilityFailures.push(
+      'Photo Bridge GET: /v1/topics must retry one HTTP 503 response and recover'
+    );
+  }
+
+  // Persistent transient GET:
+  // retry must stop after 3 total attempts.
+  runtimeReliabilityMode =
+    'bridge-activities-503-always';
+
+  runtimeReliabilityAttempts = 0;
+
+  let exhaustedBridgeError = null;
+
+  try {
+    await ui.photoApi(
+      '/v1/activities?topic=' +
+      encodeURIComponent(
+        '80_งานกิจกรรมกลาง'
+      ) +
+      '&year=2569'
+    );
+  } catch (err) {
+    exhaustedBridgeError = err;
+  }
+
+  if (
+    !exhaustedBridgeError ||
+    runtimeReliabilityAttempts !== 3
+  ) {
+    bridgeReliabilityFailures.push(
+      'Photo Bridge GET: persistent transient failure must stop after 3 total attempts'
+    );
+  }
+
+  // POST is deliberately NOT auto-retried.
+  runtimeReliabilityMode =
+    'bridge-post-network-fail';
+
+  runtimeReliabilityAttempts = 0;
+
+  let writeFailure = null;
+
+  try {
+    await ui.photoApi(
+      '/v1/activities',
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
+
+        body: JSON.stringify({
+          topic:
+            '80_งานกิจกรรมกลาง',
+
+          year: '2569',
+
+          activityName:
+            '2569-09-22_No Auto Retry',
+        }),
+      }
+    );
+  } catch (err) {
+    writeFailure = err;
+  }
+
+  if (
+    !writeFailure ||
+    runtimeReliabilityAttempts !== 1
+  ) {
+    bridgeReliabilityFailures.push(
+      'Photo Bridge write: POST requests must not be automatically retried after ambiguous network failure'
+    );
+  }
+
+  runtimeReliabilityMode = 'off';
+
+  assert(
+    bridgeReliabilityFailures.length === 0,
+    'PHOTO-REL-P02-A RED contracts failed:\n- ' +
+      bridgeReliabilityFailures.join('\n- ')
+  );
+
+  // ---------- PHOTO-REL-P03: Retry-button recovery ----------
+
+  const retryRecoveryFailures = [];
+
+  const errorView =
+    document.getElementById(
+      'view-error'
+    );
+
+  const readyView =
+    document.getElementById(
+      'view-ready'
+    );
+
+  const retryConnectionButton =
+    document.getElementById(
+      'retryButton'
+    );
+
+  const retryConnection =
+    retryConnectionButton &&
+    retryConnectionButton.listeners
+      ? retryConnectionButton.listeners.click
+      : null;
+
+  // First boot:
+  // Apps Script remains transiently unavailable for all
+  // bounded attempts. App may show the full boot error,
+  // but must not destroy the LIFF login session.
+  runtimeReliabilityMode =
+    'issuer-line-unavailable-always';
+
+  runtimeReliabilityAttempts = 0;
+
+  runtimeReliabilityCalls.logout = 0;
+  runtimeReliabilityCalls.login = 0;
+  runtimeReliabilityCalls.reload = 0;
+
+  await ui.boot();
+
+  const firstBootFailedSafely =
+    ui.state.ready === false &&
+    errorView &&
+    !errorView.classList.contains(
+      'hidden'
+    ) &&
+    readyView &&
+    readyView.classList.contains(
+      'hidden'
+    ) &&
+    runtimeReliabilityAttempts === 3 &&
+    runtimeReliabilityCalls.logout === 0 &&
+    runtimeReliabilityCalls.login === 0 &&
+    runtimeReliabilityCalls.reload === 0;
+
+  if (!firstBootFailedSafely) {
+    retryRecoveryFailures.push(
+      'retry recovery: exhausted transient boot failure must show retryable error without logout/login/reload'
+    );
+  }
+
+  if (
+    typeof retryConnection !== 'function'
+  ) {
+    retryRecoveryFailures.push(
+      'retry recovery: retryButton must remain wired to a recovery action'
+    );
+  }
+
+  // Simulate the upstream becoming healthy before the user
+  // presses "ลองเชื่อมอีกครั้ง".
+  runtimeReliabilityMode =
+    'boot-success-reset';
+
+  runtimeReliabilityAttempts = 0;
+
+  context.sessionStorage.setItem(
+    'photoReloginAttempts',
+    '2'
+  );
+
+  context.sessionStorage.setItem(
+    'photoReloginSince',
+    String(Date.now())
+  );
+
+  if (
+    typeof retryConnection === 'function'
+  ) {
+    await retryConnection();
+  }
+
+  const retryRecovered =
+    ui.state.ready === true &&
+    readyView &&
+    !readyView.classList.contains(
+      'hidden'
+    ) &&
+    errorView &&
+    errorView.classList.contains(
+      'hidden'
+    ) &&
+    ui.state.actor &&
+    ui.state.actor.staffKey ===
+      'bridge-staff' &&
+    Array.isArray(ui.state.topics) &&
+    ui.state.topics.length === 2 &&
+    runtimeReliabilityAttempts === 1 &&
+    runtimeReliabilityCalls.logout === 0 &&
+    runtimeReliabilityCalls.login === 0 &&
+    runtimeReliabilityCalls.reload === 0 &&
+    context.sessionStorage.getItem(
+      'photoReloginAttempts'
+    ) === null &&
+    context.sessionStorage.getItem(
+      'photoReloginSince'
+    ) === null;
+
+  if (!retryRecovered) {
+    retryRecoveryFailures.push(
+      'retry recovery: retryButton must recover from a transient boot failure without closing/reloading LIFF'
+    );
+  }
+
+  runtimeReliabilityMode = 'off';
+
+  assert(
+    retryRecoveryFailures.length === 0,
+    'PHOTO-REL-P03 recovery contracts failed:\n- ' +
+      retryRecoveryFailures.join('\n- ')
+  );
+
+  // ---------- PHOTO-REL-P04-A: Retry backoff ----------
+
+  const retryBackoffFailures = [];
+
+  // Apps Script Photo Ticket transient failures:
+  // 3 total attempts = 2 bounded delays.
+  runtimeReliabilityMode =
+    'issuer-line-unavailable-always';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  try {
+    await ui.requestPhotoTicket();
+  } catch (err) {
+    // Persistent transient failure is expected here.
+  }
+
+  const issuerBackoffOk =
+    runtimeReliabilityAttempts === 3 &&
+    runtimeBackoffDelays.length === 2 &&
+    runtimeBackoffDelays[0] === 250 &&
+    runtimeBackoffDelays[1] === 500;
+
+  if (!issuerBackoffOk) {
+    retryBackoffFailures.push(
+      'Photo Ticket retries must use bounded backoff of 250ms then 500ms'
+    );
+  }
+
+  // Photo Bridge safe GET transient failures:
+  // same bounded retry policy.
+  ui.state.photoTicket =
+    'bridge-reliability-ticket';
+
+  runtimeReliabilityMode =
+    'bridge-activities-503-always';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  try {
+    await ui.photoApi(
+      '/v1/activities?topic=' +
+      encodeURIComponent(
+        '80_งานกิจกรรมกลาง'
+      ) +
+      '&year=2569'
+    );
+  } catch (err) {
+    // Persistent 503 is expected here.
+  }
+
+  const bridgeBackoffOk =
+    runtimeReliabilityAttempts === 3 &&
+    runtimeBackoffDelays.length === 2 &&
+    runtimeBackoffDelays[0] === 250 &&
+    runtimeBackoffDelays[1] === 500;
+
+  if (!bridgeBackoffOk) {
+    retryBackoffFailures.push(
+      'Photo Bridge GET retries must use bounded backoff of 250ms then 500ms'
+    );
+  }
+
+  // POST/write remains single-shot:
+  // no retry and therefore no retry backoff.
+  runtimeReliabilityMode =
+    'bridge-post-network-fail';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  try {
+    await ui.photoApi(
+      '/v1/activities',
+      {
+        method: 'POST',
+
+        headers: {
+          'Content-Type':
+            'application/json',
+        },
+
+        body: JSON.stringify({
+          topic:
+            '80_งานกิจกรรมกลาง',
+
+          year: '2569',
+
+          activityName:
+            '2569-09-22_No Backoff',
+        }),
+      }
+    );
+  } catch (err) {
+    // Expected ambiguous write failure.
+  }
+
+  if (
+    runtimeReliabilityAttempts !== 1 ||
+    runtimeBackoffDelays.length !== 0
+  ) {
+    retryBackoffFailures.push(
+      'Photo Bridge POST must remain single-shot with no automatic retry backoff'
+    );
+  }
+
+  runtimeReliabilityMode = 'off';
+  runtimeBackoffDelays.length = 0;
+
+  assert(
+    retryBackoffFailures.length === 0,
+    'PHOTO-REL-P04-A RED contracts failed:\n- ' +
+      retryBackoffFailures.join('\n- ')
   );
 
   console.log(

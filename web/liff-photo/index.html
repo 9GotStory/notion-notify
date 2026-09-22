@@ -687,6 +687,18 @@
         return;
       }
 
+      if (
+        typeof liff.isInClient === 'function' &&
+        liff.isInClient()
+      ) {
+        // ใน LINE LIFF client ให้ init/reload ออก session ใหม่เอง
+        // ห้าม logout ก่อน เพราะจะทำลาย session ที่ยัง recover ได้
+        location.reload();
+        return;
+      }
+
+      // External browser เท่านั้น:
+      // ล้าง session เดิมก่อนส่งไป login ใหม่
       try {
         if (liff.isLoggedIn()) {
           liff.logout();
@@ -695,15 +707,70 @@
         // ไปต่อได้
       }
 
-      if (
-        typeof liff.isInClient === 'function' &&
-        liff.isInClient()
-      ) {
-        location.reload();
-        return;
+      liff.login();
+    }
+
+    function resetPhotoReloginAttempts_() {
+      sessionStorage.removeItem(
+        'photoReloginAttempts'
+      );
+
+      sessionStorage.removeItem(
+        'photoReloginSince'
+      );
+    }
+
+    function photoRuntimeError_(
+      message,
+      code
+    ) {
+      const err = new Error(
+        String(
+          message ||
+          'เกิดข้อผิดพลาดในการเชื่อมต่อ'
+        )
+      );
+
+      if (code) {
+        err.code = String(code);
       }
 
-      liff.login();
+      return err;
+    }
+
+    function isRetryablePhotoTicketError_(
+      code
+    ) {
+      return (
+        code === 'LINE_UNAVAILABLE' ||
+        code === 'UPSTREAM_ERROR' ||
+        code === 'NETWORK_ERROR' ||
+        code === 'NETWORK_TIMEOUT'
+      );
+    }
+
+    function photoRetryDelayMs_(attempt) {
+      return Math.min(
+        250 * Math.pow(
+          2,
+          Math.max(
+            0,
+            Number(attempt || 1) - 1
+          )
+        ),
+        500
+      );
+    }
+
+    async function waitForPhotoRetry_(
+      attempt
+    ) {
+      const delay =
+        photoRetryDelayMs_(attempt);
+
+      await new Promise(resolve => {
+        setTimeout(resolve, delay);
+      });
     }
 
     async function readJson_(response) {
@@ -723,95 +790,212 @@
       if (!accessToken) {
         relogin_();
 
-        throw new Error(
-          'กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่'
+        throw photoRuntimeError_(
+          'กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่',
+          'UNAUTHORIZED'
         );
       }
 
-      const controller =
-        new AbortController();
+      const maxAttempts = 3;
+      let lastError = null;
 
-      const timeout =
-        setTimeout(
-          () => controller.abort(),
-          20000
-        );
+      for (
+        let attempt = 1;
+        attempt <= maxAttempts;
+        attempt += 1
+      ) {
+        const controller =
+          new AbortController();
 
-      let response;
+        const timeout =
+          setTimeout(
+            () => controller.abort(),
+            20000
+          );
 
-      try {
-        response = await fetch(
-          CONFIG.API_URL,
-          {
-            method: 'POST',
+        let response;
 
-            // Apps Script direct mode:
-            // text/plain ทำให้ยังเป็น simple request
-            // และ credential ไม่อยู่ใน URL
-            headers: {
-              'Content-Type':
-                'text/plain;charset=utf-8',
-            },
+        try {
+          response = await fetch(
+            CONFIG.API_URL,
+            {
+              method: 'POST',
 
-            body: JSON.stringify({
-              apiAction: 'photoTicket',
-              accessToken: accessToken,
-            }),
+              // Apps Script direct mode:
+              // text/plain ทำให้ยังเป็น simple request
+              // และ credential ไม่อยู่ใน URL
+              headers: {
+                'Content-Type':
+                  'text/plain;charset=utf-8',
+              },
 
-            signal: controller.signal,
+              body: JSON.stringify({
+                apiAction: 'photoTicket',
+                accessToken: accessToken,
+              }),
+
+              signal: controller.signal,
+            }
+          );
+        } catch (err) {
+          const failure =
+            photoRuntimeError_(
+              err &&
+              err.name === 'AbortError'
+                ? (
+                    'ระบบใช้เวลาตอบกลับนานเกินไป ' +
+                    'กรุณาลองอีกครั้ง'
+                  )
+                : (
+                    'เชื่อมต่อระบบยืนยันตัวตนไม่สำเร็จ ' +
+                    'กรุณาลองอีกครั้ง'
+                  ),
+              err &&
+              err.name === 'AbortError'
+                ? 'NETWORK_TIMEOUT'
+                : 'NETWORK_ERROR'
+            );
+
+          lastError = failure;
+
+          if (attempt < maxAttempts) {
+            await waitForPhotoRetry_(
+              attempt
+            );
+
+            continue;
           }
-        );
-      } catch (err) {
-        throw new Error(
-          err && err.name === 'AbortError'
-            ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
-            : 'เชื่อมต่อระบบยืนยันตัวตนไม่สำเร็จ กรุณาลองอีกครั้ง'
-        );
-      } finally {
-        clearTimeout(timeout);
+
+          throw failure;
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        const data =
+          await readJson_(response);
+
+        if (
+          !response.ok ||
+          !data ||
+          data.ok === false
+        ) {
+          const code =
+            data &&
+            typeof data.code === 'string'
+              ? data.code
+              : (
+                  response.status >= 500 ||
+                  !data
+                    ? 'UPSTREAM_ERROR'
+                    : ''
+                );
+
+          const failure =
+            photoRuntimeError_(
+              data && data.error
+                ? data.error
+                : (
+                    'ขอสิทธิ์เข้าใช้งานคลังภาพ' +
+                    'ไม่สำเร็จ'
+                  ),
+              code
+            );
+
+          lastError = failure;
+
+          if (
+            attempt < maxAttempts &&
+            isRetryablePhotoTicketError_(
+              code
+            )
+          ) {
+            await waitForPhotoRetry_(
+              attempt
+            );
+
+            continue;
+          }
+
+          throw failure;
+        }
+
+        if (
+          typeof data.ticket !== 'string' ||
+          !data.ticket.trim()
+        ) {
+          throw photoRuntimeError_(
+            'ระบบไม่ได้รับ Photo Ticket ที่ถูกต้อง',
+            'INVALID_RESPONSE'
+          );
+        }
+
+        // Photo Ticket อายุสั้น
+        // เก็บเฉพาะ memory ของหน้านี้
+        state.photoTicket =
+          data.ticket.trim();
+
+        // ไม่ใช้ data.actor
+        // เป็น authorization authority
+        return state.photoTicket;
       }
 
-      const data =
-        await readJson_(response);
+      throw (
+        lastError ||
+        photoRuntimeError_(
+          'ขอสิทธิ์เข้าใช้งานคลังภาพไม่สำเร็จ',
+          'UPSTREAM_ERROR'
+        )
+      );
+    }
 
-      if (
-        !response.ok ||
-        !data ||
-        data.ok === false
-      ) {
-        throw new Error(
-          data && data.error
-            ? data.error
-            : 'ขอสิทธิ์เข้าใช้งานคลังภาพไม่สำเร็จ'
-        );
-      }
+    function isRetryablePhotoBridgeStatus_(
+      status
+    ) {
+      const value = Number(status);
 
-      if (
-        typeof data.ticket !== 'string' ||
-        !data.ticket.trim()
-      ) {
-        throw new Error(
-          'ระบบไม่ได้รับ Photo Ticket ที่ถูกต้อง'
-        );
-      }
+      return (
+        value === 408 ||
+        value === 429 ||
+        (
+          value >= 500 &&
+          value <= 599
+        )
+      );
+    }
 
-      // Photo Ticket อายุสั้น เก็บเฉพาะ memory ของหน้านี้
-      state.photoTicket =
-        data.ticket.trim();
-
-      // ไม่ใช้ data.actor เป็น authorization authority
-      return state.photoTicket;
+    function isRetryablePhotoBridgeError_(
+      err
+    ) {
+      return Boolean(
+        err &&
+        (
+          err.code === 'NETWORK_ERROR' ||
+          err.code === 'NETWORK_TIMEOUT'
+        )
+      );
     }
 
     async function photoApi(path, options) {
       if (!state.photoTicket) {
-        throw new Error(
-          'ยังไม่มีสิทธิ์เข้าใช้งานคลังภาพ'
+        throw photoRuntimeError_(
+          'ยังไม่มีสิทธิ์เข้าใช้งานคลังภาพ',
+          'UNAUTHORIZED'
         );
       }
 
       const request =
         options || {};
+
+      const method =
+        String(
+          request.method || 'GET'
+        ).toUpperCase();
+
+      // เฉพาะ read-only GET เท่านั้นที่ retry อัตโนมัติได้
+      // POST/upload/create/move/rename/archive
+      // ต้องไม่ retry จาก network ambiguity
+      const retryableRead =
+        method === 'GET';
 
       async function send_(ticket) {
         const headers =
@@ -842,8 +1026,7 @@
               {},
               request,
               {
-                method:
-                  request.method || 'GET',
+                method: method,
                 headers: headers,
                 signal:
                   controller.signal,
@@ -851,10 +1034,21 @@
             )
           );
         } catch (err) {
-          throw new Error(
-            err && err.name === 'AbortError'
-              ? 'คลังภาพใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
-              : 'เชื่อมต่อคลังภาพไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ต'
+          throw photoRuntimeError_(
+            err &&
+            err.name === 'AbortError'
+              ? (
+                  'คลังภาพใช้เวลาตอบกลับนานเกินไป ' +
+                  'กรุณาลองอีกครั้ง'
+                )
+              : (
+                  'เชื่อมต่อคลังภาพไม่สำเร็จ ' +
+                  'กรุณาตรวจสอบอินเทอร์เน็ต'
+                ),
+            err &&
+            err.name === 'AbortError'
+              ? 'NETWORK_TIMEOUT'
+              : 'NETWORK_ERROR'
           );
         } finally {
           clearTimeout(timeout);
@@ -869,42 +1063,128 @@
         };
       }
 
+      async function sendWithRetry_(ticket) {
+        const maxAttempts =
+          retryableRead
+            ? 3
+            : 1;
+
+        let lastResult = null;
+
+        for (
+          let attempt = 1;
+          attempt <= maxAttempts;
+          attempt += 1
+        ) {
+          try {
+            const result =
+              await send_(ticket);
+
+            lastResult = result;
+
+            const status =
+              result &&
+              result.response
+                ? result.response.status
+                : 0;
+
+            // 401 ไม่ retry ตรงนี้
+            // เพราะต้องไป renew Photo Ticket
+            // ที่ flow ด้านล่างก่อน
+            if (
+              retryableRead &&
+              attempt < maxAttempts &&
+              isRetryablePhotoBridgeStatus_(
+                status
+              )
+            ) {
+              await waitForPhotoRetry_(
+                attempt
+              );
+
+              continue;
+            }
+
+            return result;
+          } catch (err) {
+            if (
+              retryableRead &&
+              attempt < maxAttempts &&
+              isRetryablePhotoBridgeError_(
+                err
+              )
+            ) {
+              await waitForPhotoRetry_(
+                attempt
+              );
+
+              continue;
+            }
+
+            throw err;
+          }
+        }
+
+        return lastResult;
+      }
+
       let result =
-        await send_(
+        await sendWithRetry_(
           state.photoTicket
         );
 
-      // Photo Ticket มีอายุสั้น:
-      // ถ้า Bridge ตอบ 401 ให้ขอ ticket ใหม่
-      // จาก LINE access token สด แล้ว retry
-      // request เดิมได้เพียง 1 ครั้งเท่านั้น
+      // Photo Ticket อายุสั้น:
+      // Bridge 401 หมายถึง request ยังไม่ผ่าน authorization
+      // จึงขอ ticket ใหม่แล้ว retry request เดิมได้ 1 รอบ
+      //
+      // behavior นี้ใช้กับ GET/POST ตาม baseline เดิม
+      // และแยกจาก network retry ของ write request
       if (
+        result &&
         result.response &&
         result.response.status === 401
       ) {
         await requestPhotoTicket();
 
         result =
-          await send_(
+          await sendWithRetry_(
             state.photoTicket
           );
       }
 
       const response =
-        result.response;
+        result && result.response;
 
       const data =
-        result.data;
+        result && result.data;
 
       if (
+        !response ||
         !response.ok ||
         !data ||
         data.ok === false
       ) {
-        throw new Error(
+        let code = '';
+
+        if (
+          data &&
+          typeof data.code === 'string'
+        ) {
+          code = data.code;
+        } else if (
+          response &&
+          isRetryablePhotoBridgeStatus_(
+            response.status
+          )
+        ) {
+          code = 'UPSTREAM_ERROR';
+        }
+
+        throw photoRuntimeError_(
           data && data.error
             ? data.error
-            : 'คลังภาพตอบกลับไม่สำเร็จ'
+            : 'คลังภาพตอบกลับไม่สำเร็จ',
+          code
         );
       }
 
@@ -3166,6 +3446,8 @@
 
         await loadTopics();
 
+        resetPhotoReloginAttempts_();
+
         renderReady_();
       } catch (err) {
         const message =
@@ -3176,6 +3458,10 @@
           );
 
         if (
+          (
+            err &&
+            err.code === 'UNAUTHORIZED'
+          ) ||
           message.indexOf(
             'เซสชันหมดอายุ'
           ) !== -1 ||
