@@ -220,6 +220,16 @@ async function run() {
   // destination snapshot เดิมตลอดทั้ง batch
   let destinationMutationMode = 'off';
 
+  // UX-P02 async-state probes
+  let pauseUploadMode = false;
+  let releasePausedUpload = null;
+
+  let pauseActivitiesMode = false;
+  let releasePausedActivities = null;
+
+  let pauseCreateActivityMode = false;
+  let releasePausedCreateActivity = null;
+
   const bridgeActor = {
     sub: 'U123',
     staffKey: 'bridge-staff',
@@ -327,6 +337,80 @@ async function run() {
 
       const requestUrl =
         String(url);
+
+      // UX-P02:
+      // delay activities response เพื่อพิสูจน์ loading state
+      if (
+        pauseActivitiesMode &&
+        requestUrl.includes(
+          '/v1/activities?'
+        )
+      ) {
+        pauseActivitiesMode = false;
+
+        await new Promise(resolve => {
+          releasePausedActivities =
+            resolve;
+        });
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              activities: [
+                {
+                  name:
+                    '2569-09-22_UI State Foundation',
+                  path:
+                    '80_งานกิจกรรมกลาง/2569/' +
+                    '2569-09-22_UI State Foundation',
+                },
+              ],
+            };
+          },
+        };
+      }
+
+      // UX-P02:
+      // delay create response เพื่อพิสูจน์ creating state
+      if (
+        pauseCreateActivityMode &&
+        requestUrl ===
+          'https://photo.example.test:8443/v1/activities' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        pauseCreateActivityMode = false;
+
+        await new Promise(resolve => {
+          releasePausedCreateActivity =
+            resolve;
+        });
+
+        return {
+          ok: true,
+          status: 201,
+
+          async json() {
+            return {
+              ok: true,
+              created: true,
+
+              activity: {
+                name:
+                  '2569-09-22_UI State Foundation',
+                path:
+                  '80_งานกิจกรรมกลาง/2569/' +
+                  '2569-09-22_UI State Foundation',
+              },
+            };
+          },
+        };
+      }
 
       // จำลอง Photo Ticket หมดอายุใน request จริง
       if (
@@ -555,6 +639,19 @@ async function run() {
           }
         }
 
+        if (
+          pauseUploadMode &&
+          filename ===
+            'state-pause.jpg'
+        ) {
+          pauseUploadMode = false;
+
+          await new Promise(resolve => {
+            releasePausedUpload =
+              resolve;
+          });
+        }
+
         if (filename === 'bad.jpg') {
           return {
             ok: false,
@@ -643,6 +740,7 @@ async function run() {
   );
 
   const uxP01RedFailures = [];
+  const uxP02RedFailures = [];
 
   await ui.boot();
 
@@ -1638,6 +1736,227 @@ async function run() {
     uxP01RedFailures.length === 0,
     'UX-P01 RED contracts failed:\n- ' +
       uxP01RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P02: Initial UI state ----------
+
+  const initialUiStateOk =
+    Array.isArray(
+      ui.state.selectedFiles
+    ) &&
+    ui.state.selectedFiles.length === 0 &&
+    ui.state.uploading === false &&
+    ui.state.activitiesLoading === false &&
+    ui.state.creatingActivity === false;
+
+  if (!initialUiStateOk) {
+    uxP02RedFailures.push(
+      'initial state: selectedFiles must start empty and async flags must start false'
+    );
+  }
+
+  // ---------- UX-P02: selectedFiles ----------
+
+  const photoInput =
+    elements.get('photoInput');
+
+  const selectedFileA = {
+    name: 'selected-a.jpg',
+    size: 3,
+    type: 'image/jpeg',
+  };
+
+  const selectedFileB = {
+    name: 'selected-b.jpg',
+    size: 4,
+    type: 'image/jpeg',
+  };
+
+  if (photoInput) {
+    photoInput.files = [
+      selectedFileA,
+      selectedFileB,
+    ];
+
+    const changeListener =
+      photoInput.listeners.change;
+
+    if (
+      typeof changeListener ===
+        'function'
+    ) {
+      await Promise.resolve(
+        changeListener({
+          target: photoInput,
+        })
+      );
+    }
+  }
+
+  const selectedFilesOk =
+    Array.isArray(
+      ui.state.selectedFiles
+    ) &&
+    ui.state.selectedFiles.length === 2 &&
+    ui.state.selectedFiles[0] ===
+      selectedFileA &&
+    ui.state.selectedFiles[1] ===
+      selectedFileB;
+
+  if (!selectedFilesOk) {
+    uxP02RedFailures.push(
+      'selectedFiles: file-input change must copy the selected File objects into runtime state'
+    );
+  }
+
+  // ---------- UX-P02: uploading ----------
+
+  const stateActivity =
+    '2569-09-03_ออกหน่วยรับบริจาคโลหิตอำเภอสอง';
+
+  ui.state.destination = {
+    type: 'activity',
+    topic: '80_งานกิจกรรมกลาง',
+    year: '2569',
+    activity: stateActivity,
+    path:
+      '80_งานกิจกรรมกลาง/2569/' +
+      stateActivity,
+  };
+
+  pauseUploadMode = true;
+  releasePausedUpload = null;
+
+  const pausedUploadPromise =
+    ui.uploadFiles([
+      {
+        name: 'state-pause.jpg',
+        size: 3,
+        type: 'image/jpeg',
+      },
+    ]);
+
+  const uploadingDuring =
+    ui.state.uploading === true;
+
+  assert(
+    typeof releasePausedUpload ===
+      'function',
+    'UX-P02 upload pause probe did not activate'
+  );
+
+  releasePausedUpload();
+
+  await pausedUploadPromise;
+
+  const uploadingAfter =
+    ui.state.uploading === false;
+
+  if (
+    !uploadingDuring ||
+    !uploadingAfter
+  ) {
+    uxP02RedFailures.push(
+      'uploading: must be true while a batch is active and false after it settles'
+    );
+  }
+
+  // ---------- UX-P02: activitiesLoading ----------
+
+  ui.state.selectedTopic =
+    ui.state.topics.find(
+      item =>
+        item &&
+        item.name ===
+          '80_งานกิจกรรมกลาง'
+    );
+
+  pauseActivitiesMode = true;
+  releasePausedActivities = null;
+
+  const pausedActivitiesPromise =
+    ui.selectYear('2569');
+
+  const activitiesLoadingDuring =
+    ui.state.activitiesLoading ===
+      true;
+
+  assert(
+    typeof releasePausedActivities ===
+      'function',
+    'UX-P02 activities pause probe did not activate'
+  );
+
+  releasePausedActivities();
+
+  await pausedActivitiesPromise;
+
+  const activitiesLoadingAfter =
+    ui.state.activitiesLoading ===
+      false;
+
+  if (
+    !activitiesLoadingDuring ||
+    !activitiesLoadingAfter
+  ) {
+    uxP02RedFailures.push(
+      'activitiesLoading: must be true while activities are loading and false after completion'
+    );
+  }
+
+  // ---------- UX-P02: creatingActivity ----------
+
+  ui.state.selectedTopic =
+    ui.state.topics.find(
+      item =>
+        item &&
+        item.name ===
+          '80_งานกิจกรรมกลาง'
+    );
+
+  ui.state.selectedYear =
+    '2569';
+
+  pauseCreateActivityMode = true;
+  releasePausedCreateActivity = null;
+
+  const pausedCreatePromise =
+    ui.createActivity(
+      '2026-09-22',
+      'UI State Foundation'
+    );
+
+  const creatingDuring =
+    ui.state.creatingActivity ===
+      true;
+
+  assert(
+    typeof releasePausedCreateActivity ===
+      'function',
+    'UX-P02 create-activity pause probe did not activate'
+  );
+
+  releasePausedCreateActivity();
+
+  await pausedCreatePromise;
+
+  const creatingAfter =
+    ui.state.creatingActivity ===
+      false;
+
+  if (
+    !creatingDuring ||
+    !creatingAfter
+  ) {
+    uxP02RedFailures.push(
+      'creatingActivity: must be true while create is active and false after completion'
+    );
+  }
+
+  assert(
+    uxP02RedFailures.length === 0,
+    'UX-P02 RED contracts failed:\n- ' +
+      uxP02RedFailures.join('\n- ')
   );
 
   console.log(

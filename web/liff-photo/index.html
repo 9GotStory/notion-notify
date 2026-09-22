@@ -385,6 +385,12 @@
 
       destination: null,
 
+      // UX-P02 runtime UI state
+      selectedFiles: [],
+      uploading: false,
+      activitiesLoading: false,
+      creatingActivity: false,
+
       // UX-P01:
       // successful files จะไม่ค้างใน retry queue
       failedFiles: [],
@@ -1013,39 +1019,45 @@
 
       renderDestinationState_();
 
-      const result =
-        await photoApi(
-          '/v1/activities?topic=' +
-          encodeURIComponent(
-            state.selectedTopic.name
-          ) +
-          '&year=' +
-          encodeURIComponent(value)
-        );
+      state.activitiesLoading = true;
 
-      if (
-        !Array.isArray(
-          result.activities
-        )
-      ) {
-        throw new Error(
-          'รูปแบบรายการกิจกรรมไม่ถูกต้อง'
-        );
+      try {
+        const result =
+          await photoApi(
+            '/v1/activities?topic=' +
+            encodeURIComponent(
+              state.selectedTopic.name
+            ) +
+            '&year=' +
+            encodeURIComponent(value)
+          );
+
+        if (
+          !Array.isArray(
+            result.activities
+          )
+        ) {
+          throw new Error(
+            'รูปแบบรายการกิจกรรมไม่ถูกต้อง'
+          );
+        }
+
+        state.activities =
+          result.activities.filter(
+            item =>
+              item &&
+              typeof item.name ===
+                'string' &&
+              typeof item.path ===
+                'string'
+          );
+
+        renderDestinationState_();
+
+        return state.activities;
+      } finally {
+        state.activitiesLoading = false;
       }
-
-      state.activities =
-        result.activities.filter(
-          item =>
-            item &&
-            typeof item.name ===
-              'string' &&
-            typeof item.path ===
-              'string'
-        );
-
-      renderDestinationState_();
-
-      return state.activities;
     }
 
     async function selectActivity(name) {
@@ -1172,9 +1184,6 @@
 
       // P0 data-integrity contract:
       // snapshot ครั้งเดียวก่อนเริ่ม batch
-      //
-      // ห้ามให้ URL ของไฟล์ถัดไปอ่าน
-      // state.destination สดระหว่าง loop
       const destinationSnapshot =
         Object.assign(
           {},
@@ -1192,118 +1201,123 @@
 
       const results = [];
 
-      // Sequential โดยตั้งใจ:
-      // ลด memory/network pressure บนมือถือ
-      // และ failure ของไฟล์หนึ่งไม่หยุดไฟล์ถัดไป
-      for (const file of list) {
-        const filename =
-          String(file?.name || '');
+      state.uploading = true;
 
-        const size =
-          Number(file?.size || 0);
+      try {
+        // Sequential โดยตั้งใจ:
+        // ลด memory/network pressure บนมือถือ
+        // และ failure ของไฟล์หนึ่งไม่หยุดไฟล์ถัดไป
+        for (const file of list) {
+          const filename =
+            String(file?.name || '');
 
-        if (!filename) {
-          results.push({
-            ok: false,
-            file: null,
-            originalName: '',
-            error: 'ไม่พบชื่อไฟล์',
-          });
+          const size =
+            Number(file?.size || 0);
 
-          continue;
-        }
+          if (!filename) {
+            results.push({
+              ok: false,
+              file: null,
+              originalName: '',
+              error: 'ไม่พบชื่อไฟล์',
+            });
 
-        if (
-          !Number.isFinite(size) ||
-          size < 0
-        ) {
-          results.push({
-            ok: false,
-            file: null,
-            originalName: filename,
-            error: 'ขนาดไฟล์ไม่ถูกต้อง',
-          });
-
-          continue;
-        }
-
-        if (size > MAX_UPLOAD_BYTES) {
-          results.push({
-            ok: false,
-            file: null,
-            originalName: filename,
-            error:
-              'ไฟล์มีขนาดเกิน 25 MiB',
-          });
-
-          continue;
-        }
-
-        try {
-          const result =
-            await photoApi(
-              uploadUrlForFile_(
-                file,
-                destinationSnapshot
-              ),
-              {
-                method: 'POST',
-                body: file,
-              }
-            );
-
-          if (
-            !result.file ||
-            typeof result.file.name !==
-              'string' ||
-            typeof result.file.path !==
-              'string'
-          ) {
-            throw new Error(
-              'รูปแบบข้อมูลไฟล์ที่ได้รับไม่ถูกต้อง'
-            );
+            continue;
           }
 
-          results.push({
-            ok: true,
-            file: result.file,
-            originalName: filename,
-            error: '',
-          });
-        } catch (err) {
-          results.push({
-            ok: false,
-            file: null,
-            originalName: filename,
-            error:
-              err && err.message
-                ? err.message
-                : String(err),
-          });
+          if (
+            !Number.isFinite(size) ||
+            size < 0
+          ) {
+            results.push({
+              ok: false,
+              file: null,
+              originalName: filename,
+              error: 'ขนาดไฟล์ไม่ถูกต้อง',
+            });
+
+            continue;
+          }
+
+          if (size > MAX_UPLOAD_BYTES) {
+            results.push({
+              ok: false,
+              file: null,
+              originalName: filename,
+              error:
+                'ไฟล์มีขนาดเกิน 25 MiB',
+            });
+
+            continue;
+          }
+
+          try {
+            const result =
+              await photoApi(
+                uploadUrlForFile_(
+                  file,
+                  destinationSnapshot
+                ),
+                {
+                  method: 'POST',
+                  body: file,
+                }
+              );
+
+            if (
+              !result.file ||
+              typeof result.file.name !==
+                'string' ||
+              typeof result.file.path !==
+                'string'
+            ) {
+              throw new Error(
+                'รูปแบบข้อมูลไฟล์ที่ได้รับไม่ถูกต้อง'
+              );
+            }
+
+            results.push({
+              ok: true,
+              file: result.file,
+              originalName: filename,
+              error: '',
+            });
+          } catch (err) {
+            results.push({
+              ok: false,
+              file: null,
+              originalName: filename,
+              error:
+                err && err.message
+                  ? err.message
+                  : String(err),
+            });
+          }
         }
+
+        // Successful files ออกจาก pending queue
+        // เหลือเฉพาะไฟล์ที่ยังไม่สำเร็จ
+        state.failedFiles =
+          list.filter(
+            (file, index) =>
+              results[index] &&
+              results[index].ok ===
+                false
+          );
+
+        state.selectedFiles =
+          state.failedFiles.slice();
+
+        // Retry ต้องใช้ destination เดิมของ batch
+        state.failedDestination =
+          state.failedFiles.length
+            ? destinationSnapshot
+            : null;
+
+        return results;
+      } finally {
+        state.uploading = false;
       }
-
-      // P0 retry contract:
-      // queue รอบถัดไปประกอบด้วยเฉพาะไฟล์
-      // ที่ไม่สำเร็จจาก batch นี้
-      //
-      // เก็บ File object เดิมไว้เพื่อ retry raw body
-      state.failedFiles =
-        list.filter(
-          (file, index) =>
-            results[index] &&
-            results[index].ok ===
-              false
-        );
-
-      // Retry ต้องกลับไป destination เดิมของ batch
-      // แม้ live destination จะเปลี่ยนไปแล้ว
-      state.failedDestination =
-        state.failedFiles.length
-          ? destinationSnapshot
-          : null;
-
-      return results;
     }
 
     async function retryFailedFiles() {
@@ -1519,85 +1533,91 @@
         );
       }
 
-      const result =
-        await photoApi(
-          '/v1/activities',
-          {
-            method: 'POST',
+      state.creatingActivity = true;
 
-            headers: {
-              'Content-Type':
-                'application/json',
-            },
+      try {
+        const result =
+          await photoApi(
+            '/v1/activities',
+            {
+              method: 'POST',
 
-            body: JSON.stringify({
-              topic:
-                state.selectedTopic.name,
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
 
-              year:
-                state.selectedYear,
+              body: JSON.stringify({
+                topic:
+                  state.selectedTopic.name,
 
-              activityName:
-                canonicalName,
-            }),
-          }
+                year:
+                  state.selectedYear,
+
+                activityName:
+                  canonicalName,
+              }),
+            }
+          );
+
+        const activity =
+          result.activity;
+
+        if (
+          !activity ||
+          typeof activity.name !==
+            'string' ||
+          typeof activity.path !==
+            'string'
+        ) {
+          throw new Error(
+            'รูปแบบข้อมูลกิจกรรมที่ได้รับไม่ถูกต้อง'
+          );
+        }
+
+        // Backend response คือ canonical authority
+        state.activities = [
+          activity,
+
+          ...state.activities.filter(
+            item =>
+              item &&
+              item.name !==
+                activity.name
+          ),
+        ].sort(
+          (left, right) =>
+            right.name.localeCompare(
+              left.name,
+              'th'
+            )
         );
 
-      const activity =
-        result.activity;
+        state.selectedActivity =
+          activity;
 
-      if (
-        !activity ||
-        typeof activity.name !==
-          'string' ||
-        typeof activity.path !==
-          'string'
-      ) {
-        throw new Error(
-          'รูปแบบข้อมูลกิจกรรมที่ได้รับไม่ถูกต้อง'
-        );
+        state.destination = {
+          type: 'activity',
+
+          topic:
+            state.selectedTopic.name,
+
+          year:
+            state.selectedYear,
+
+          activity:
+            activity.name,
+
+          path:
+            activity.path,
+        };
+
+        renderDestinationState_();
+
+        return activity;
+      } finally {
+        state.creatingActivity = false;
       }
-
-      // Backend response คือ canonical authority
-      state.activities = [
-        activity,
-
-        ...state.activities.filter(
-          item =>
-            item &&
-            item.name !==
-              activity.name
-        ),
-      ].sort(
-        (left, right) =>
-          right.name.localeCompare(
-            left.name,
-            'th'
-          )
-      );
-
-      state.selectedActivity =
-        activity;
-
-      state.destination = {
-        type: 'activity',
-
-        topic:
-          state.selectedTopic.name,
-
-        year:
-          state.selectedYear,
-
-        activity:
-          activity.name,
-
-        path:
-          activity.path,
-      };
-
-      renderDestinationState_();
-
-      return activity;
     }
 
     function roleLabel_(role) {
@@ -1650,6 +1670,12 @@
       state.selectedYear = '';
       state.selectedActivity = null;
       state.destination = null;
+
+      state.selectedFiles = [];
+      state.uploading = false;
+      state.activitiesLoading = false;
+      state.creatingActivity = false;
+
       state.failedFiles = [];
       state.failedDestination = null;
 
@@ -1856,7 +1882,20 @@
     if (photoInput) {
       photoInput.addEventListener(
         'change',
-        () => {
+        event => {
+          const input =
+            event && event.target
+              ? event.target
+              : photoInput;
+
+          state.selectedFiles =
+            input && input.files
+              ? Array.from(
+                  input.files
+                )
+              : [];
+
+          // เลือกชุดใหม่ = ยกเลิก retry queue เดิม
           state.failedFiles = [];
           state.failedDestination = null;
         }
@@ -1877,8 +1916,10 @@
             $('uploadStatus');
 
           const files =
-            input && input.files
-              ? Array.from(input.files)
+            Array.isArray(
+              state.selectedFiles
+            )
+              ? state.selectedFiles.slice()
               : [];
 
           const failedFiles =
@@ -1946,11 +1987,12 @@
                 );
             }
 
-            if (
-              input &&
-              failedCount === 0
-            ) {
-              input.value = '';
+            if (failedCount === 0) {
+              state.selectedFiles = [];
+
+              if (input) {
+                input.value = '';
+              }
             }
           } catch (err) {
             renderUploadResults_([]);
