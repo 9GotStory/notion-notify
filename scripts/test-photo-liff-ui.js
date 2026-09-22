@@ -53,6 +53,7 @@ class FakeElement {
     this.listeners = {};
     this.disabled = false;
     this.clickCalls = 0;
+    this.focusCalls = 0;
     this.textContent = '';
     this.innerHTML = '';
     this.value = '';
@@ -64,6 +65,10 @@ class FakeElement {
 
   click() {
     this.clickCalls += 1;
+  }
+
+  focus() {
+    this.focusCalls += 1;
   }
 
   setAttribute(name, value) {
@@ -241,6 +246,16 @@ async function run() {
     renderUploadQueue:
       typeof renderUploadQueue_ === 'function'
         ? renderUploadQueue_
+        : null,
+
+    showRecoverableError:
+      typeof showRecoverableError_ === 'function'
+        ? showRecoverableError_
+        : null,
+
+    clearRecoverableError:
+      typeof clearRecoverableError_ === 'function'
+        ? clearRecoverableError_
         : null,
   };
 })();`
@@ -903,6 +918,7 @@ async function run() {
   const uxP06RedFailures = [];
   const uxP07RedFailures = [];
   const uxP08RedFailures = [];
+  const uxP09RedFailures = [];
 
   await ui.boot();
 
@@ -3386,6 +3402,289 @@ async function run() {
     uxP08RedFailures.length === 0,
     'UX-P08 RED contracts failed:\n- ' +
       uxP08RedFailures.join('\n- ')
+  );
+
+  // ---------- UX-P09: Errors, recovery & accessibility ----------
+
+  const recoverableErrorMarkupOk =
+    html.includes(
+      'id="recoverableError"'
+    ) &&
+    html.includes(
+      'role="alert"'
+    ) &&
+    html.includes(
+      'aria-live="assertive"'
+    ) &&
+    html.includes(
+      'tabindex="-1"'
+    );
+
+  const recoverableErrorHelpersOk =
+    typeof ui.showRecoverableError ===
+      'function' &&
+    typeof ui.clearRecoverableError ===
+      'function';
+
+  if (
+    !recoverableErrorMarkupOk ||
+    !recoverableErrorHelpersOk
+  ) {
+    uxP09RedFailures.push(
+      'recoverable errors: inline accessible alert and recovery helpers must exist'
+    );
+  }
+
+  if (recoverableErrorHelpersOk) {
+    const recoverableError =
+      document.getElementById(
+        'recoverableError'
+      );
+
+    const preservedDestination = {
+      type: 'activity',
+      topic: '80_งานกิจกรรมกลาง',
+      year: '2569',
+      activity:
+        '2569-09-22_P09 Recovery',
+      path:
+        '80_งานกิจกรรมกลาง/2569/' +
+        '2569-09-22_P09 Recovery',
+    };
+
+    const preservedFile = {
+      name: 'keep-context.jpg',
+      size: 1234,
+      type: 'image/jpeg',
+    };
+
+    const preservedQueueItem = {
+      file: preservedFile,
+      status: 'failed',
+      error: 'ชื่อไฟล์ซ้ำ',
+    };
+
+    ui.state.destination =
+      preservedDestination;
+
+    ui.state.selectedFiles = [
+      preservedFile,
+    ];
+
+    ui.state.uploadQueue = [
+      preservedQueueItem,
+    ];
+
+    const focusBefore =
+      recoverableError
+        ? recoverableError.focusCalls
+        : 0;
+
+    ui.showRecoverableError(
+      'อัปโหลดไม่สำเร็จ กรุณาลองอีกครั้ง'
+    );
+
+    const inlineErrorOk =
+      recoverableError &&
+      !recoverableError.classList.contains(
+        'hidden'
+      ) &&
+      String(
+        recoverableError.textContent || ''
+      ).includes(
+        'อัปโหลดไม่สำเร็จ'
+      ) &&
+      recoverableError.focusCalls ===
+        focusBefore + 1;
+
+    if (!inlineErrorOk) {
+      uxP09RedFailures.push(
+        'recoverable errors: showing an inline error must reveal and focus the alert'
+      );
+    }
+
+    const contextPreservedOk =
+      ui.state.destination ===
+        preservedDestination &&
+      ui.state.selectedFiles.length === 1 &&
+      ui.state.selectedFiles[0] ===
+        preservedFile &&
+      ui.state.uploadQueue.length === 1 &&
+      ui.state.uploadQueue[0] ===
+        preservedQueueItem;
+
+    if (!contextPreservedOk) {
+      uxP09RedFailures.push(
+        'recoverable errors: destination, selected files, and upload queue context must be preserved'
+      );
+    }
+
+    ui.clearRecoverableError();
+
+    const clearErrorOk =
+      recoverableError &&
+      recoverableError.classList.contains(
+        'hidden'
+      ) &&
+      String(
+        recoverableError.textContent || ''
+      ) === '';
+
+    if (!clearErrorOk) {
+      uxP09RedFailures.push(
+        'recoverable errors: clearing the alert must hide it without resetting workflow state'
+      );
+    }
+
+    const contextStillPreservedOk =
+      ui.state.destination ===
+        preservedDestination &&
+      ui.state.selectedFiles[0] ===
+        preservedFile &&
+      ui.state.uploadQueue[0] ===
+        preservedQueueItem;
+
+    if (!contextStillPreservedOk) {
+      uxP09RedFailures.push(
+        'recoverable errors: clearing an error must not discard workflow context'
+      );
+    }
+    // A successful new interaction must clear stale
+    // recoverable feedback automatically.
+    ui.showRecoverableError(
+      'ข้อผิดพลาดเดิม'
+    );
+
+    const organizationButton =
+      document.getElementById(
+        'destinationModeOrganization'
+      );
+
+    const organizationClick =
+      organizationButton &&
+      organizationButton.listeners &&
+      organizationButton.listeners.click;
+
+    const selectedFilesBeforeRecovery =
+      ui.state.selectedFiles.slice();
+
+    const uploadQueueBeforeRecovery =
+      ui.state.uploadQueue.slice();
+
+    if (
+      typeof organizationClick ===
+        'function'
+    ) {
+      organizationClick();
+    }
+
+    const staleErrorRecoveredOk =
+      recoverableError &&
+      recoverableError.classList.contains(
+        'hidden'
+      ) &&
+      String(
+        recoverableError.textContent || ''
+      ) === '' &&
+      ui.state.selectedFiles.length ===
+        selectedFilesBeforeRecovery.length &&
+      ui.state.selectedFiles[0] ===
+        selectedFilesBeforeRecovery[0] &&
+      ui.state.uploadQueue.length ===
+        uploadQueueBeforeRecovery.length &&
+      ui.state.uploadQueue[0] ===
+        uploadQueueBeforeRecovery[0];
+
+    if (!staleErrorRecoveredOk) {
+      uxP09RedFailures.push(
+        'recoverable errors: a successful new interaction must clear stale feedback without discarding selected files or upload queue'
+      );
+    }
+
+    // Clearing the current topic is also a successful
+    // recovery interaction and must remove stale feedback.
+    ui.showRecoverableError(
+      'ข้อผิดพลาดเดิมหลังเลือกหัวข้อ'
+    );
+
+    const topicSelect =
+      document.getElementById(
+        'topicSelect'
+      );
+
+    const topicChange =
+      topicSelect &&
+      topicSelect.listeners &&
+      topicSelect.listeners.change;
+
+    const filesBeforeTopicClear =
+      ui.state.selectedFiles.slice();
+
+    const queueBeforeTopicClear =
+      ui.state.uploadQueue.slice();
+
+    if (
+      typeof topicChange ===
+        'function'
+    ) {
+      await topicChange({
+        target: {
+          value: '',
+        },
+      });
+    }
+
+    const topicClearRecoveryOk =
+      recoverableError &&
+      recoverableError.classList.contains(
+        'hidden'
+      ) &&
+      String(
+        recoverableError.textContent || ''
+      ) === '' &&
+      ui.state.selectedFiles.length ===
+        filesBeforeTopicClear.length &&
+      ui.state.selectedFiles[0] ===
+        filesBeforeTopicClear[0] &&
+      ui.state.uploadQueue.length ===
+        queueBeforeTopicClear.length &&
+      ui.state.uploadQueue[0] ===
+        queueBeforeTopicClear[0];
+
+    if (!topicClearRecoveryOk) {
+      uxP09RedFailures.push(
+        'recoverable errors: clearing the topic must clear stale feedback without discarding selected files or upload queue'
+      );
+    }
+  }
+
+  // Full-page error remains available for fatal boot/auth/session
+  // failures, but routine recoverable operations must get their
+  // own inline surface instead of replacing the whole app.
+  const fatalSurfaceStillExists =
+    html.includes(
+      'id="view-error"'
+    ) &&
+    html.includes(
+      'id="errorMessage"'
+    ) &&
+    html.includes(
+      'id="retryButton"'
+    ) &&
+    source.includes(
+      "show('error')"
+    );
+
+  if (!fatalSurfaceStillExists) {
+    uxP09RedFailures.push(
+      'fatal errors: the existing full-page error surface must remain available for unrecoverable initialization failures'
+    );
+  }
+
+  assert(
+    uxP09RedFailures.length === 0,
+    'UX-P09 RED contracts failed:\n- ' +
+      uxP09RedFailures.join('\n- ')
   );
 
   console.log(

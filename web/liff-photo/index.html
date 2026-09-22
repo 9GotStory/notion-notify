@@ -79,6 +79,14 @@
       class="hidden space-y-4"
       aria-live="polite"
     >
+      <div
+        id="recoverableError"
+        class="hidden ui-alert ui-alert-danger"
+        role="alert"
+        aria-live="assertive"
+        tabindex="-1"
+      ></div>
+
       <details
         id="identityDisclosure"
         class="rounded-control border border-border bg-surface px-3 py-2.5 text-sm shadow-card"
@@ -578,6 +586,49 @@
       }
 
       show('error');
+    }
+
+    function showRecoverableError_(
+      message
+    ) {
+      const element =
+        $('recoverableError');
+
+      if (!element) {
+        return;
+      }
+
+      element.textContent =
+        String(
+          message ||
+          'เกิดข้อผิดพลาด กรุณาลองอีกครั้ง'
+        );
+
+      element.classList.remove(
+        'hidden'
+      );
+
+      if (
+        typeof element.focus ===
+          'function'
+      ) {
+        element.focus();
+      }
+    }
+
+    function clearRecoverableError_() {
+      const element =
+        $('recoverableError');
+
+      if (!element) {
+        return;
+      }
+
+      element.textContent = '';
+
+      element.classList.add(
+        'hidden'
+      );
     }
 
     function configReady_() {
@@ -3151,8 +3202,10 @@
             setDestinationMode_(
               'activity'
             );
+
+            clearRecoverableError_();
           } catch (err) {
-            showError(
+            showRecoverableError_(
               err && err.message
                 ? err.message
                 : String(err)
@@ -3173,8 +3226,10 @@
             setDestinationMode_(
               'organization'
             );
+
+            clearRecoverableError_();
           } catch (err) {
-            showError(
+            showRecoverableError_(
               err && err.message
                 ? err.message
                 : String(err)
@@ -3201,14 +3256,17 @@
             state.activities = [];
             state.destination = null;
 
+            clearRecoverableError_();
             renderDestinationState_();
             return;
           }
 
           try {
             await selectTopic(value);
+
+            clearRecoverableError_();
           } catch (err) {
-            showError(
+            showRecoverableError_(
               err && err.message
                 ? err.message
                 : String(err)
