@@ -33,6 +33,16 @@ test('both upload endpoints use binary request bodies', () => {
   );
 });
 
+test('draft activity upload uses binary request body', () => {
+  assert.equal(
+    requestBodyKind(
+      'POST',
+      '/v1/draft-activity/uploads'
+    ),
+    'binary'
+  );
+});
+
 test('non-write requests do not consume request bodies', () => {
   assert.equal(
     requestBodyKind(
