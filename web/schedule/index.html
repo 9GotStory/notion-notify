@@ -191,41 +191,162 @@
     return month + (currentToken() ? '_full' : '_pub');
   }
 
-  async function fetchMonth(month) {
+  const SCHEDULE_READ_RETRY_DELAYS_MS = [
+    250,
+    500,
+  ];
+
+  function waitForScheduleRetry_(delayMs) {
+    return new Promise(resolve => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+
+  function isRetryableScheduleError_(error) {
+    if (!error) return false;
+
+    if (
+      error.code === 'LINE_UNAVAILABLE' ||
+      error.code === 'UPSTREAM_ERROR' ||
+      error.code === 'NETWORK_ERROR' ||
+      error.code === 'NETWORK_TIMEOUT'
+    ) {
+      return true;
+    }
+
+    const status = Number(error.status);
+
+    return (
+      status === 408 ||
+      status === 429 ||
+      (status >= 500 && status <= 599)
+    );
+  }
+
+  async function fetchMonth(month, options) {
     const key = cacheKey(month);
     if (state.cache[key]) return state.cache[key];
-    const token = currentToken(); // token ของคำขอนี้ — ใช้เทียบตอนเซิร์ฟเวอร์ปฏิเสธด้านล่าง
-    let res;
-    const controller = new AbortController();
-    const timeout = setTimeout(function () { controller.abort(); }, 20000);
-    try {
-      // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight (Apps Script ตอบ OPTIONS ไม่ได้)
-      // และย้ายข้อมูลทั้งหมดรวมถึง accessToken ออกจาก URL — URL พกข้อมูลรับรองไม่ได้ (ติด log/ถูกส่งต่อ)
-      res = await fetch(CONFIG.API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(Object.assign(
-          { apiAction: 'schedule', month: month }, token ? { accessToken: token } : {})),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      throw new Error(err && err.name === 'AbortError'
-        ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
-        : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง');
-    } finally {
-      clearTimeout(timeout);
+
+    const token = currentToken();
+    const retryTransient =
+      !!(options && options.retryTransient === true);
+
+    const maxAttempts =
+      retryTransient ? 3 : 1;
+
+    for (
+      let attempt = 1;
+      attempt <= maxAttempts;
+      attempt += 1
+    ) {
+      try {
+        let res;
+
+        const controller =
+          new AbortController();
+
+        const timeout =
+          setTimeout(
+            function () {
+              controller.abort();
+            },
+            20000
+          );
+
+        try {
+          // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight (Apps Script ตอบ OPTIONS ไม่ได้)
+          // และย้ายข้อมูลทั้งหมดรวมถึง accessToken ออกจาก URL — URL พกข้อมูลรับรองไม่ได้ (ติด log/ถูกส่งต่อ)
+          res = await fetch(CONFIG.API_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify(Object.assign(
+              { apiAction: 'schedule', month: month },
+              token ? { accessToken: token } : {}
+            )),
+            signal: controller.signal,
+          });
+        } catch (fetchError) {
+          const error =
+            new Error(
+              fetchError &&
+              fetchError.name === 'AbortError'
+                ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+                : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง'
+            );
+
+          error.code =
+            fetchError &&
+            fetchError.name === 'AbortError'
+              ? 'NETWORK_TIMEOUT'
+              : 'NETWORK_ERROR';
+
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        let data = null;
+
+        try {
+          data = await res.json();
+        } catch (parseError) {
+          // ตกไปที่ public transport error ด้านล่าง
+        }
+
+        if (
+          !res.ok ||
+          !data ||
+          data.ok === false
+        ) {
+          const error =
+            new Error(
+              (data && data.error) ||
+              'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง'
+            );
+
+          if (data && data.code) {
+            error.code = data.code;
+          }
+
+          if (!res.ok) {
+            error.status = res.status;
+          }
+
+          throw error;
+        }
+
+        // ส่ง token ไปแต่เซิร์ฟเวอร์ตอบกลับเป็นสาธารณะ = token นี้ตายแล้ว — จำไว้ไม่ส่งซ้ำ
+        // ให้ทั้งหน้า (cache key/viewer/badge) เปลี่ยนเป็นสาธารณะอย่างเดียวสมบูรณ์ ไม่สลับกระพริบ
+        // (ถ้า liff ออก token ใหม่ให้ภายหลัง currentToken จะส่งค่าใหม่นั้น แล้วกลับสู่โหมดเจ้าหน้าที่เอง)
+        if (
+          token &&
+          data.full === false &&
+          data.authCode === 'UNAUTHORIZED'
+        ) state.deadToken = token;
+
+        state.cache[cacheKey(month)] = data;
+        return data;
+      } catch (error) {
+        const canRetry =
+          retryTransient &&
+          attempt < maxAttempts &&
+          isRetryableScheduleError_(error);
+
+        if (!canRetry) {
+          throw error;
+        }
+
+        await waitForScheduleRetry_(
+          SCHEDULE_READ_RETRY_DELAYS_MS[
+            attempt - 1
+          ]
+        );
+      }
     }
-    let data = null;
-    try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
-    if (!res.ok || !data || data.ok === false) {
-      throw new Error((data && data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง');
-    }
-    // ส่ง token ไปแต่เซิร์ฟเวอร์ตอบกลับเป็นสาธารณะ = token นี้ตายแล้ว — จำไว้ไม่ส่งซ้ำ
-    // ให้ทั้งหน้า (cache key/viewer/badge) เปลี่ยนเป็นสาธารณะอย่างเดียวสมบูรณ์ ไม่สลับกระพริบ
-    // (ถ้า liff ออก token ใหม่ให้ภายหลัง currentToken จะส่งค่าใหม่นั้น แล้วกลับสู่โหมดเจ้าหน้าที่เอง)
-    if (token && data.full === false) state.deadToken = token;
-    state.cache[cacheKey(month)] = data; // เก็บใต้ key ของโหมด "หลัง" ปฏิเสธ token — ตรงกับที่จะค้นครั้งหน้า
-    return data;
+
+    throw new Error(
+      'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง'
+    );
   }
 
   // ---------- render ----------
@@ -506,7 +627,10 @@
     updateNavState(true); // ปุ่มทุกปุ่มหรี่ลงทันทีที่เริ่มโหลด — เห็นชัดว่าคำสั่งถูกรับแล้ว
     showStatus('loading');
     try {
-      const data = await fetchMonth(month);
+      const data = await fetchMonth(
+        month,
+        { retryTransient: true }
+      );
       updateModeBadge(data);
       renderMonth(data);
       prefetchNeighbors(month);
@@ -600,7 +724,9 @@
     const data = state.cache[cacheKey(state.month)];
     if (data) renderMonth(data); // กรองจากข้อมูลที่โหลดแล้ว ไม่ยิง API ซ้ำ
   });
-  $('btnRetry').addEventListener('click', function () { location.replace(location.origin + location.pathname); });
+  $('btnRetry').addEventListener('click', function () {
+    return loadMonth(state.month);
+  });
   $('btnLogin').addEventListener('click', function () {
     this.disabled = true;
     this.textContent = 'กำลังเชื่อมต่อ LINE…';

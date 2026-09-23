@@ -648,7 +648,7 @@ function checkSchedulePhase1Contracts() {
   const required = [
     "timeZone: 'Asia/Bangkok'", // "วันนี้"/เดือนปัจจุบันอิดเวลาไทย ไม่ใช่เวลาเครื่องผู้ใช้
     'function cacheKey(month)', // cache แยกโหมด มี/ไม่มี token เหมือนฝั่งเซิร์ฟเวอร์
-    "if (token && data.full === false) state.deadToken = token", // token ตาย → จำไว้ไม่ส่งซ้ำ self-heal เป็นสาธารณะ
+    "data.authCode === 'UNAUTHORIZED'", // เฉพาะ credential ที่ถูกปฏิเสธจริงจึงจำเป็น deadToken; outage/config/unregistered ต้องไม่ฆ่า token
     'function currentToken()', // อ่าน token ใหม่จาก liff ทุกคำขอ — ไม่จำตั้งแต่ boot (LIFF token อายุ 12 ชม.)
     'id="btnRefresh"',
     "$('btnRefresh').disabled = loading",

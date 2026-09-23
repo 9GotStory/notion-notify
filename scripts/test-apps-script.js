@@ -451,8 +451,105 @@ const webappVerifierSources = [fs.readFileSync(path.resolve(__dirname, '../apps/
 testLineVerifier('main', mainVerifierSources, token => 'verifyLineToken_("' + token + '")');
 testLineVerifier('webapp', webappVerifierSources, token => 'verifyAdminLineToken_("' + token + '")');
 
+// Schedule is public-first, but a supplied LINE token can fail for
+// materially different reasons. The backend must preserve that distinction
+// when it intentionally degrades the response to public mode.
+//
+// LINE_UNAVAILABLE / UNCONFIGURED are not dead credentials.
+// Only a real credential rejection becomes UNAUTHORIZED.
+// A verified LINE account that is not in the staff roster is UNREGISTERED.
+{
+  const failures = [];
+
+  try {
+    const classified = vm.runInContext(`(function () {
+      var lineUnavailable = new Error('LINE unavailable');
+      lineUnavailable.publicCode = 'LINE_UNAVAILABLE';
+
+      var unconfigured = new Error('missing config');
+      unconfigured.publicCode = 'UNCONFIGURED';
+
+      return {
+        lineUnavailable: scheduleAuthFallbackCode_(lineUnavailable),
+        unconfigured: scheduleAuthFallbackCode_(unconfigured),
+        expired: scheduleAuthFallbackCode_(
+          new Error('เซสชันหมดอายุ กรุณาปิดแล้วเปิดหน้านี้ใหม่')
+        ),
+        rejected: scheduleAuthFallbackCode_(
+          new Error('ไม่สามารถยืนยันตัวตนได้ กรุณาติดต่อผู้ดูแลระบบ')
+        ),
+        profileRejected: scheduleAuthFallbackCode_(
+          new Error('อ่านข้อมูลโปรไฟล์ LINE ไม่สำเร็จ ลองอีกครั้ง')
+        ),
+      };
+    })()`, context);
+
+    if (classified.lineUnavailable !== 'LINE_UNAVAILABLE') {
+      failures.push(
+        'LINE_UNAVAILABLE must stay LINE_UNAVAILABLE; got=' +
+        String(classified.lineUnavailable)
+      );
+    }
+
+    if (classified.unconfigured !== 'UNCONFIGURED') {
+      failures.push(
+        'UNCONFIGURED must stay UNCONFIGURED; got=' +
+        String(classified.unconfigured)
+      );
+    }
+
+    for (const key of ['expired', 'rejected', 'profileRejected']) {
+      if (classified[key] !== 'UNAUTHORIZED') {
+        failures.push(
+          key + ' must classify as UNAUTHORIZED; got=' +
+          String(classified[key])
+        );
+      }
+    }
+  } catch (err) {
+    failures.push(
+      'scheduleAuthFallbackCode_ missing or unusable: ' +
+      String(err && err.message)
+    );
+  }
+
+  const calendarSource = fs.readFileSync(
+    path.resolve(__dirname, '../apps/main/Calendar.gs'),
+    'utf8'
+  );
+
+  const wiringRequired = [
+    'function scheduleAuthFallbackCode_(err)',
+    'authCode = scheduleAuthFallbackCode_(err)',
+    "authCode = 'UNREGISTERED'",
+    'if (authCode) result.authCode = authCode;',
+  ];
+
+  for (const marker of wiringRequired) {
+    if (!calendarSource.includes(marker)) {
+      failures.push(
+        'Calendar.gs missing auth-fallback wiring: ' +
+        marker
+      );
+    }
+  }
+
+  if (failures.length) {
+    console.error(
+      'FAIL testScheduleAuthFallbackClassification: ' +
+      failures.join('; ')
+    );
+    process.exitCode = 1;
+  } else {
+    console.log(
+      'PASS testScheduleAuthFallbackClassification'
+    );
+  }
+}
+
 try {
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-liff-ui.js')], { stdio: 'inherit' });
+  execFileSync(process.execPath, [path.resolve(__dirname, 'test-schedule-ui.js')], { stdio: 'inherit' });
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-photo-liff-ui.js')], { stdio: 'inherit' });
 } catch (err) {
   process.exitCode = 1;
