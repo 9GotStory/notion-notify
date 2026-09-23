@@ -267,6 +267,16 @@ async function run() {
       typeof destinationDisplayLabel_ === 'function'
         ? destinationDisplayLabel_
         : null,
+
+    yearPickerYears:
+      typeof yearPickerYears_ === 'function'
+        ? yearPickerYears_
+        : null,
+
+    renderYearOptions:
+      typeof renderYearOptions_ === 'function'
+        ? renderYearOptions_
+        : null,
   };
 })();`
   );
@@ -5196,6 +5206,160 @@ async function run() {
     inlineValidationFailures.length === 0,
     'UX-F04-A RED contracts failed:\n- ' +
       inlineValidationFailures.join('\n- ')
+  );
+
+  // ---------- UX-F10-A: Buddhist year picker ----------
+
+  const yearPickerFailures = [];
+
+  const yearSelectExists =
+    /<select[\s\S]{0,220}?id="yearInput"[\s\S]{0,220}?>/.test(
+      html
+    );
+
+  const legacyYearInputExists =
+    /<input[\s\S]{0,220}?id="yearInput"[\s\S]{0,220}?>/.test(
+      html
+    );
+
+  if (!yearSelectExists) {
+    yearPickerFailures.push(
+      'yearInput must be a native select year picker'
+    );
+  }
+
+  if (legacyYearInputExists) {
+    yearPickerFailures.push(
+      'legacy free-text year input must be removed'
+    );
+  }
+
+  if (
+    typeof ui.yearPickerYears !==
+      'function'
+  ) {
+    yearPickerFailures.push(
+      'yearPickerYears_ helper must exist'
+    );
+  }
+
+  if (
+    typeof ui.renderYearOptions !==
+      'function'
+  ) {
+    yearPickerFailures.push(
+      'renderYearOptions_ helper must exist'
+    );
+  }
+
+  const currentBuddhistYear =
+    new Date().getFullYear() + 543;
+
+  const expectedYears = [];
+
+  for (
+    let year = currentBuddhistYear + 1;
+    year >= currentBuddhistYear - 10;
+    year -= 1
+  ) {
+    expectedYears.push(
+      String(year)
+    );
+  }
+
+  if (
+    typeof ui.yearPickerYears ===
+      'function'
+  ) {
+    ui.state.selectedYear = '';
+
+    const actualYears =
+      ui.yearPickerYears();
+
+    if (
+      JSON.stringify(actualYears) !==
+      JSON.stringify(expectedYears)
+    ) {
+      yearPickerFailures.push(
+        'year picker must contain next year, current year, and previous 10 years in descending order'
+      );
+    }
+  }
+
+  if (
+    typeof ui.renderYearOptions ===
+      'function'
+  ) {
+    const yearInput =
+      document.getElementById(
+        'yearInput'
+      );
+
+    const current =
+      String(currentBuddhistYear);
+
+    ui.state.selectedYear =
+      current;
+
+    const renderedYears =
+      ui.renderYearOptions();
+
+    if (
+      !Array.isArray(renderedYears) ||
+      !renderedYears.includes(current)
+    ) {
+      yearPickerFailures.push(
+        'rendered year options must contain the current Buddhist year'
+      );
+    }
+
+    if (
+      yearInput.value !== current
+    ) {
+      yearPickerFailures.push(
+        'year picker must preserve the selected canonical year value'
+      );
+    }
+
+    if (
+      !yearInput.innerHTML.includes(
+        'value="' + current + '"'
+      )
+    ) {
+      yearPickerFailures.push(
+        'year picker markup must use canonical Buddhist year values'
+      );
+    }
+
+    // Existing historical state outside the default window
+    // must remain representable instead of being discarded.
+    const historical =
+      String(
+        currentBuddhistYear - 25
+      );
+
+    ui.state.selectedYear =
+      historical;
+
+    const historicalYears =
+      ui.renderYearOptions();
+
+    if (
+      !historicalYears.includes(
+        historical
+      ) ||
+      yearInput.value !== historical
+    ) {
+      yearPickerFailures.push(
+        'year picker must preserve a canonical historical year outside the default range'
+      );
+    }
+  }
+
+  assert(
+    yearPickerFailures.length === 0,
+    'UX-F10-A RED contracts failed:\n- ' +
+      yearPickerFailures.join('\n- ')
   );
 
   console.log(

@@ -191,18 +191,17 @@
               ปี พ.ศ.
             </label>
 
-            <input
+            <select
               id="yearInput"
-              type="text"
-              inputmode="numeric"
-              maxlength="4"
-              autocomplete="off"
               class="ui-input w-full"
-              placeholder="เช่น 2569"
             >
+              <option value="">
+                เลือกปี พ.ศ.
+              </option>
+            </select>
 
             <p class="ui-help">
-              ใช้ปี พ.ศ. 4 หลัก
+              เลือกปี พ.ศ. ที่จัดกิจกรรม
             </p>
           </div>
 
@@ -1211,6 +1210,81 @@
       );
     }
 
+    function yearPickerYears_() {
+      const current =
+        Number(
+          currentBuddhistYear_()
+        );
+
+      const years = [];
+
+      for (
+        let year = current + 1;
+        year >= current - 10;
+        year -= 1
+      ) {
+        years.push(
+          String(year)
+        );
+      }
+
+      const selected =
+        String(
+          state.selectedYear || ''
+        ).trim();
+
+      if (
+        /^\d{4}$/.test(selected) &&
+        !years.includes(selected)
+      ) {
+        years.push(selected);
+
+        years.sort(
+          (left, right) =>
+            Number(right) -
+            Number(left)
+        );
+      }
+
+      return years;
+    }
+
+    function renderYearOptions_() {
+      const select =
+        $('yearInput');
+
+      const years =
+        yearPickerYears_();
+
+      if (!select) {
+        return years;
+      }
+
+      const options = [
+        '<option value="">เลือกปี พ.ศ.</option>',
+      ];
+
+      years.forEach(year => {
+        options.push(
+          '<option value="' +
+            year +
+          '">' +
+            year +
+          '</option>'
+        );
+      });
+
+      select.innerHTML =
+        options.join('');
+
+      select.value =
+        String(
+          state.selectedYear || ''
+        );
+
+      return years;
+    }
+
     function topicByName_(name) {
       const value =
         String(name || '').trim();
@@ -1739,17 +1813,7 @@
         );
       }
 
-      const yearInput =
-        $('yearInput');
-
-      if (
-        yearInput &&
-        yearInput.value !==
-          state.selectedYear
-      ) {
-        yearInput.value =
-          state.selectedYear;
-      }
+      renderYearOptions_();
 
       renderActivityOptions_();
 
