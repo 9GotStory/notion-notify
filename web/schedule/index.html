@@ -324,7 +324,13 @@
           data.authCode === 'UNAUTHORIZED'
         ) state.deadToken = token;
 
-        state.cache[cacheKey(month)] = data;
+        // cache ตาม visibility ของ response จริง ไม่ใช่ LIFF state ณ ตอน response กลับ
+        // - public request ที่คาบช่วง LIFF-ready ต้องยังเป็น _pub
+        // - authenticated request ที่ degrade เป็น public ต้องไม่ poison _full
+        const responseCacheKey =
+          month + (data.full === true ? '_full' : '_pub');
+
+        state.cache[responseCacheKey] = data;
         return data;
       } catch (error) {
         const canRetry =
@@ -549,15 +555,59 @@
     syncMineChip();
   }
 
-  // LIFF init สำเร็จทีหลัง (หน้าเดินต่อแบบสาธารณะไปก่อนตอน init เกิน 5 วินาที) — ปลุก UI ทันที:
-  // โชว์ปุ่มล็อกอิน/ป้ายโหมดใหม่จากข้อมูลที่แคชไว้แล้ว ไม่ต้องรอผู้ใช้เปลี่ยนเดือนถึงจะเห็น
-  // (ชุดข้อมูลแรกของเคสนี้ถูกแคชใต้ _pub และ cacheKey() พลิกเป็น _full ทันทีที่ liffReady — เจาะ _pub ก่อน)
-  // ไม่ยิง API จากที่นี่: ถ้า loadMonth กำลังวิ่งอยู่ ตัวมันเรียก updateModeBadge เองเมื่อเสร็จ
-  // (ตอนนั้น liffReady แล้ว) — เรียกซ้อนจากที่นี่จะเสี่ยง loadMonth ชนกัน
+  // LIFF พร้อมหลังจาก public calendar แสดงแล้ว:
+  // 1) เปิดความสามารถ LINE โดยไม่ทำให้ public view หาย
+  // 2) ใช้ public cache เดิมคง UI ที่มองเห็นอยู่
+  // 3) enrich เดือนปัจจุบันเป็น staff view แบบ background
+  //
+  // enrichment ห้ามใช้ loadMonth() เพราะ loadMonth() จะสลับ visible UI กลับไป loading/error
+  // ถ้า LINE/roster/leave dependency สะดุด ต้องรักษา public calendar ที่ใช้งานได้ไว้
+  async function enrichCurrentMonth_() {
+    const month = state.month;
+
+    if (!month || !currentToken()) {
+      return;
+    }
+
+    try {
+      const data = await fetchMonth(
+        month,
+        { retryTransient: true }
+      );
+
+      // ผู้ใช้อาจเปลี่ยนเดือนไประหว่างรอ staff enrichment
+      // response เก่ายัง cache ได้ แต่ห้ามย้อนมาเปลี่ยน mode/render เดือนปัจจุบัน
+      if (state.month !== month) {
+        return;
+      }
+
+      updateModeBadge(data);
+      renderMonth(data);
+      prefetchNeighbors(month);
+    } catch (err) {
+      // Public calendar เป็น fallback ที่ใช้งานได้อยู่แล้ว
+      // enrichment failure จึงไม่ใช่ visible page failure
+      console.warn(
+        'schedule staff enrichment failed:',
+        err && (err.code || err.message || err)
+      );
+    }
+  }
+
   function wakeLiffReady_() {
     state.liffReady = true;
-    const data = state.cache[state.month + '_pub'] || state.cache[cacheKey(state.month)];
-    if (data) { updateModeBadge(data); renderMonth(data); }
+
+    const publicData =
+      state.cache[state.month + '_pub'];
+
+    if (publicData) {
+      // liffReady เปลี่ยน cacheKey เป็น _full แล้ว จึงต้องหยิบ _pub โดยตรง
+      // เพื่อคง public calendar ที่แสดงสำเร็จไว้ระหว่าง staff enrichment
+      updateModeBadge(publicData);
+      renderMonth(publicData);
+    }
+
+    return enrichCurrentMonth_();
   }
 
   // เดือนอยู่ในวงที่เซิร์ฟเวอร์ให้ดูไหม (มิเรอร์ scheduleMonthAllowed_ — เงื่อนไขเดียวกับปุ่มนำทาง)
@@ -645,22 +695,55 @@
   // ---------- เริ่มทำงาน ----------
 
   async function boot() {
-    // LIFF ของหน้านี้เป็นตัวเลือก: ยังไม่สร้าง (ค่าว่าง) ก็ทำงานแบบสาธารณะได้เลย
-    // และไม่ใส่ withLoginOnExternalBrowser — หน้าสาธารณะต้องไม่ดันผู้ชมไปหน้า login ก่อนเห็นข้อมูล
+    // public-first จริง: เริ่มโหลดตารางสาธารณะทันทีโดยที่ state.liffReady ยังเป็น false
+    // ดังนั้น initial request จะไม่ผูกกับ LINE/roster/leave enrichment และไม่ถูก LIFF init บล็อก
+    const initialLoad = loadMonth(todayMonth());
+
+    // เริ่ม LIFF แบบขนานหลัง public request ถูกเริ่มไปแล้ว
+    // แต่ยังไม่เปิด liffReady จนกว่า initial public render จะจบ เพื่อไม่ให้ response
+    // สาธารณะที่กำลังบินอยู่เปลี่ยน cache mode กลางทาง
     const liffId = (CONFIG.SCHEDULE_LIFF_ID || '').trim();
-    if (liffId && liffId.indexOf('__') !== 0 && typeof liff !== 'undefined') {
+    let liffInitPromise = null;
+
+    if (
+      liffId &&
+      liffId.indexOf('__') !== 0 &&
+      typeof liff !== 'undefined'
+    ) {
       try {
-        // จับเวลา init 5 วินาที — เคส init ค้าง (เคยเกิดกับหน้าฟอร์มลา) ต้องไม่ลากหน้าสาธารณะ
-        // ให้ค้างตามไปด้วย: หมดเวลาแล้วเดินหน้าแบบสาธารณะก่อน แล้วปลุก liffReady เองเมื่อ init
-        // สำเร็จทีหลัง (ตัวจับเวลาไม่ cancel การปลุก) — ปลุก UI ที่ค้างอยู่ด้วย (wakeLiffReady_)
-        // คำขอเดือนถัดไปเลยใช้ token ได้โดยไม่ต้องรีเฟรชหน้า
-        await Promise.race([
-          liff.init({ liffId: liffId }).then(wakeLiffReady_, function () {}),
-          new Promise(function (resolve) { setTimeout(resolve, 5000); }),
-        ]);
-      } catch (err) { /* LIFF พัง → ดูแบบสาธารณะ ไม่บล็อกเนื้อหา */ }
+        liffInitPromise =
+          liff.init({ liffId: liffId });
+      } catch (err) {
+        // LIFF พังแบบ synchronous → ตารางสาธารณะยังเดินต่อ
+        liffInitPromise = null;
+      }
     }
-    await loadMonth(todayMonth());
+
+    // visible calendar มาก่อนเสมอ
+    await initialLoad;
+
+    if (liffInitPromise) {
+      // ต่อ wake callback หลัง initial public render เสร็จแล้ว
+      // ถ้า init สำเร็จไปก่อนหน้านี้ Promise จะเรียก callback ใน microtask ถัดไป
+      const readyPromise =
+        liffInitPromise.then(
+          function () {
+            wakeLiffReady_();
+          },
+          function () {
+            // LIFF ใช้ไม่ได้ → คง public mode
+          }
+        );
+
+      // boot ไม่ต้องค้างเพราะ LIFF เกิน 5 วินาที
+      // แต่ readyPromise ยังมี callback อยู่ จึงปลุก UI ได้ถ้า LIFF สำเร็จภายหลัง
+      await Promise.race([
+        readyPromise,
+        new Promise(function (resolve) {
+          setTimeout(resolve, 5000);
+        }),
+      ]);
+    }
   }
 
   $('btnPrev').addEventListener('click', function () { loadMonth(shiftMonth(state.month, -1)); });
