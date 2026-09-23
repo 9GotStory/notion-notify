@@ -126,6 +126,8 @@ async function run() {
     fetchMonth: fetchMonth,
     prefetchNeighbors: prefetchNeighbors,
     loadMonth: loadMonth,
+    enrichCurrentMonth_: enrichCurrentMonth_,
+    boot: boot,
   };
 })();`
   );
@@ -237,6 +239,762 @@ async function run() {
     context.__scheduleUiTest;
 
   const failures = [];
+
+  // --------------------------------------------------------
+  // SCHED-REL-P10A:
+  //
+  // Initial calendar rendering is public-first.
+  //
+  // A configured LIFF application may be slow, cold, or
+  // temporarily unavailable. The visible public schedule
+  // request must therefore start without waiting for
+  // liff.init() to resolve.
+  //
+  // Contract:
+  // - boot starts LIFF initialization
+  // - while LIFF init is still pending, the first schedule
+  //   request has already started
+  // - that first visible request is public and therefore
+  //   contains no LINE accessToken
+  // --------------------------------------------------------
+  {
+    const publicFirstFailures = [];
+
+    const originalLiffId =
+      context.CONFIG.SCHEDULE_LIFF_ID;
+
+    const originalInit =
+      context.liff.init;
+
+    const originalIsLoggedIn =
+      context.liff.isLoggedIn;
+
+    const originalGetAccessToken =
+      context.liff.getAccessToken;
+
+    let resolveLiffInit = null;
+    let liffInitCalls = 0;
+    const requestBodies = [];
+
+    context.CONFIG.SCHEDULE_LIFF_ID =
+      'test-schedule-liff';
+
+    context.liff.init = () => {
+      liffInitCalls += 1;
+
+      return new Promise(resolve => {
+        resolveLiffInit = resolve;
+      });
+    };
+
+    // P10A isolates boot ordering only.
+    // Do not start authenticated enrichment when this test
+    // releases LIFF during cleanup; P10C owns that behavior.
+    context.liff.isLoggedIn =
+      () => false;
+
+    context.liff.getAccessToken =
+      () => '';
+
+    ui.state.liffReady = false;
+    ui.state.deadToken = '';
+    ui.state.cache = {};
+    ui.state.viewMonths = null;
+    ui.state.full = false;
+    ui.state.viewer = '';
+    ui.state.mine = false;
+
+    fetchImpl = async (url, options) => {
+      const body =
+        JSON.parse(options.body);
+
+      requestBodies.push(body);
+
+      return okScheduleResponse(
+        body.month
+      );
+    };
+
+    let bootPromise = null;
+
+    try {
+      bootPromise = ui.boot();
+
+      // Allow boot() and the first fetch microtasks to run,
+      // but deliberately keep liff.init() unresolved.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await new Promise(resolve => {
+        setImmediate(resolve);
+      });
+
+      if (liffInitCalls !== 1) {
+        publicFirstFailures.push(
+          'boot must start LIFF initialization exactly once; calls=' +
+            liffInitCalls
+        );
+      }
+
+      if (requestBodies.length < 1) {
+        publicFirstFailures.push(
+          'initial public schedule request must start before LIFF init resolves; requests=' +
+            requestBodies.length
+        );
+      } else if (
+        Object.prototype.hasOwnProperty.call(
+          requestBodies[0],
+          'accessToken'
+        )
+      ) {
+        publicFirstFailures.push(
+          'first visible schedule request must be public and omit accessToken'
+        );
+      }
+    } finally {
+      // Release the old/current boot implementation so this
+      // RED contract never leaves a pending promise behind.
+      if (resolveLiffInit) {
+        resolveLiffInit();
+      }
+
+      if (
+        bootPromise &&
+        typeof bootPromise.then === 'function'
+      ) {
+        try {
+          await bootPromise;
+        } catch (_) {
+          // The assertions above own this contract.
+        }
+      }
+
+      context.CONFIG.SCHEDULE_LIFF_ID =
+        originalLiffId;
+
+      if (originalInit === undefined) {
+        delete context.liff.init;
+      } else {
+        context.liff.init =
+          originalInit;
+      }
+
+      context.liff.isLoggedIn =
+        originalIsLoggedIn;
+
+      context.liff.getAccessToken =
+        originalGetAccessToken;
+
+      ui.state.liffReady = false;
+      ui.state.deadToken = '';
+      ui.state.cache = {};
+      ui.state.viewMonths = null;
+      ui.state.full = false;
+      ui.state.viewer = '';
+      ui.state.mine = false;
+    }
+
+    assert(
+      publicFirstFailures.length === 0,
+      'SCHED-REL-P10A public-first boot contract failed: ' +
+        publicFirstFailures.join('; ')
+    );
+  }
+
+  // --------------------------------------------------------
+  // SCHED-REL-P10C:
+  //
+  // Once the public calendar is already visible, a successful
+  // LIFF session should enrich the CURRENT month in background.
+  //
+  // Contract:
+  // - public request/render completes first without accessToken
+  // - LIFF readiness does not remove that public rendering
+  // - after LIFF becomes ready, current month is fetched again
+  //   with the fresh LINE accessToken
+  // - successful enrichment upgrades state to full/staff mode
+  // --------------------------------------------------------
+  {
+    const enrichmentFailures = [];
+
+    const originalLiffId =
+      context.CONFIG.SCHEDULE_LIFF_ID;
+
+    const originalInit =
+      context.liff.init;
+
+    const originalIsLoggedIn =
+      context.liff.isLoggedIn;
+
+    const originalGetAccessToken =
+      context.liff.getAccessToken;
+
+    let resolveLiffInit = null;
+    const requestBodies = [];
+
+    context.CONFIG.SCHEDULE_LIFF_ID =
+      'test-schedule-liff';
+
+    context.liff.init = () =>
+      new Promise(resolve => {
+        resolveLiffInit = resolve;
+      });
+
+    context.liff.isLoggedIn =
+      () => true;
+
+    context.liff.getAccessToken =
+      () => 'staff-enrichment-token';
+
+    ui.state.liffReady = false;
+    ui.state.deadToken = '';
+    ui.state.cache = {};
+    ui.state.viewMonths = null;
+    ui.state.full = false;
+    ui.state.viewer = '';
+    ui.state.mine = false;
+
+    fetchImpl = async (url, options) => {
+      const body =
+        JSON.parse(options.body);
+
+      requestBodies.push(body);
+
+      const isStaff =
+        Object.prototype.hasOwnProperty.call(
+          body,
+          'accessToken'
+        );
+
+      return {
+        ok: true,
+        status: 200,
+
+        json: async () => ({
+          ok: true,
+          month: body.month,
+          full: isStaff,
+          viewer:
+            isStaff ? 'Tester' : '',
+          viewMonths: {
+            // Disable neighbor prefetch so this contract
+            // observes only public + staff current-month reads.
+            back: 0,
+            fwd: 0,
+          },
+          items: [],
+          leaves: [],
+        }),
+      };
+    };
+
+    let bootPromise = null;
+
+    try {
+      bootPromise = ui.boot();
+
+      // Let the public request/render finish while LIFF stays
+      // deliberately unresolved.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      await new Promise(resolve => {
+        setImmediate(resolve);
+      });
+
+      const publicRequests =
+        requestBodies.filter(body =>
+          !Object.prototype.hasOwnProperty.call(
+            body,
+            'accessToken'
+          )
+        );
+
+      if (publicRequests.length !== 1) {
+        enrichmentFailures.push(
+          'initial visible calendar must make exactly 1 public request before LIFF readiness; publicRequests=' +
+            publicRequests.length +
+            ', bodies=' +
+            JSON.stringify(requestBodies)
+        );
+      }
+
+      if (ui.state.full !== false) {
+        enrichmentFailures.push(
+          'calendar must still be public before LIFF readiness'
+        );
+      }
+
+      const viewError =
+        elements.get('viewError');
+
+      if (
+        viewError &&
+        !viewError.classList.contains(
+          'hidden'
+        )
+      ) {
+        enrichmentFailures.push(
+          'successful public render must not show the error state before enrichment'
+        );
+      }
+
+      if (!resolveLiffInit) {
+        enrichmentFailures.push(
+          'LIFF init must have started in parallel'
+        );
+      } else {
+        resolveLiffInit();
+
+        if (
+          bootPromise &&
+          typeof bootPromise.then === 'function'
+        ) {
+          await bootPromise;
+        }
+
+        // Support background enrichment that is intentionally
+        // not part of the visible public-load promise.
+        await Promise.resolve();
+        await Promise.resolve();
+
+        await new Promise(resolve => {
+          setImmediate(resolve);
+        });
+      }
+
+      const staffRequests =
+        requestBodies.filter(body =>
+          body.accessToken ===
+            'staff-enrichment-token'
+        );
+
+      if (staffRequests.length !== 1) {
+        enrichmentFailures.push(
+          'LIFF readiness must start exactly 1 staff enrichment request for the current month; staffRequests=' +
+            staffRequests.length
+        );
+      }
+
+      if (
+        staffRequests.length === 1 &&
+        publicRequests.length === 1 &&
+        staffRequests[0].month !==
+          publicRequests[0].month
+      ) {
+        enrichmentFailures.push(
+          'staff enrichment must target the same current month as the initial public render'
+        );
+      }
+
+      if (
+        ui.state.full !== true ||
+        ui.state.viewer !== 'Tester'
+      ) {
+        enrichmentFailures.push(
+          'successful staff enrichment must upgrade the visible state; full=' +
+            String(ui.state.full) +
+            ', viewer=' +
+            String(ui.state.viewer)
+        );
+      }
+    } finally {
+      if (resolveLiffInit) {
+        // Safe even when already resolved.
+        resolveLiffInit();
+      }
+
+      if (
+        bootPromise &&
+        typeof bootPromise.then === 'function'
+      ) {
+        try {
+          await bootPromise;
+        } catch (_) {
+          // Assertions above own this contract.
+        }
+      }
+
+      context.CONFIG.SCHEDULE_LIFF_ID =
+        originalLiffId;
+
+      if (originalInit === undefined) {
+        delete context.liff.init;
+      } else {
+        context.liff.init =
+          originalInit;
+      }
+
+      context.liff.isLoggedIn =
+        originalIsLoggedIn;
+
+      context.liff.getAccessToken =
+        originalGetAccessToken;
+
+      ui.state.liffReady = false;
+      ui.state.deadToken = '';
+      ui.state.cache = {};
+      ui.state.viewMonths = null;
+      ui.state.full = false;
+      ui.state.viewer = '';
+      ui.state.mine = false;
+    }
+
+    assert(
+      enrichmentFailures.length === 0,
+      'SCHED-REL-P10C staff enrichment contract failed: ' +
+        enrichmentFailures.join('; ')
+    );
+  }
+
+  // --------------------------------------------------------
+  // SCHED-REL-P10D:
+  //
+  // Staff enrichment is asynchronous. A response belonging
+  // to an OLD month must never mutate or render the month the
+  // user is currently viewing.
+  //
+  // Scenario:
+  //   September staff enrichment starts
+  //   -> user moves to October
+  //   -> September response arrives late
+  //
+  // Contract:
+  // - the request may complete/cache normally
+  // - but stale response must NOT change current full/viewer
+  // - current month must remain October
+  // --------------------------------------------------------
+  {
+    const staleFailures = [];
+
+    const originalIsLoggedIn =
+      context.liff.isLoggedIn;
+
+    const originalGetAccessToken =
+      context.liff.getAccessToken;
+
+    let releaseFetch = null;
+    let requestedBody = null;
+
+    context.liff.isLoggedIn =
+      () => true;
+
+    context.liff.getAccessToken =
+      () => 'stale-race-token';
+
+    ui.state.liffReady = true;
+    ui.state.deadToken = '';
+    ui.state.cache = {};
+    ui.state.viewMonths = {
+      back: 0,
+      fwd: 0,
+    };
+    ui.state.month = '2026-09';
+    ui.state.full = false;
+    ui.state.viewer = '';
+    ui.state.mine = false;
+
+    fetchImpl = async (url, options) => {
+      requestedBody =
+        JSON.parse(options.body);
+
+      return new Promise(resolve => {
+        releaseFetch = () => {
+          resolve({
+            ok: true,
+            status: 200,
+
+            json: async () => ({
+              ok: true,
+              month: '2026-09',
+              full: true,
+              viewer: 'September Tester',
+              viewMonths: {
+                back: 0,
+                fwd: 0,
+              },
+              items: [],
+              leaves: [],
+            }),
+          });
+        };
+      });
+    };
+
+    try {
+      const pending =
+        ui.enrichCurrentMonth_();
+
+      // Allow fetchMonth() to reach the deferred fetch.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      if (!releaseFetch) {
+        staleFailures.push(
+          'staff enrichment must start its request before the race is simulated'
+        );
+      }
+
+      if (
+        !requestedBody ||
+        requestedBody.month !== '2026-09' ||
+        requestedBody.accessToken !==
+          'stale-race-token'
+      ) {
+        staleFailures.push(
+          'race setup must start authenticated September enrichment; body=' +
+            JSON.stringify(requestedBody)
+        );
+      }
+
+      // User navigates away while September enrichment is
+      // still waiting on the backend.
+      ui.state.month = '2026-10';
+
+      // October is currently a public view. The late September
+      // response must not promote this visible state to staff.
+      ui.state.full = false;
+      ui.state.viewer = '';
+
+      if (releaseFetch) {
+        releaseFetch();
+      }
+
+      await pending;
+
+      if (
+        ui.state.month !== '2026-10'
+      ) {
+        staleFailures.push(
+          'late enrichment must never change the current month; month=' +
+            String(ui.state.month)
+        );
+      }
+
+      if (
+        ui.state.full !== false ||
+        ui.state.viewer !== ''
+      ) {
+        staleFailures.push(
+          'late September enrichment must not mutate October mode state; full=' +
+            String(ui.state.full) +
+            ', viewer=' +
+            String(ui.state.viewer)
+        );
+      }
+    } finally {
+      context.liff.isLoggedIn =
+        originalIsLoggedIn;
+
+      context.liff.getAccessToken =
+        originalGetAccessToken;
+
+      ui.state.liffReady = false;
+      ui.state.deadToken = '';
+      ui.state.cache = {};
+      ui.state.viewMonths = null;
+      ui.state.full = false;
+      ui.state.viewer = '';
+      ui.state.mine = false;
+    }
+
+    assert(
+      staleFailures.length === 0,
+      'SCHED-REL-P10D stale enrichment contract failed: ' +
+        staleFailures.join('; ')
+    );
+  }
+
+  // --------------------------------------------------------
+  // SCHED-REL-P10D2:
+  //
+  // Cache mode must follow the RESPONSE visibility, not the
+  // current LIFF state at the instant an async request ends.
+  //
+  // Otherwise:
+  // - a public prefetch started before LIFF readiness can
+  //   finish afterward and poison the _full cache
+  // - a staff request that temporarily degrades to public
+  //   (LINE_UNAVAILABLE, etc.) can be cached as _full and
+  //   prevent later staff recovery
+  // --------------------------------------------------------
+  {
+    const cacheRaceFailures = [];
+
+    const originalIsLoggedIn =
+      context.liff.isLoggedIn;
+
+    const originalGetAccessToken =
+      context.liff.getAccessToken;
+
+    context.liff.isLoggedIn =
+      () => true;
+
+    context.liff.getAccessToken =
+      () => 'cache-race-token';
+
+    try {
+      // ----------------------------------------------------
+      // Case 1:
+      // Public request starts before LIFF readiness and
+      // completes after LIFF becomes ready.
+      // It must remain in the _pub cache.
+      // ----------------------------------------------------
+      {
+        ui.state.liffReady = false;
+        ui.state.deadToken = '';
+        ui.state.cache = {};
+
+        let releaseFetch = null;
+
+        fetchImpl = async () =>
+          new Promise(resolve => {
+            releaseFetch = () => {
+              resolve({
+                ok: true,
+                status: 200,
+
+                json: async () => ({
+                  ok: true,
+                  month: '2026-11',
+                  full: false,
+                  viewMonths: {
+                    back: 0,
+                    fwd: 0,
+                  },
+                  items: [],
+                  leaves: [],
+                }),
+              });
+            };
+          });
+
+        const pending =
+          ui.fetchMonth('2026-11');
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        if (!releaseFetch) {
+          cacheRaceFailures.push(
+            'public cache-race request must start before LIFF state changes'
+          );
+        }
+
+        // LIFF becomes ready while the public request is in flight.
+        ui.state.liffReady = true;
+
+        if (releaseFetch) {
+          releaseFetch();
+        }
+
+        await pending;
+
+        if (
+          !ui.state.cache[
+            '2026-11_pub'
+          ]
+        ) {
+          cacheRaceFailures.push(
+            'public response crossing LIFF readiness must be stored under _pub'
+          );
+        }
+
+        if (
+          ui.state.cache[
+            '2026-11_full'
+          ]
+        ) {
+          cacheRaceFailures.push(
+            'public response crossing LIFF readiness must not poison _full cache'
+          );
+        }
+      }
+
+      // ----------------------------------------------------
+      // Case 2:
+      // Authenticated request temporarily falls back to
+      // public data. Because full=false, cache must be _pub
+      // so a future staff request can try again.
+      // ----------------------------------------------------
+      {
+        ui.state.liffReady = true;
+        ui.state.deadToken = '';
+        ui.state.cache = {};
+
+        fetchImpl = async () => ({
+          ok: true,
+          status: 200,
+
+          json: async () => ({
+            ok: true,
+            month: '2026-12',
+            full: false,
+            authCode:
+              'LINE_UNAVAILABLE',
+            viewMonths: {
+              back: 0,
+              fwd: 0,
+            },
+            items: [],
+            leaves: [],
+          }),
+        });
+
+        await ui.fetchMonth(
+          '2026-12'
+        );
+
+        if (
+          !ui.state.cache[
+            '2026-12_pub'
+          ]
+        ) {
+          cacheRaceFailures.push(
+            'temporary authenticated fallback with full=false must be cached as _pub'
+          );
+        }
+
+        if (
+          ui.state.cache[
+            '2026-12_full'
+          ]
+        ) {
+          cacheRaceFailures.push(
+            'temporary authenticated fallback must not poison _full cache'
+          );
+        }
+
+        if (
+          ui.state.deadToken !== ''
+        ) {
+          cacheRaceFailures.push(
+            'LINE_UNAVAILABLE must not mark the credential dead'
+          );
+        }
+      }
+    } finally {
+      context.liff.isLoggedIn =
+        originalIsLoggedIn;
+
+      context.liff.getAccessToken =
+        originalGetAccessToken;
+
+      ui.state.liffReady = false;
+      ui.state.deadToken = '';
+      ui.state.cache = {};
+      ui.state.viewMonths = null;
+      ui.state.full = false;
+      ui.state.viewer = '';
+      ui.state.mine = false;
+    }
+
+    assert(
+      cacheRaceFailures.length === 0,
+      'SCHED-REL-P10D2 cache-mode race contract failed: ' +
+        cacheRaceFailures.join('; ')
+    );
+  }
 
   // --------------------------------------------------------
   // SCHED-REL-P03A:
