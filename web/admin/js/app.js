@@ -98,13 +98,30 @@ const App = {
     } catch (e) {
       const unauthorized = e && e.code === 'UNAUTHORIZED';
       if (unauthorized && (e.message || '').indexOf('หมดอายุ') !== -1) {
-        // เซสชัน LINE หมดอายุ (token LIFF อายุ 12 ชม.) — ล้างตัวเก่าแล้วขอใหม่ให้เองเลย
-        // ผู้ใช้กดปุ่มครั้งเดียว ไม่ต้องมากดซ้ำหลังเจอ error (pattern หน้าตารางงาน)
-        try { liff.logout(); } catch (_) { /* ไปต่อได้ */ }
-        // ในแอป LINE ห้ามเรียก liff.login() (เอกสาร LINE) — รีโหลดให้ init ออก token ใหม่แทน (ทั้งโหมด auto/manual)
-        if (typeof liff.isInClient === 'function' && liff.isInClient()) { location.reload(); return; }
+        // ในแอป LINE ให้ reload โดยตรงเพื่อให้ LIFF init/session ออก token สด
+        // ห้าม logout ก่อน reload เพราะจะทำลาย LINE-client session ที่กำลังใช้ฟื้นตัว
+        if (
+          typeof liff.isInClient === 'function' &&
+          liff.isInClient()
+        ) {
+          location.reload();
+          return;
+        }
+
+        // external browser เท่านั้น: ทิ้ง credential เดิมก่อนเริ่ม login ใหม่
+        try {
+          liff.logout();
+        } catch (_) {
+          /* ไปต่อได้ */
+        }
+
         if (!auto) {
-          try { liff.login(); return; } catch (_) { /* redirect ไม่เกิด — ไปแสดง notice ด้านล่างต่อ */ }
+          try {
+            liff.login();
+            return;
+          } catch (_) {
+            /* redirect ไม่เกิด — ไปแสดง notice ด้านล่างต่อ */
+          }
         }
       }
       if (unauthorized && notice) {
@@ -150,6 +167,10 @@ const App = {
   },
 
   showLogin(message) {
+    // ออกจาก application shell = render ที่กำลัง await อยู่ต้องหมดสิทธิ์เขียน DOM
+    // renderRoute() ทุกตัวถือ seq ของตัวเอง ดังนั้นเพิ่มค่าเพียงครั้งเดียวก็ทำให้ของเก่า stale ทันที
+    this._renderSeq += 1;
+
     UI.$('appShell').classList.add('hidden');
     UI.$('loginView').classList.remove('hidden');
     if (message) {
@@ -193,11 +214,43 @@ const App = {
       await view.render(root, isStale);
     } catch (err) {
       if (isStale()) return; // error ของ render ที่ตายไปแล้ว — ไม่ต้องแสดง
-      // view โหลดไม่ได้ (เช่นเครือข่ายหลุด) — แสดงจุดว่าง + toast แทนหน้าดำ
-      root.innerHTML =
-        '<div class="bg-white border border-slate-200 rounded-2xl p-8 text-center text-slate-500 text-sm">' +
-        UI.escapeHtml(err.message) + '</div>';
-      UI.showToast(err.message, true);
+
+      // view โหลดไม่ได้ (เช่นเครือข่ายหลุด) — ให้ผู้ใช้ลองใหม่ใน route เดิมได้
+      // โดยไม่ reload ทั้ง SPA; renderRoute() รอบใหม่จะเพิ่ม _renderSeq เอง
+      root.innerHTML = '';
+
+      const card = UI.el(
+        'div',
+        'bg-white border border-slate-200 rounded-2xl p-8 text-center'
+      );
+
+      const message = UI.el(
+        'p',
+        'text-slate-500 text-sm',
+        err.message || 'โหลดข้อมูลไม่สำเร็จ'
+      );
+
+      const retry = UI.el(
+        'button',
+        'ui-btn-primary mt-4',
+        'ลองใหม่'
+      );
+
+      retry.type = 'button';
+      retry.dataset.role = 'admin-route-retry';
+
+      retry.addEventListener('click', function () {
+        return App.renderRoute();
+      });
+
+      card.appendChild(message);
+      card.appendChild(retry);
+      root.appendChild(card);
+
+      UI.showToast(
+        err.message || 'โหลดข้อมูลไม่สำเร็จ',
+        true
+      );
     }
   },
 };
