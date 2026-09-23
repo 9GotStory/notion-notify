@@ -201,7 +201,10 @@
     </div>
     <p id="mineSuccess" role="status" aria-live="polite" class="ui-alert ui-alert-success hidden mb-4"></p>
     <p id="mineActionStatus" role="status" aria-live="polite" class="ui-alert ui-alert-info hidden mb-4"></p>
-    <p id="mineError" class="ui-alert ui-alert-danger hidden mb-4"></p>
+    <p id="mineError" class="ui-alert ui-alert-danger hidden mb-3"></p>
+    <button id="mineRetry" type="button" class="ui-btn-primary hidden w-full mb-4">
+      ลองอีกครั้ง
+    </button>
     <p id="mineEmpty" class="hidden text-sm text-slate-500 bg-white border border-slate-200 rounded-2xl p-6 text-center">
       ยังไม่มีใบลาในช่วงปีที่แสดง — กดแท็บ "ยื่นลา" เพื่อยื่นใบแรก</p>
     <div id="mineList"></div>
@@ -214,6 +217,9 @@
     </header>
     <div id="approvalLoading" class="hidden py-10 text-center text-sm text-slate-500">กำลังโหลด…</div>
     <p id="approvalError" class="ui-alert ui-alert-danger hidden mb-3"></p>
+    <button id="approvalRetry" type="button" class="ui-btn-primary hidden w-full mb-3">
+      ลองอีกครั้ง
+    </button>
     <div id="approvalList"></div>
   </section>
 
@@ -415,48 +421,194 @@
       showError('เข้าสู่ระบบใหม่หลายครั้งแล้วยังไม่สำเร็จ — ลองปิดหน้านี้แล้วเปิดลิงก์ใหม่ หรือติดต่อผู้ดูแลระบบ');
       return;
     }
-    try { if (liff.isLoggedIn()) liff.logout(); } catch (err) { /* ไปต่อได้ */ }
     if (typeof liff.isInClient === 'function' && liff.isInClient()) {
+      // ใน LINE client อย่าทำลาย session ก่อน reload:
+      // ให้ LIFF init รอบใหม่ออก token/session สดจาก context เดิม
       location.reload();
-    } else {
-      liff.login(); // นำทางออกจากหน้านี้ไปหน้า login ของ LINE
+      return;
     }
+
+    // external browser เท่านั้นที่ล้าง session เดิมก่อนพาไป login ใหม่
+    try { if (liff.isLoggedIn()) liff.logout(); } catch (err) { /* ไปต่อได้ */ }
+    liff.login(); // นำทางออกจากหน้านี้ไปหน้า login ของ LINE
+  }
+
+  const SAFE_READ_ACTIONS = new Set([
+    'session',
+    'calendar',
+    'myLeaves',
+    'approvalQueue',
+  ]);
+
+  const SAFE_READ_RETRY_DELAYS_MS = [
+    250,
+    500,
+  ];
+
+  function waitForApiRetry_(delayMs) {
+    return new Promise(resolve => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+
+  function isRetryableApiError_(error) {
+    if (!error) return false;
+
+    if (
+      error.code === 'LINE_UNAVAILABLE' ||
+      error.code === 'UPSTREAM_ERROR' ||
+      error.code === 'NETWORK_ERROR' ||
+      error.code === 'NETWORK_TIMEOUT'
+    ) {
+      return true;
+    }
+
+    const status = Number(error.status);
+
+    return (
+      status === 408 ||
+      status === 429 ||
+      (status >= 500 && status <= 599)
+    );
   }
 
   async function api(action, extra) {
     const accessToken = liff.getAccessToken();
+
     if (!accessToken) {
       // token หาย/หมดอายุ — ขอใหม่เองแทนการแสดง error ให้ผู้ใช้ต้องปิด-เปิดหน้าใหม่เอง
       // (relogin_ จะนำทางออกจากหน้านี้ ข้อความนี้โชว์เฉพาะกรณีนำทางไม่สำเร็จ)
       relogin_();
       throw new Error('กำลังเข้าสู่ระบบใหม่ กรุณารอสักครู่');
     }
-    let res;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    try {
-      // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight (Apps Script ตอบ OPTIONS ไม่ได้)
-      // และย้ายข้อมูลทั้งหมดรวมถึง accessToken ออกจาก URL — URL พกข้อมูลรับรองไม่ได้ (ติด log/ถูกส่งต่อ)
-      res = await fetch(CONFIG.API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(Object.assign(
-          { apiAction: action, accessToken: accessToken }, extra || {})),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      throw new Error(err && err.name === 'AbortError'
-        ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
-        : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง');
-    } finally {
-      clearTimeout(timeout);
+
+    // ทุก action ใช้ HTTP POST เพื่อหลีกเลี่ยง CORS preflight ของ Apps Script
+    // จึงห้ามใช้ HTTP method ตัดสิน retry safety
+    //
+    // retry ได้เฉพาะ action ที่เป็น safe/idempotent read เท่านั้น
+    // mutation ทุกชนิดคงไว้ที่ 1 attempt เพื่อป้องกัน write ซ้ำเมื่อ
+    // server ทำงานสำเร็จแต่ response หายระหว่างทาง
+    const safeRead =
+      SAFE_READ_ACTIONS.has(action);
+
+    const maxAttempts =
+      safeRead ? 3 : 1;
+
+    for (
+      let attempt = 1;
+      attempt <= maxAttempts;
+      attempt += 1
+    ) {
+      try {
+        let res;
+
+        const controller =
+          new AbortController();
+
+        const timeout =
+          setTimeout(
+            () => controller.abort(),
+            20000
+          );
+
+        try {
+          // POST แบบ text/plain = "simple request" ไม่เกิด CORS preflight
+          // และย้ายข้อมูลทั้งหมดรวมถึง accessToken ออกจาก URL
+          res = await fetch(
+            CONFIG.API_URL,
+            {
+              method: 'POST',
+
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+
+              body: JSON.stringify(
+                Object.assign(
+                  {
+                    apiAction: action,
+                    accessToken: accessToken,
+                  },
+                  extra || {}
+                )
+              ),
+
+              signal: controller.signal,
+            }
+          );
+        } catch (fetchError) {
+          const error =
+            new Error(
+              fetchError &&
+              fetchError.name ===
+                'AbortError'
+                ? 'ระบบใช้เวลาตอบกลับนานเกินไป กรุณาลองอีกครั้ง'
+                : 'เชื่อมต่อระบบไม่สำเร็จ ตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง'
+            );
+
+          error.code =
+            fetchError &&
+            fetchError.name ===
+              'AbortError'
+              ? 'NETWORK_TIMEOUT'
+              : 'NETWORK_ERROR';
+
+          throw error;
+        } finally {
+          clearTimeout(timeout);
+        }
+
+        let data = null;
+
+        try {
+          data = await res.json();
+        } catch (parseError) {
+          // ตกไปที่ public transport error ด้านล่าง
+        }
+
+        if (
+          !res.ok ||
+          !data ||
+          data.ok === false
+        ) {
+          const error =
+            new Error(
+              (data && data.error) ||
+              'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง'
+            );
+
+          if (data && data.code) {
+            error.code = data.code;
+          }
+
+          if (!res.ok) {
+            error.status = res.status;
+          }
+
+          throw error;
+        }
+
+        return data;
+      } catch (error) {
+        const canRetry =
+          safeRead &&
+          attempt < maxAttempts &&
+          isRetryableApiError_(error);
+
+        if (!canRetry) {
+          throw error;
+        }
+
+        await waitForApiRetry_(
+          SAFE_READ_RETRY_DELAYS_MS[
+            attempt - 1
+          ]
+        );
+      }
     }
-    let data = null;
-    try { data = await res.json(); } catch (err) { /* ตกไปที่ข้อความ error ด้านล่าง */ }
-    if (!res.ok || !data || data.ok === false) {
-      throw new Error((data && data.error) || 'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง');
-    }
-    return data;
+
+    // defensive guard — loop ข้างบนต้อง return หรือ throw เสมอ
+    throw new Error(
+      'เชื่อมต่อระบบไม่สำเร็จ ลองอีกครั้ง'
+    );
   }
 
   function showError(message) {
@@ -725,6 +877,10 @@
     const errEl = $('mineError');
     errEl.textContent = state.mine.error;
     errEl.classList.toggle('hidden', !hasError);
+    $('mineRetry').classList.toggle(
+      'hidden',
+      !hasError || state.mine.loading
+    );
     $('mineLoading').classList.toggle('hidden', !state.mine.loading);
     const actionStatus = $('mineActionStatus');
     actionStatus.textContent = state.mine.pendingPageId
@@ -796,6 +952,10 @@
     $('approvalLoading').classList.toggle('hidden', !state.approvals.loading);
     $('approvalError').textContent = state.approvals.error;
     $('approvalError').classList.toggle('hidden', !state.approvals.error);
+    $('approvalRetry').classList.toggle(
+      'hidden',
+      !state.approvals.error || state.approvals.loading
+    );
     if (state.approvals.loading || state.approvals.error) { $('approvalList').innerHTML = ''; return; }
     const leaves = state.approvals.leaves || [];
     if (!leaves.length) {
@@ -855,6 +1015,10 @@
     state.leaveType = leave.leaveType; // prefill ก่อน renderTypeGrid เพื่อไฮไลต์ปุ่มประเภทให้ถูกใบ
     showForm();
   }
+
+  $('mineRetry').addEventListener('click', () => loadMyLeaves_());
+
+  $('approvalRetry').addEventListener('click', () => loadApprovalQueue_());
 
   document.querySelectorAll('.main-tab').forEach(btn => {
     btn.addEventListener('click', () => {
