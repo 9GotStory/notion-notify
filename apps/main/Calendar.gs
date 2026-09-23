@@ -233,6 +233,32 @@ function getItemsForAssigneeInRange_(settings, firstName, fromStr, toStr) {
     .filter(item => assigneeMatches_(item.assignees, firstName));
 }
 
+function scheduleAuthFallbackCode_(err) {
+  const publicCode = String((err && err.publicCode) || '');
+
+  if (
+    publicCode === 'LINE_UNAVAILABLE' ||
+    publicCode === 'UNCONFIGURED'
+  ) {
+    return publicCode;
+  }
+
+  const message = String(
+    (err && err.message) || ''
+  );
+
+  if (
+    /เซสชันหมดอายุ|ไม่สามารถยืนยันตัวตนได้|อ่านข้อมูลโปรไฟล์ LINE ไม่สำเร็จ/.test(message)
+  ) {
+    return 'UNAUTHORIZED';
+  }
+
+  // Error อื่นในเส้นทาง auth/roster ไม่ควรถูกเหมารวมว่า token ตาย
+  // schedule ยัง degrade เป็น public-first ได้ตามเดิม แต่บอกเหตุผล
+  // ให้ client ตัดสินได้โดยไม่เปิดเผยรายละเอียดภายใน
+  return 'UPSTREAM_ERROR';
+}
+
 function apiSchedule_(body) {
   const month = String((body && body.month) || '').trim();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
@@ -243,6 +269,7 @@ function apiSchedule_(body) {
   // ตรวจก่อนเพราะ "วงเดือนที่ดูได้" ขึ้นกับโหมด / token หมดอายุ-ไม่ถูกต้อง → เงียบๆ ให้ดูแบบสาธารณะไปก่อน
   let full = false;
   let viewer = '';
+  let authCode = '';
   let roster = null; // เก็บไว้ส่งต่อให้ส่วนดึงใบลา — ไม่ต้องอ่านชีตซ้ำ (และพ้นช่วงที่อ่านได้แล้วตอนตรวจ token)
   const token = String((body && body.accessToken) || '').trim();
   if (token) {
@@ -254,8 +281,14 @@ function apiSchedule_(body) {
         full = true;
         // ชื่อต้นของผู้ดู — key เดียวกับผู้รับผิดชอบใน Notion ให้หน้าเว็บกรอง "เฉพาะงานที่ฉันรับผิดชอบ"
         viewer = staff.firstName;
+      } else {
+        authCode = 'UNREGISTERED';
       }
-    } catch (err) { /* ไม่มี token ที่ใช้ได้ → โหมดสาธารณะ */ }
+    } catch (err) {
+      // schedule เป็น public-first: auth ตรวจไม่ผ่านยังดูข้อมูลสาธารณะได้
+      // แต่ต้องรักษาเหตุผลไว้ให้ client แยก token ตายออกจาก outage/config failure
+      authCode = scheduleAuthFallbackCode_(err);
+    }
   }
 
   const currentMonth = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM');
@@ -282,6 +315,7 @@ function apiSchedule_(body) {
       // viewer เป็นข้อมูลรายบุคคล — cache โหมดเต็มแชร์กันทุกเจ้าหน้าที่ จึงต่อชื่อตอนคืนค่า ไม่เก็บลง cache
       const result = JSON.parse(cached);
       if (viewer) result.viewer = viewer;
+      if (authCode) result.authCode = authCode;
       return result;
     } catch (err) { /* ค่าใน cache เสีย → ดึงใหม่ด้านล่าง */ }
   }
@@ -362,6 +396,7 @@ function apiSchedule_(body) {
   // เหตุผลเดียวกับด้านบน: cache เก็บข้อมูลตารางรวมได้ แต่ชื่อผู้ดูต่อท้ายตอนคืนค่าเท่านั้น
   try { cache.put(cacheKey, JSON.stringify(result), 300); } catch (err) { /* เกินขนาด cache → ข้าม */ }
   if (viewer) result.viewer = viewer;
+  if (authCode) result.authCode = authCode;
   return result;
 }
 
