@@ -62,10 +62,24 @@ function checkDirectModeContracts() {
     },
     {
       // เฟส 3: หน้าผู้ดูแลส่ง API แบบ POST body JSON เหมือนหน้าอื่น — token ห้ามติด URL
+      // runtime reliability: retry ได้เฉพาะ logical safe-read actions; write ยัง single-attempt
       file: 'web/admin/js/api.js',
-      required: ['this._fetchAt(ADMIN_CONFIG.API_URL',
-        'ADMIN_CONFIG.MAIN_API_URL', "method: 'POST'",
-        "'Content-Type': 'text/plain;charset=utf-8'", 'sessionStorage'],
+      required: [
+        'return this._fetchAt(',
+        'ADMIN_CONFIG.API_URL',
+        'ADMIN_CONFIG.MAIN_API_URL',
+        "method: 'POST'",
+        "'Content-Type':",
+        "'text/plain;charset=utf-8'",
+        'sessionStorage',
+        'ADMIN_SAFE_READ_ACTIONS',
+        'MAIN_SAFE_READ_ACTIONS',
+        'retryTransient: ADMIN_SAFE_READ_ACTIONS.has(action)',
+        'retryTransient: MAIN_SAFE_READ_ACTIONS.has(action)',
+        'ADMIN_READ_RETRY_DELAYS_MS',
+        "_isRetryableTransportError(error)",
+        "_isRetryableDataResponse(data)",
+      ],
       forbidden: ["'/api/admin'", 'new URLSearchParams'],
     },
     {
