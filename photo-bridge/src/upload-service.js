@@ -77,6 +77,406 @@ export class UploadService {
     }
   }
 
+  async uploadToDraftActivity(input) {
+    const topic =
+      String(input?.topic || '')
+        .trim()
+        .normalize('NFC');
+
+    const year =
+      String(input?.year || '')
+        .trim();
+
+    const activityName =
+      String(
+        input?.activityName || ''
+      )
+        .trim()
+        .normalize('NFC');
+
+    if (!isValidBuddhistYear(year)) {
+      throw new ArchiveInputError(
+        'Buddhist year must be four digits'
+      );
+    }
+
+    if (
+      !isValidActivityName(
+        activityName
+      )
+    ) {
+      throw new ArchiveInputError(
+        'Invalid activity folder name'
+      );
+    }
+
+    if (
+      activityName.slice(0, 4) !==
+      year
+    ) {
+      throw new ArchiveInputError(
+        'Activity year does not match selected year'
+      );
+    }
+
+    // Bytes are validated before any WebDAV write.
+    const validated =
+      validateImageUpload(
+        input?.filename,
+        input?.content
+      );
+
+    // Only resolve an already-existing canonical topic.
+    const selected =
+      await this.archiveService
+        .resolveActivityTopic(topic);
+
+    const now =
+      this.clock();
+
+    if (
+      !(now instanceof Date) ||
+      Number.isNaN(now.getTime())
+    ) {
+      throw new Error(
+        'UploadService clock returned invalid date'
+      );
+    }
+
+    const timestamp =
+      now
+        .toISOString()
+        .replace(/[-:]/gu, '')
+        .replace(/\.\d{3}Z$/u, 'Z');
+
+    const suffix =
+      String(this.idFactory())
+        .replace(
+          /[^A-Za-z0-9_-]/gu,
+          ''
+        )
+        .slice(0, 16);
+
+    if (!suffix) {
+      throw new Error(
+        'UploadService generated invalid identifier'
+      );
+    }
+
+    // Everything below stagingRoot belongs only to this request.
+    //
+    // It is deliberately outside the canonical year hierarchy,
+    // so incomplete work is never exposed as an activity.
+    const stagingName =
+      `__PHOTO_DRAFT__${timestamp}_${suffix}`;
+
+    const stagingRoot =
+      `${selected.path}/${stagingName}`;
+
+    const stagingActivity =
+      `${stagingRoot}/${activityName}`;
+
+    const stagedFile =
+      `${stagingActivity}/${validated.filename}`;
+
+    const yearPath =
+      `${selected.path}/${year}`;
+
+    const activityPath =
+      `${yearPath}/${activityName}`;
+
+    const destination =
+      `${activityPath}/${validated.filename}`;
+
+    let ownsStagingRoot =
+      false;
+
+    const attachCleanupError_ = (
+      authorityError,
+      cleanupError
+    ) => {
+      if (
+        !authorityError ||
+        typeof authorityError !==
+          'object'
+      ) {
+        return;
+      }
+
+      authorityError.rollbackErrors = [
+        ...(
+          Array.isArray(
+            authorityError.rollbackErrors
+          )
+            ? authorityError.rollbackErrors
+            : []
+        ),
+        cleanupError,
+      ];
+    };
+
+    const cleanupStaging_ =
+      async (
+        authorityError = null
+      ) => {
+        if (!ownsStagingRoot) {
+          return;
+        }
+
+        try {
+          await this.dav.delete(
+            stagingRoot
+          );
+
+          ownsStagingRoot =
+            false;
+        } catch (cleanupError) {
+          if (
+            cleanupError instanceof
+              WebDavError &&
+            cleanupError.statusCode ===
+              404
+          ) {
+            ownsStagingRoot =
+              false;
+
+            return;
+          }
+
+          // Cleanup failure must never replace the operation
+          // error. After successful canonical publish it is also
+          // non-fatal: only a reserved request-owned staging
+          // collection may remain.
+          if (authorityError) {
+            attachCleanupError_(
+              authorityError,
+              cleanupError
+            );
+          }
+        }
+      };
+
+    const isDestinationExists_ =
+      (error) =>
+        error instanceof
+          WebDavError &&
+        error.statusCode ===
+          412;
+
+    // --------------------------------------------------------
+    // Stage a complete activity tree first.
+    //
+    // canonical year/activity folders are still untouched.
+    // --------------------------------------------------------
+
+    try {
+      await this.dav.createFolder(
+        stagingRoot
+      );
+
+      ownsStagingRoot =
+        true;
+
+      await this.dav.createFolder(
+        stagingActivity
+      );
+
+      await this.putImage(
+        stagedFile,
+        input.content,
+        validated.mime
+      );
+    } catch (error) {
+      await cleanupStaging_(
+        error
+      );
+
+      throw error;
+    }
+
+    // --------------------------------------------------------
+    // Publish attempt #1:
+    //
+    // If the Buddhist-year folder does not exist, moving the
+    // complete request-owned staging tree to the year path
+    // atomically materializes:
+    //
+    //   year/activity/file
+    //
+    // A failed MOVE therefore cannot expose an empty activity.
+    // --------------------------------------------------------
+
+    try {
+      await this.dav.move(
+        stagingRoot,
+        yearPath,
+        {
+          overwrite: false,
+        }
+      );
+
+      ownsStagingRoot =
+        false;
+
+      return {
+        created: true,
+        yearCreated: true,
+
+        activity: {
+          name:
+            activityName,
+          path:
+            activityPath,
+        },
+
+        file: {
+          name:
+            validated.filename,
+          path:
+            destination,
+          mime:
+            validated.mime,
+          size:
+            validated.size,
+        },
+      };
+    } catch (error) {
+      if (
+        !isDestinationExists_(
+          error
+        )
+      ) {
+        await cleanupStaging_(
+          error
+        );
+
+        throw error;
+      }
+    }
+
+    // --------------------------------------------------------
+    // Publish attempt #2:
+    //
+    // Year already exists (including a concurrent creator).
+    // MOVE the complete activity collection atomically.
+    // --------------------------------------------------------
+
+    try {
+      await this.dav.move(
+        stagingActivity,
+        activityPath,
+        {
+          overwrite: false,
+        }
+      );
+
+      // stagingRoot is now empty and remains request-owned.
+      await cleanupStaging_();
+
+      return {
+        created: true,
+        yearCreated: false,
+
+        activity: {
+          name:
+            activityName,
+          path:
+            activityPath,
+        },
+
+        file: {
+          name:
+            validated.filename,
+          path:
+            destination,
+          mime:
+            validated.mime,
+          size:
+            validated.size,
+        },
+      };
+    } catch (error) {
+      if (
+        !isDestinationExists_(
+          error
+        )
+      ) {
+        await cleanupStaging_(
+          error
+        );
+
+        throw error;
+      }
+    }
+
+    // --------------------------------------------------------
+    // Publish attempt #3:
+    //
+    // Activity also exists, which can happen when another
+    // request materialized the same activity concurrently.
+    //
+    // Publish only this staged file. Overwrite remains disabled.
+    // --------------------------------------------------------
+
+    try {
+      await this.dav.move(
+        stagedFile,
+        destination,
+        {
+          overwrite: false,
+        }
+      );
+    } catch (error) {
+      let authorityError =
+        error;
+
+      if (
+        isDestinationExists_(
+          error
+        )
+      ) {
+        authorityError =
+          new UploadConflictError(
+            'A file with this name already exists'
+          );
+      }
+
+      await cleanupStaging_(
+        authorityError
+      );
+
+      throw authorityError;
+    }
+
+    // stagingActivity/stagingRoot are now empty.
+    // Cleanup is best-effort and cannot invalidate a successful
+    // canonical file publish.
+    await cleanupStaging_();
+
+    return {
+      created: false,
+      yearCreated: false,
+
+      activity: {
+        name:
+          activityName,
+        path:
+          activityPath,
+      },
+
+      file: {
+        name:
+          validated.filename,
+        path:
+          destination,
+        mime:
+          validated.mime,
+        size:
+          validated.size,
+      },
+    };
+  }
+
   async uploadToActivity(input) {
     const topic = String(input?.topic || '')
       .trim()

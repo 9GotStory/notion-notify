@@ -430,6 +430,152 @@ test('authenticated user can upload to activity', async () => {
   assert.equal(result.body.file.name, 'photo.jpg');
 });
 
+test('authenticated user can upload to draft activity', async () => {
+  const activityName =
+    '2569-09-23_กิจกรรมใหม่';
+
+  const activityPath =
+    '80_งานกิจกรรมกลาง/2569/' +
+    activityName;
+
+  const uploadContext = {
+    ...context,
+
+    uploadService: {
+      async uploadToDraftActivity(input) {
+        assert.equal(
+          input.topic,
+          '80_งานกิจกรรมกลาง'
+        );
+
+        assert.equal(
+          input.year,
+          '2569'
+        );
+
+        assert.equal(
+          input.activityName,
+          activityName
+        );
+
+        assert.equal(
+          input.filename,
+          'photo.png'
+        );
+
+        assert.equal(
+          Buffer.isBuffer(input.content),
+          true
+        );
+
+        return {
+          created: true,
+          yearCreated: true,
+
+          activity: {
+            name: activityName,
+            path: activityPath,
+          },
+
+          file: {
+            name: 'photo.jpg',
+            path:
+              activityPath +
+              '/photo.jpg',
+            mime: 'image/jpeg',
+            size:
+              input.content.length,
+          },
+        };
+      },
+    },
+  };
+
+  const req = request(
+    '/v1/draft-activity/uploads?' +
+      'topic=' +
+      encodeURIComponent(
+        '80_งานกิจกรรมกลาง'
+      ) +
+      '&year=2569' +
+      '&activity=' +
+      encodeURIComponent(
+        activityName
+      ) +
+      '&filename=' +
+      encodeURIComponent(
+        'photo.png'
+      ),
+    ticket()
+  );
+
+  req.method = 'POST';
+
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result =
+    await handleHttpRequest(
+      req,
+      uploadContext
+    );
+
+  assert.equal(
+    result.status,
+    201
+  );
+
+  assert.equal(
+    result.body.created,
+    true
+  );
+
+  assert.equal(
+    result.body.yearCreated,
+    true
+  );
+
+  assert.equal(
+    result.body.activity.name,
+    activityName
+  );
+
+  assert.equal(
+    result.body.file.name,
+    'photo.jpg'
+  );
+});
+
+
+test('draft activity upload requires authentication', async () => {
+  const req = request(
+    '/v1/draft-activity/uploads?' +
+      'topic=x' +
+      '&year=2569' +
+      '&activity=x' +
+      '&filename=photo.jpg'
+  );
+
+  req.method = 'POST';
+
+  req.body = Buffer.from([
+    0xff, 0xd8, 0xff,
+  ]);
+
+  const result =
+    await handleHttpRequest(
+      req,
+      context
+    );
+
+  assert.equal(
+    result.status,
+    401
+  );
+});
+
+
 test('upload requires authentication', async () => {
   const req = request(
     '/v1/uploads?topic=x&year=2569',

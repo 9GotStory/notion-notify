@@ -272,7 +272,7 @@
               class="hidden mt-4 space-y-4"
             >
               <p class="ui-help">
-                ใช้เมื่อยังไม่พบกิจกรรมที่ต้องการ
+                กรอกข้อมูลกิจกรรมใหม่ ระบบจะสร้างโฟลเดอร์เมื่ออัปโหลดภาพสำเร็จ
               </p>
 
               <div>
@@ -351,7 +351,7 @@
                   type="button"
                   class="ui-btn-primary min-h-11 w-full"
                 >
-                  สร้างและเลือก
+                  ใช้กิจกรรมนี้
                 </button>
               </div>
 
@@ -2751,6 +2751,150 @@
     const MAX_UPLOAD_BYTES =
       25 * 1024 * 1024;
 
+    function sameDraftDestination_(
+      candidate,
+      draft
+    ) {
+      return Boolean(
+        candidate &&
+        draft &&
+        candidate.type ===
+          'activity' &&
+        candidate.draft ===
+          true &&
+        candidate.topic ===
+          draft.topic &&
+        candidate.year ===
+          draft.year &&
+        candidate.activity ===
+          draft.activity
+      );
+    }
+
+    function promoteDraftDestination_(
+      draftDestination,
+      result
+    ) {
+      if (
+        !draftDestination ||
+        draftDestination.type !==
+          'activity' ||
+        draftDestination.draft !==
+          true
+      ) {
+        return draftDestination;
+      }
+
+      const activity =
+        result &&
+        result.activity;
+
+      if (
+        !activity ||
+        typeof activity.name !==
+          'string' ||
+        !activity.name ||
+        typeof activity.path !==
+          'string' ||
+        !activity.path
+      ) {
+        throw new Error(
+          'รูปแบบข้อมูลกิจกรรมที่ได้รับไม่ถูกต้อง'
+        );
+      }
+
+      // เก็บ identity ของ draft ก่อน mutate snapshot
+      // เพื่อใช้ตรวจว่า live UI ยังชี้ draft เดิมอยู่หรือไม่
+      const draftIdentity = {
+        type: 'activity',
+        draft: true,
+        topic:
+          draftDestination.topic,
+        year:
+          draftDestination.year,
+        activity:
+          draftDestination.activity,
+      };
+
+      const promoted = {
+        type: 'activity',
+
+        topic:
+          draftDestination.topic,
+
+        year:
+          draftDestination.year,
+
+        activity:
+          activity.name,
+
+        path:
+          activity.path,
+      };
+
+      // Snapshot ของ batch ต้อง promote ทันที
+      // เพื่อให้ไฟล์ถัดไปใช้ /v1/uploads ปกติ
+      Object.assign(
+        draftDestination,
+        promoted
+      );
+
+      delete draftDestination.draft;
+
+      // หากผู้ใช้ยังอยู่ที่ draft เดิม
+      // จึงค่อย promote live UI state
+      //
+      // ถ้าระหว่าง upload มีการเปลี่ยน destination
+      // ห้ามเขียนทับ context ใหม่ของผู้ใช้
+      if (
+        sameDraftDestination_(
+          state.destination,
+          draftIdentity
+        )
+      ) {
+        state.selectedActivity = {
+          name:
+            activity.name,
+
+          path:
+            activity.path,
+        };
+
+        state.destination =
+          Object.assign(
+            {},
+            promoted
+          );
+
+        state.activities = [
+          {
+            name:
+              activity.name,
+
+            path:
+              activity.path,
+          },
+
+          ...state.activities.filter(
+            item =>
+              item &&
+              item.name !==
+                activity.name
+          ),
+        ].sort(
+          (left, right) =>
+            right.name.localeCompare(
+              left.name,
+              'th'
+            )
+        );
+
+        renderDestinationState_();
+      }
+
+      return promoted;
+    }
+
     function uploadUrlForFile_(
       file,
       destination
@@ -2791,8 +2935,13 @@
         target.type ===
           'activity'
       ) {
+        const endpoint =
+          target.draft === true
+            ? '/v1/draft-activity/uploads'
+            : '/v1/uploads';
+
         return (
-          '/v1/uploads' +
+          endpoint +
           '?topic=' +
           encodeURIComponent(
             target.topic
@@ -2974,6 +3123,23 @@
             ) {
               throw new Error(
                 'รูปแบบข้อมูลไฟล์ที่ได้รับไม่ถูกต้อง'
+              );
+            }
+
+            // First successful upload is the materialization point.
+            //
+            // Mutating destinationSnapshot is intentional:
+            // the next file in this same sequential batch must
+            // switch from the draft endpoint to normal /v1/uploads.
+            if (
+              destinationSnapshot.type ===
+                'activity' &&
+              destinationSnapshot.draft ===
+                true
+            ) {
+              promoteDraftDestination_(
+                destinationSnapshot,
+                result
               );
             }
 
@@ -3513,68 +3679,21 @@
       state.creatingActivity = true;
 
       try {
-        const result =
-          await photoApi(
-            '/v1/activities',
-            {
-              method: 'POST',
-
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-
-              body: JSON.stringify({
-                topic:
-                  state.selectedTopic.name,
-
-                year:
-                  state.selectedYear,
-
-                activityName:
-                  canonicalName,
-              }),
-            }
-          );
-
-        const activity =
-          result.activity;
-
-        if (
-          !activity ||
-          typeof activity.name !==
-            'string' ||
-          typeof activity.path !==
-            'string'
-        ) {
-          throw new Error(
-            'รูปแบบข้อมูลกิจกรรมที่ได้รับไม่ถูกต้อง'
-          );
-        }
-
-        // Backend response คือ canonical authority
-        state.activities = [
-          activity,
-
-          ...state.activities.filter(
-            item =>
-              item &&
-              item.name !==
-                activity.name
-          ),
-        ].sort(
-          (left, right) =>
-            right.name.localeCompare(
-              left.name,
-              'th'
-            )
-        );
+        // Draft เท่านั้น:
+        // ยังไม่สร้าง year/activity folder และยังไม่เรียก
+        // POST /v1/activities
+        const activity = {
+          name: canonicalName,
+          path: '',
+          draft: true,
+        };
 
         state.selectedActivity =
           activity;
 
         state.destination = {
           type: 'activity',
+          draft: true,
 
           topic:
             state.selectedTopic.name,
@@ -3583,14 +3702,14 @@
             state.selectedYear,
 
           activity:
-            activity.name,
+            canonicalName,
 
-          path:
-            activity.path,
+          path: '',
         };
 
-        // กลับสู่ recent activities เพื่อให้กิจกรรม
-        // ที่เพิ่งสร้างมองเห็นได้ทันที
+        // Draft ไม่ใช่ persisted activity:
+        // ห้ามเพิ่มเข้า state.activities จนกว่า backend
+        // จะ materialize จาก successful upload
         state.activitySearchQuery = '';
 
         const searchInput =
@@ -4478,7 +4597,7 @@
 
           if (status) {
             status.textContent =
-              'กำลังสร้างกิจกรรม…';
+              'กำลังเตรียมกิจกรรม…';
           }
 
           try {
@@ -4495,8 +4614,8 @@
 
             if (status) {
               status.textContent =
-                'พร้อมใช้งาน: ' +
-                activity.name;
+                'เลือกกิจกรรมใหม่แล้ว — ' +
+                'จะสร้างเมื่ออัปโหลดภาพสำเร็จ';
             }
 
             if (nameInput) {

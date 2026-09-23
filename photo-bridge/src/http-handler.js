@@ -132,6 +132,52 @@ export async function handleHttpRequest(request, context) {
 
     if (
       method === 'POST' &&
+      url.pathname === '/v1/draft-activity/uploads'
+    ) {
+      if (!context.uploadService) {
+        throw new Error(
+          'Upload service unavailable'
+        );
+      }
+
+      const result =
+        await context.uploadService
+          .uploadToDraftActivity({
+            topic:
+              url.searchParams.get('topic'),
+
+            year:
+              url.searchParams.get('year'),
+
+            activityName:
+              url.searchParams.get('activity'),
+
+            filename:
+              url.searchParams.get('filename'),
+
+            content:
+              request.body,
+          });
+
+      return response(201, {
+        ok: true,
+
+        created:
+          result.created === true,
+
+        yearCreated:
+          result.yearCreated === true,
+
+        activity:
+          result.activity,
+
+        file:
+          result.file,
+      });
+    }
+
+    if (
+      method === 'POST' &&
       url.pathname === '/v1/uploads'
     ) {
       if (!context.uploadService) {

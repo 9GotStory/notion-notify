@@ -1068,28 +1068,6 @@ async function run() {
         };
       }
 
-      if (fetchCalls.length === 6) {
-        return {
-          ok: true,
-          status: 201,
-
-          async json() {
-            return {
-              ok: true,
-              created: true,
-
-              activity: {
-                name:
-                  '2569-09-21_ทดสอบ Photo Bridge',
-                path:
-                  '80_งานกิจกรรมกลาง/2569/' +
-                  '2569-09-21_ทดสอบ Photo Bridge',
-              },
-            };
-          },
-        };
-      }
-
       // Generic create-activity response for later UX contracts.
       //
       // Baseline create test above intentionally keeps its original
@@ -1147,6 +1125,113 @@ async function run() {
                   year +
                   '/' +
                   activityName,
+              },
+            };
+          },
+        };
+      }
+
+      // draftActivityUploadMock:
+      // first successful file materializes the activity.
+      if (
+        requestUrl.includes(
+          '/v1/draft-activity/uploads?'
+        )
+      ) {
+        const parsed =
+          new URL(requestUrl);
+
+        const topic =
+          String(
+            parsed.searchParams.get(
+              'topic'
+            ) || ''
+          );
+
+        const year =
+          String(
+            parsed.searchParams.get(
+              'year'
+            ) || ''
+          );
+
+        const activityName =
+          String(
+            parsed.searchParams.get(
+              'activity'
+            ) || ''
+          );
+
+        const filename =
+          String(
+            parsed.searchParams.get(
+              'filename'
+            ) || ''
+          );
+
+        if (
+          filename.startsWith(
+            'draft-bad'
+          )
+        ) {
+          return {
+            ok: false,
+            status: 409,
+
+            async json() {
+              return {
+                ok: false,
+                error:
+                  'A file with this name already exists',
+              };
+            },
+          };
+        }
+
+        const activityPath =
+          topic +
+          '/' +
+          year +
+          '/' +
+          activityName;
+
+        return {
+          ok: true,
+          status: 201,
+
+          async json() {
+            return {
+              ok: true,
+              created: true,
+              yearCreated: true,
+
+              activity: {
+                name:
+                  activityName,
+
+                path:
+                  activityPath,
+              },
+
+              file: {
+                name:
+                  filename,
+
+                path:
+                  activityPath +
+                  '/' +
+                  filename,
+
+                mime:
+                  'image/jpeg',
+
+                size:
+                  options &&
+                  options.body &&
+                  typeof options.body.size ===
+                    'number'
+                    ? options.body.size
+                    : 3,
               },
             };
           },
@@ -1732,7 +1817,13 @@ async function run() {
     'unsafe activity name must not call Photo Bridge'
   );
 
-  // สร้างกิจกรรมจริง
+  // สร้างกิจกรรมใหม่เป็น local draft เท่านั้น
+  const beforeDraftCreateFetches =
+    fetchCalls.length;
+
+  const activitiesBeforeDraft =
+    ui.state.activities.slice();
+
   const created =
     await ui.createActivity(
       '2026-09-21',
@@ -1740,85 +1831,467 @@ async function run() {
     );
 
   assert(
-    fetchCalls.length === 6,
-    'create activity must make exactly one POST request'
-  );
-
-  const createRequest =
-    fetchCalls[5];
-
-  assert(
-    createRequest.url ===
-      context.CONFIG.PHOTO_API_URL +
-        '/v1/activities',
-    'create activity endpoint mismatch'
-  );
-
-  assert(
-    createRequest.method === 'POST',
-    'create activity must use POST'
-  );
-
-  assert(
-    createRequest.headers.Authorization ===
-      'Bearer runtime-photo-ticket',
-    'create activity must use Photo Ticket'
-  );
-
-  assert(
-    createRequest.headers['Content-Type'] ===
-      'application/json',
-    'create activity must use application/json'
-  );
-
-  const createBody =
-    JSON.parse(createRequest.body);
-
-  assert(
-    createBody.topic ===
-      '80_งานกิจกรรมกลาง',
-    'create activity topic mismatch'
-  );
-
-  assert(
-    createBody.year === '2569',
-    'create activity Buddhist year mismatch'
-  );
-
-  assert(
-    createBody.activityName ===
-      '2569-09-21_ทดสอบ Photo Bridge',
-    'create activity canonical name mismatch'
+    fetchCalls.length ===
+      beforeDraftCreateFetches,
+    'draft activity selection must not call Photo Bridge'
   );
 
   assert(
     created &&
       created.name ===
-        '2569-09-21_ทดสอบ Photo Bridge',
-    'createActivity must return backend activity'
+        '2569-09-21_ทดสอบ Photo Bridge' &&
+      created.draft === true,
+    'createActivity must return a local draft activity'
   );
 
-  // backend response เป็น canonical authority
   assert(
     ui.state.destination &&
       ui.state.destination.type ===
         'activity' &&
+      ui.state.destination.draft ===
+        true &&
       ui.state.destination.activity ===
-        '2569-09-21_ทดสอบ Photo Bridge' &&
-      ui.state.destination.path ===
-        '80_งานกิจกรรมกลาง/2569/' +
         '2569-09-21_ทดสอบ Photo Bridge',
-    'created backend activity must become selected destination'
+    'draft activity must become the selected draft destination'
   );
 
   assert(
-    ui.state.activities.some(
-      item =>
-        item.name ===
-          '2569-09-21_ทดสอบ Photo Bridge'
-    ),
-    'created activity must appear in current activity list'
+    ui.state.activities.length ===
+      activitiesBeforeDraft.length &&
+      !ui.state.activities.some(
+        item =>
+          item &&
+          item.name ===
+            '2569-09-21_ทดสอบ Photo Bridge'
+      ),
+    'draft activity must not appear in persisted activity list before upload'
   );
+
+  // ---------- DA-P07: Draft upload promotion ----------
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.type ===
+        'activity' &&
+      ui.state.destination.draft ===
+        true,
+    'DA-P07 setup must start from a draft activity'
+  );
+
+  const draftActivityName =
+    ui.state.destination.activity;
+
+  const draftUploadStart =
+    fetchCalls.length;
+
+  const draftFiles = [
+    {
+      name: 'draft-first.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'draft-second.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ];
+
+  const draftResults =
+    await ui.uploadFiles(
+      draftFiles
+    );
+
+  const draftUploadCalls =
+    fetchCalls.slice(
+      draftUploadStart
+    );
+
+  assert(
+    draftResults.length === 2 &&
+      draftResults[0].ok === true &&
+      draftResults[1].ok === true,
+    'draft upload promotion setup must upload both files successfully'
+  );
+
+  assert(
+    draftUploadCalls.length === 2,
+    'draft upload must issue exactly one request per file'
+  );
+
+  const firstDraftCall =
+    draftUploadCalls[0];
+
+  const secondDraftCall =
+    draftUploadCalls[1];
+
+  assert(
+    firstDraftCall.url.includes(
+      '/v1/draft-activity/uploads?'
+    ),
+    'first draft file must use draft-activity upload endpoint'
+  );
+
+  const firstDraftUrl =
+    new URL(
+      firstDraftCall.url
+    );
+
+  assert(
+    firstDraftUrl.searchParams.get(
+      'topic'
+    ) ===
+      '80_งานกิจกรรมกลาง' &&
+      firstDraftUrl.searchParams.get(
+        'year'
+      ) ===
+        '2569' &&
+      firstDraftUrl.searchParams.get(
+        'activity'
+      ) ===
+        draftActivityName &&
+      firstDraftUrl.searchParams.get(
+        'filename'
+      ) ===
+        'draft-first.jpg',
+    'draft upload endpoint must receive canonical destination fields'
+  );
+
+  assert(
+    firstDraftCall.rawBody ===
+      draftFiles[0],
+    'draft upload must send the raw first File body'
+  );
+
+  assert(
+    secondDraftCall.url.includes(
+      '/v1/uploads?'
+    ) &&
+      !secondDraftCall.url.includes(
+        '/v1/draft-activity/uploads?'
+      ),
+    'after materialization, remaining files in the same batch must use normal activity upload'
+  );
+
+  const secondDraftUrl =
+    new URL(
+      secondDraftCall.url
+    );
+
+  assert(
+    secondDraftUrl.searchParams.get(
+      'activity'
+    ) ===
+      draftActivityName &&
+      secondDraftUrl.searchParams.get(
+        'filename'
+      ) ===
+        'draft-second.jpg',
+    'post-promotion upload must retain the materialized activity destination'
+  );
+
+  const expectedDraftPath =
+    '80_งานกิจกรรมกลาง/2569/' +
+    draftActivityName;
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.type ===
+        'activity' &&
+      ui.state.destination.draft !==
+        true &&
+      ui.state.destination.activity ===
+        draftActivityName &&
+      ui.state.destination.path ===
+        expectedDraftPath,
+    'successful first draft upload must promote state.destination to persisted activity'
+  );
+
+  assert(
+    ui.state.selectedActivity &&
+      ui.state.selectedActivity.draft !==
+        true &&
+      ui.state.selectedActivity.name ===
+        draftActivityName &&
+      ui.state.selectedActivity.path ===
+        expectedDraftPath,
+    'successful first draft upload must promote selectedActivity'
+  );
+
+  assert(
+    ui.state.activities.filter(
+      item =>
+        item &&
+        item.name ===
+          draftActivityName
+    ).length === 1,
+    'materialized draft must enter persisted activity list exactly once'
+  );
+
+  // ---------- DA-P07-C: Draft failure and retry safety ----------
+
+  // ----------------------------------------------------------
+  // Case 1:
+  // first draft upload fails, second succeeds,
+  // third file must switch to normal activity upload.
+  // ----------------------------------------------------------
+
+  const recoveryDraft =
+    await ui.createActivity(
+      '2026-09-23',
+      'Draft Failure Recovery'
+    );
+
+  assert(
+    recoveryDraft &&
+      recoveryDraft.draft === true &&
+      ui.state.destination &&
+      ui.state.destination.draft ===
+        true,
+    'failure-recovery setup must start as local draft'
+  );
+
+  const recoveryStart =
+    fetchCalls.length;
+
+  const recoveryFiles = [
+    {
+      name: 'draft-bad-first.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'draft-recovered.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'draft-after-promotion.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ];
+
+  const recoveryResults =
+    await ui.uploadFiles(
+      recoveryFiles
+    );
+
+  const recoveryCalls =
+    fetchCalls.slice(
+      recoveryStart
+    );
+
+  assert(
+    recoveryResults.length === 3 &&
+      recoveryResults[0].ok === false &&
+      recoveryResults[1].ok === true &&
+      recoveryResults[2].ok === true,
+    'draft batch must continue after first-file failure'
+  );
+
+  assert(
+    recoveryCalls.length === 3,
+    'draft recovery batch must issue one request per file'
+  );
+
+  assert(
+    recoveryCalls[0].url.includes(
+      '/v1/draft-activity/uploads?'
+    ) &&
+      recoveryCalls[1].url.includes(
+        '/v1/draft-activity/uploads?'
+      ),
+    'draft must remain draft until one upload succeeds'
+  );
+
+  assert(
+    recoveryCalls[2].url.includes(
+      '/v1/uploads?'
+    ) &&
+      !recoveryCalls[2].url.includes(
+        '/v1/draft-activity/uploads?'
+      ),
+    'after first successful materialization, later files must use normal upload endpoint'
+  );
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.draft !==
+        true &&
+      ui.state.selectedActivity &&
+      ui.state.selectedActivity.draft !==
+        true,
+    'successful recovery upload must promote the draft'
+  );
+
+
+  // ----------------------------------------------------------
+  // Case 2:
+  // every file fails.
+  // No persistent activity may appear and retry must remain
+  // on the draft endpoint.
+  // ----------------------------------------------------------
+
+  const allFailDraft =
+    await ui.createActivity(
+      '2026-09-23',
+      'Draft All Fail'
+    );
+
+  const allFailName =
+    allFailDraft.name;
+
+  const persistedBeforeAllFail =
+    ui.state.activities.filter(
+      item =>
+        item &&
+        item.name ===
+          allFailName
+    ).length;
+
+  assert(
+    persistedBeforeAllFail === 0,
+    'all-fail setup must not already contain persisted draft'
+  );
+
+  const allFailStart =
+    fetchCalls.length;
+
+  const allFailFiles = [
+    {
+      name: 'draft-bad-a.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+    {
+      name: 'draft-bad-b.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ];
+
+  const allFailResults =
+    await ui.uploadFiles(
+      allFailFiles
+    );
+
+  const allFailCalls =
+    fetchCalls.slice(
+      allFailStart
+    );
+
+  assert(
+    allFailResults.length === 2 &&
+      allFailResults.every(
+        item =>
+          item &&
+          item.ok === false
+      ),
+    'all-fail draft batch must report every file as failed'
+  );
+
+  assert(
+    allFailCalls.length === 2 &&
+      allFailCalls.every(
+        call =>
+          call.url.includes(
+            '/v1/draft-activity/uploads?'
+          )
+      ),
+    'all failed draft files must stay on draft endpoint'
+  );
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.draft ===
+        true &&
+      ui.state.destination.activity ===
+        allFailName,
+    'all-fail batch must preserve live draft destination'
+  );
+
+  assert(
+    ui.state.selectedActivity &&
+      ui.state.selectedActivity.draft ===
+        true &&
+      ui.state.selectedActivity.name ===
+        allFailName,
+    'all-fail batch must preserve selected draft activity'
+  );
+
+  assert(
+    ui.state.activities.filter(
+      item =>
+        item &&
+        item.name ===
+          allFailName
+    ).length === 0,
+    'all-fail batch must not insert draft into persisted activity list'
+  );
+
+  assert(
+    ui.state.failedDestination &&
+      ui.state.failedDestination.draft ===
+        true &&
+      ui.state.failedDestination.activity ===
+        allFailName,
+    'failed draft batch must retain draft destination for retry'
+  );
+
+  assert(
+    Array.isArray(
+      ui.state.failedFiles
+    ) &&
+      ui.state.failedFiles.length === 2,
+    'all-fail draft batch must retain both failed files'
+  );
+
+  const draftRetryStart =
+    fetchCalls.length;
+
+  const draftRetryResults =
+    await ui.retryFailedFiles();
+
+  const draftRetryCalls =
+    fetchCalls.slice(
+      draftRetryStart
+    );
+
+  assert(
+    draftRetryResults.length === 2 &&
+      draftRetryResults.every(
+        item =>
+          item &&
+          item.ok === false
+      ),
+    'failed draft retry setup must remain failed'
+  );
+
+  assert(
+    draftRetryCalls.length === 2 &&
+      draftRetryCalls.every(
+        call =>
+          call.url.includes(
+            '/v1/draft-activity/uploads?'
+          )
+      ),
+    'retry before materialization must continue using draft endpoint'
+  );
+
+  assert(
+    ui.state.destination &&
+      ui.state.destination.draft ===
+        true &&
+      ui.state.activities.filter(
+        item =>
+          item &&
+          item.name ===
+            allFailName
+      ).length === 0,
+    'failed draft retry must not accidentally promote or persist the activity'
+  );
+
 
   // ---------- Multi-file upload ----------
 
@@ -2459,7 +2932,7 @@ async function run() {
     );
   }
 
-  // ---------- UX-P02: creatingActivity ----------
+  // ---------- UX-P02: local draft creation ----------
 
   ui.state.selectedTopic =
     ui.state.topics.find(
@@ -2472,39 +2945,34 @@ async function run() {
   ui.state.selectedYear =
     '2569';
 
-  pauseCreateActivityMode = true;
-  releasePausedCreateActivity = null;
+  const p02DraftFetchStart =
+    fetchCalls.length;
 
-  const pausedCreatePromise =
-    ui.createActivity(
+  const p02PersistedCount =
+    ui.state.activities.length;
+
+  const p02Draft =
+    await ui.createActivity(
       '2026-09-22',
       'UI State Foundation'
     );
 
-  const creatingDuring =
+  const localDraftStateOk =
+    p02Draft &&
+    p02Draft.draft === true &&
     ui.state.creatingActivity ===
+      false &&
+    fetchCalls.length ===
+      p02DraftFetchStart &&
+    ui.state.activities.length ===
+      p02PersistedCount &&
+    ui.state.destination &&
+    ui.state.destination.draft ===
       true;
 
-  assert(
-    typeof releasePausedCreateActivity ===
-      'function',
-    'UX-P02 create-activity pause probe did not activate'
-  );
-
-  releasePausedCreateActivity();
-
-  await pausedCreatePromise;
-
-  const creatingAfter =
-    ui.state.creatingActivity ===
-      false;
-
-  if (
-    !creatingDuring ||
-    !creatingAfter
-  ) {
+  if (!localDraftStateOk) {
     uxP02RedFailures.push(
-      'creatingActivity: must be true while create is active and false after completion'
+      'draft creation: must complete locally without network activity or persisted activity insertion'
     );
   }
 
@@ -3086,6 +3554,20 @@ async function run() {
     );
   }
 
+  const draftCreateCopyOk =
+    html.includes(
+      'ใช้กิจกรรมนี้'
+    ) &&
+    html.includes(
+      'จะสร้างเมื่ออัปโหลดภาพสำเร็จ'
+    );
+
+  if (!draftCreateCopyOk) {
+    uxP06RedFailures.push(
+      'create activity: new activity must be presented as a draft that materializes only after a successful upload'
+    );
+  }
+
   // Behavior checks activate once the P06 helpers exist.
   if (
     typeof ui.setCreateActivityOpen ===
@@ -3232,6 +3714,12 @@ async function run() {
       };
     }
 
+    const beforeDraftCreateFetches =
+      fetchCalls.length;
+
+    const activityCountBeforeDraft =
+      ui.state.activities.length;
+
     const created =
       await ui.createActivity(
         '2026-09-22',
@@ -3240,12 +3728,21 @@ async function run() {
 
     const createAndSelectOk =
       created &&
+      created.draft === true &&
+      fetchCalls.length ===
+        beforeDraftCreateFetches &&
+      ui.state.activities.length ===
+        activityCountBeforeDraft &&
       ui.state.selectedActivity &&
+      ui.state.selectedActivity.draft ===
+        true &&
       ui.state.selectedActivity.name ===
         created.name &&
       ui.state.destination &&
       ui.state.destination.type ===
         'activity' &&
+      ui.state.destination.draft ===
+        true &&
       ui.state.destination.activity ===
         created.name &&
       ui.state.createActivityOpen ===
@@ -3258,7 +3755,7 @@ async function run() {
 
     if (!createAndSelectOk) {
       uxP06RedFailures.push(
-        'create activity: successful creation must auto-select, collapse the form, and return focus to activity discovery'
+        'create activity: draft selection must stay local-only, avoid POST /v1/activities, avoid persisted activity insertion, auto-select the draft, collapse the form, and return focus to discovery'
       );
     }
   }
