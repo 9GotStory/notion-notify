@@ -522,6 +522,10 @@
   (() => {
     'use strict';
 
+    const BUDDHIST_YEAR_OFFSET = 543;
+    const YEAR_PICKER_FUTURE_YEARS = 1;
+    const YEAR_PICKER_PAST_YEARS = 10;
+
     const state = {
       photoTicket: '',
       actor: null,
@@ -1206,7 +1210,8 @@
 
     function currentBuddhistYear_() {
       return String(
-        new Date().getFullYear() + 543
+        new Date().getFullYear() +
+          BUDDHIST_YEAR_OFFSET
       );
     }
 
@@ -1219,8 +1224,12 @@
       const years = [];
 
       for (
-        let year = current + 1;
-        year >= current - 10;
+        let year =
+          current +
+          YEAR_PICKER_FUTURE_YEARS;
+        year >=
+          current -
+          YEAR_PICKER_PAST_YEARS;
         year -= 1
       ) {
         years.push(
@@ -3192,7 +3201,8 @@
       }
 
       const buddhistYear =
-        date.year + 543;
+        date.year +
+        BUDDHIST_YEAR_OFFSET;
 
       if (
         buddhistYear < 2400 ||
@@ -3309,7 +3319,8 @@
             );
 
           const buddhistYear =
-            parsed.year + 543;
+            parsed.year +
+            BUDDHIST_YEAR_OFFSET;
 
           if (
             state.selectedYear &&

@@ -277,6 +277,23 @@ async function run() {
       typeof renderYearOptions_ === 'function'
         ? renderYearOptions_
         : null,
+
+    yearConstants: {
+      buddhistYearOffset:
+        typeof BUDDHIST_YEAR_OFFSET === 'number'
+          ? BUDDHIST_YEAR_OFFSET
+          : null,
+
+      futureYears:
+        typeof YEAR_PICKER_FUTURE_YEARS === 'number'
+          ? YEAR_PICKER_FUTURE_YEARS
+          : null,
+
+      pastYears:
+        typeof YEAR_PICKER_PAST_YEARS === 'number'
+          ? YEAR_PICKER_PAST_YEARS
+          : null,
+    },
   };
 })();`
   );
@@ -5360,6 +5377,94 @@ async function run() {
     yearPickerFailures.length === 0,
     'UX-F10-A RED contracts failed:\n- ' +
       yearPickerFailures.join('\n- ')
+  );
+
+  // ---------- UX-F16-B: semantic year constants ----------
+
+  const semanticYearFailures = [];
+
+  const constants =
+    ui.yearConstants || {};
+
+  if (
+    constants.buddhistYearOffset !== 543
+  ) {
+    semanticYearFailures.push(
+      'BUDDHIST_YEAR_OFFSET must exist and equal 543'
+    );
+  }
+
+  if (
+    constants.futureYears !== 1
+  ) {
+    semanticYearFailures.push(
+      'YEAR_PICKER_FUTURE_YEARS must exist and equal 1'
+    );
+  }
+
+  if (
+    constants.pastYears !== 10
+  ) {
+    semanticYearFailures.push(
+      'YEAR_PICKER_PAST_YEARS must exist and equal 10'
+    );
+  }
+
+  const currentYearFunction =
+    source.match(
+      /function currentBuddhistYear_\(\) \{[\s\S]*?\n    \}/
+    );
+
+  if (
+    !currentYearFunction ||
+    !currentYearFunction[0].includes(
+      'BUDDHIST_YEAR_OFFSET'
+    )
+  ) {
+    semanticYearFailures.push(
+      'currentBuddhistYear_ must use BUDDHIST_YEAR_OFFSET'
+    );
+  }
+
+  const yearPickerFunction =
+    source.match(
+      /function yearPickerYears_\(\) \{[\s\S]*?\n    \}/
+    );
+
+  if (
+    !yearPickerFunction ||
+    !yearPickerFunction[0].includes(
+      'YEAR_PICKER_FUTURE_YEARS'
+    )
+  ) {
+    semanticYearFailures.push(
+      'yearPickerYears_ must use YEAR_PICKER_FUTURE_YEARS'
+    );
+  }
+
+  if (
+    !yearPickerFunction ||
+    !yearPickerFunction[0].includes(
+      'YEAR_PICKER_PAST_YEARS'
+    )
+  ) {
+    semanticYearFailures.push(
+      'yearPickerYears_ must use YEAR_PICKER_PAST_YEARS'
+    );
+  }
+
+  if (
+    /[+-]\\s*543\\b/.test(source)
+  ) {
+    semanticYearFailures.push(
+      'runtime Buddhist-year calculations must use BUDDHIST_YEAR_OFFSET'
+    );
+  }
+
+  assert(
+    semanticYearFailures.length === 0,
+    'UX-F16-B RED contracts failed:\n- ' +
+      semanticYearFailures.join('\n- ')
   );
 
   console.log(
