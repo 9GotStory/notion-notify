@@ -48,6 +48,10 @@ async function run() {
   source = source.replace(/\n  boot\(\);\n\}\)\(\);\s*$/, `
   globalThis.__leaveUiTest = {
     state: state,
+    api: api,
+    relogin: relogin_,
+    loadMyLeaves: loadMyLeaves_,
+    loadApprovalQueue: loadApprovalQueue_,
     confirmCancelLeave: confirmCancelLeave_,
     mineLeaveCard: mineLeaveCard_,
     renderMineState: renderMineState_,
@@ -118,6 +122,605 @@ async function run() {
     'same-month date range format mismatch');
   assert(ui.dateRangeLabel('2026-09-30', '2026-10-01') === '30 ก.ย. 2569 – 1 ต.ค. 2569',
     'cross-month date range format mismatch');
+
+  // LIFF-REL-P02A:
+  // Apps Script already returns machine-readable public error codes.
+  // The LIFF transport boundary must preserve them on the thrown Error
+  // so auth/transient/application failures can be classified reliably.
+  const originalFetch = context.fetch;
+  const originalSetTimeout = context.setTimeout;
+  const errorCodeFailures = [];
+
+  // P04 adds bounded retry to safe reads. Make its short backoff
+  // deterministic here while keeping the 20-second abort timer dormant.
+  context.setTimeout = (fn, delay) => {
+    if (Number(delay) <= 1000) {
+      Promise.resolve().then(fn);
+    }
+    return 1;
+  };
+
+  for (const code of ['LINE_UNAVAILABLE', 'UPSTREAM_ERROR']) {
+    context.fetch = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: false,
+        code,
+        error: 'temporary upstream failure',
+      }),
+    });
+
+    let caught = null;
+    try {
+      await ui.api('session');
+    } catch (err) {
+      caught = err;
+    }
+
+    if (!caught || caught.code !== code) {
+      errorCodeFailures.push(
+        code + ': expected thrown error.code=' + code +
+        ', got ' + String(caught && caught.code)
+      );
+    }
+  }
+
+  context.fetch = originalFetch;
+  context.setTimeout = originalSetTimeout;
+
+  assert(
+    errorCodeFailures.length === 0,
+    'LIFF-REL-P02A error-code preservation failed: ' +
+      errorCodeFailures.join('; ')
+  );
+
+  // LIFF-REL-P02B:
+  // All LIFF API calls use HTTP POST, so transport method cannot decide
+  // retry safety. Retry semantics must be based on the action itself:
+  //
+  // safe reads:
+  //   session / calendar / myLeaves / approvalQueue
+  //
+  // mutations:
+  //   bind / submit / cancel / update / reassignApprover
+  //
+  // Safe reads may retry transient failures, but must stop after
+  // three total attempts. Mutations must never be automatically retried
+  // after an ambiguous transport failure.
+  const retryContractFailures = [];
+  const retryOriginalFetch = context.fetch;
+  const retryOriginalSetTimeout = context.setTimeout;
+
+  // Production retry backoff may use short setTimeout delays.
+  // Execute only short timers immediately in this deterministic test;
+  // the existing 20-second AbortController timeout must remain dormant.
+  context.setTimeout = (fn, delay) => {
+    if (Number(delay) <= 1000) {
+      Promise.resolve().then(fn);
+    }
+    return 1;
+  };
+
+  const okResponse = action => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: true, action }),
+  });
+
+  async function probeSafeRead(action, transientResponse) {
+    let attempts = 0;
+
+    context.fetch = async () => {
+      attempts += 1;
+
+      if (attempts < 3) {
+        return transientResponse(attempts);
+      }
+
+      return okResponse(action);
+    };
+
+    let result = null;
+    let caught = null;
+
+    try {
+      result = await ui.api(action);
+    } catch (err) {
+      caught = err;
+    }
+
+    if (
+      caught ||
+      attempts !== 3 ||
+      !result ||
+      result.ok !== true
+    ) {
+      retryContractFailures.push(
+        action +
+        ': safe read should recover on attempt 3; attempts=' +
+        attempts +
+        ', error=' +
+        String(caught && caught.message)
+      );
+    }
+  }
+
+  try {
+    // Network transport failure.
+    await probeSafeRead('session', () => {
+      throw new Error('offline');
+    });
+
+    // Backend explicitly classified LINE transient failure.
+    await probeSafeRead('calendar', () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: false,
+        code: 'LINE_UNAVAILABLE',
+        error: 'LINE temporarily unavailable',
+      }),
+    }));
+
+    // Retryable HTTP responses.
+    await probeSafeRead('myLeaves', attempt => ({
+      ok: false,
+      status: attempt === 1 ? 429 : 503,
+      json: async () => ({
+        ok: false,
+        error: 'temporary HTTP failure',
+      }),
+    }));
+
+    // Backend generic upstream transient failure.
+    await probeSafeRead('approvalQueue', () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: false,
+        code: 'UPSTREAM_ERROR',
+        error: 'temporary upstream failure',
+      }),
+    }));
+
+    // Boundedness: a permanently failing safe read must stop after
+    // exactly three total attempts and surface the final error.
+    let boundedAttempts = 0;
+    let boundedError = null;
+
+    context.fetch = async () => {
+      boundedAttempts += 1;
+      throw new Error('still offline');
+    };
+
+    try {
+      await ui.api('session');
+    } catch (err) {
+      boundedError = err;
+    }
+
+    if (!boundedError || boundedAttempts !== 3) {
+      retryContractFailures.push(
+        'session bounded retry: expected 3 attempts and final error; attempts=' +
+        boundedAttempts
+      );
+    }
+
+    // Mutation safety: transport ambiguity after a write must never
+    // cause the client to send the write again automatically.
+    for (const action of [
+      'bind',
+      'submit',
+      'cancel',
+      'update',
+      'reassignApprover',
+    ]) {
+      let attempts = 0;
+      let caught = null;
+
+      context.fetch = async () => {
+        attempts += 1;
+        throw new Error('connection lost after request');
+      };
+
+      try {
+        await ui.api(action);
+      } catch (err) {
+        caught = err;
+      }
+
+      if (!caught || attempts !== 1) {
+        retryContractFailures.push(
+          action +
+          ': mutation must make exactly 1 attempt on transport failure; attempts=' +
+          attempts
+        );
+      }
+    }
+  } finally {
+    context.fetch = retryOriginalFetch;
+    context.setTimeout = retryOriginalSetTimeout;
+  }
+
+  assert(
+    retryContractFailures.length === 0,
+    'LIFF-REL-P02B retry contract failed: ' +
+      retryContractFailures.join('; ')
+  );
+
+  // LIFF-REL-P05:
+  // Auth recovery semantics differ by runtime:
+  //
+  // LINE client:
+  //   reload current LIFF context WITHOUT liff.logout()
+  //
+  // External browser:
+  //   logout stale session, then enter liff.login()
+  //
+  // Transient/auth recovery inside LINE must not destroy the LINE
+  // session before reload, otherwise repeated recovery can amplify
+  // session churn and eventually leave the page unrecoverable.
+  const authRecoveryFailures = [];
+
+  const originalIsLoggedIn = context.liff.isLoggedIn;
+  const originalLogout = context.liff.logout;
+  const originalIsInClient = context.liff.isInClient;
+  const originalLogin = context.liff.login;
+  const originalReload = context.location.reload;
+
+  function restoreProperty(object, key, value) {
+    if (value === undefined) {
+      delete object[key];
+    } else {
+      object[key] = value;
+    }
+  }
+
+  try {
+    // --------------------------------------------------------
+    // Case A: running inside LINE client.
+    // Must reload, must NOT logout, must NOT call login().
+    // --------------------------------------------------------
+    let logoutCalls = 0;
+    let loginCalls = 0;
+    let reloadCalls = 0;
+
+    context.liff.isLoggedIn = () => true;
+    context.liff.logout = () => {
+      logoutCalls += 1;
+    };
+    context.liff.isInClient = () => true;
+    context.liff.login = () => {
+      loginCalls += 1;
+    };
+    context.location.reload = () => {
+      reloadCalls += 1;
+    };
+
+    ui.relogin();
+
+    if (
+      logoutCalls !== 0 ||
+      reloadCalls !== 1 ||
+      loginCalls !== 0
+    ) {
+      authRecoveryFailures.push(
+        'LINE client: expected reload=1, logout=0, login=0; got reload=' +
+        reloadCalls +
+        ', logout=' +
+        logoutCalls +
+        ', login=' +
+        loginCalls
+      );
+    }
+
+    // --------------------------------------------------------
+    // Case B: external browser.
+    // Existing explicit logout/login flow remains allowed.
+    // --------------------------------------------------------
+    logoutCalls = 0;
+    loginCalls = 0;
+    reloadCalls = 0;
+
+    context.liff.isLoggedIn = () => true;
+    context.liff.isInClient = () => false;
+
+    ui.relogin();
+
+    if (
+      logoutCalls !== 1 ||
+      loginCalls !== 1 ||
+      reloadCalls !== 0
+    ) {
+      authRecoveryFailures.push(
+        'external browser: expected logout=1, login=1, reload=0; got logout=' +
+        logoutCalls +
+        ', login=' +
+        loginCalls +
+        ', reload=' +
+        reloadCalls
+      );
+    }
+  } finally {
+    restoreProperty(
+      context.liff,
+      'isLoggedIn',
+      originalIsLoggedIn
+    );
+    restoreProperty(
+      context.liff,
+      'logout',
+      originalLogout
+    );
+    restoreProperty(
+      context.liff,
+      'isInClient',
+      originalIsInClient
+    );
+    restoreProperty(
+      context.liff,
+      'login',
+      originalLogin
+    );
+
+    context.location.reload =
+      originalReload;
+  }
+
+  assert(
+    authRecoveryFailures.length === 0,
+    'LIFF-REL-P05 auth recovery contract failed: ' +
+      authRecoveryFailures.join('; ')
+  );
+
+  // LIFF-REL-P06:
+  // A data-view failure after internal bounded retries must be recoverable
+  // in place. The user must have an explicit retry action for:
+  //
+  //   - My Leaves
+  //   - Approval Queue
+  //
+  // Retry must reload only that data view — never reload/replace the LIFF page.
+  const interactionRecoveryFailures = [];
+
+  const hasMineRetryMarkup =
+    html.includes('id="mineRetry"');
+
+  const hasApprovalRetryMarkup =
+    html.includes('id="approvalRetry"');
+
+  if (!hasMineRetryMarkup) {
+    interactionRecoveryFailures.push(
+      'mine: missing inline retry control'
+    );
+  }
+
+  if (!hasApprovalRetryMarkup) {
+    interactionRecoveryFailures.push(
+      'approvals: missing inline retry control'
+    );
+  }
+
+  const mineRetry =
+    elements.get('mineRetry');
+
+  const approvalRetry =
+    elements.get('approvalRetry');
+
+  if (
+    !mineRetry ||
+    typeof mineRetry.listeners.click !== 'function'
+  ) {
+    interactionRecoveryFailures.push(
+      'mine: retry control is not wired to a click handler'
+    );
+  }
+
+  if (
+    !approvalRetry ||
+    typeof approvalRetry.listeners.click !== 'function'
+  ) {
+    interactionRecoveryFailures.push(
+      'approvals: retry control is not wired to a click handler'
+    );
+  }
+
+  // Run behavior checks only after the controls exist.
+  // This keeps the initial RED deterministic and readable.
+  if (
+    mineRetry &&
+    typeof mineRetry.listeners.click === 'function' &&
+    approvalRetry &&
+    typeof approvalRetry.listeners.click === 'function'
+  ) {
+    const recoveryOriginalFetch =
+      context.fetch;
+
+    const recoveryOriginalSetTimeout =
+      context.setTimeout;
+
+    const recoveryOriginalReload =
+      context.location.reload;
+
+    const recoveryOriginalReplace =
+      context.location.replace;
+
+    let reloadCalls = 0;
+    let replaceCalls = 0;
+
+    context.location.reload = () => {
+      reloadCalls += 1;
+    };
+
+    context.location.replace = () => {
+      replaceCalls += 1;
+    };
+
+    // Allow the 250/500 ms production retry backoff to run
+    // deterministically while leaving the 20-second abort timer dormant.
+    context.setTimeout = (fn, delay) => {
+      if (Number(delay) <= 1000) {
+        Promise.resolve().then(fn);
+      }
+      return 1;
+    };
+
+    let failTransport = true;
+    let fetchAttempts = 0;
+
+    context.fetch = async (url, options) => {
+      fetchAttempts += 1;
+
+      if (failTransport) {
+        throw new Error('temporary offline');
+      }
+
+      const payload =
+        JSON.parse(
+          String(
+            (options && options.body) ||
+            '{}'
+          )
+        );
+
+      if (payload.apiAction === 'myLeaves') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            leaves: [],
+            usage: null,
+            leaveYear: '2570',
+          }),
+        };
+      }
+
+      if (payload.apiAction === 'approvalQueue') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            leaves: [],
+            staffOptions: [],
+          }),
+        };
+      }
+
+      throw new Error(
+        'unexpected recovery action: ' +
+        String(payload.apiAction)
+      );
+    };
+
+    try {
+      // ------------------------------------------------------
+      // My Leaves:
+      // first load exhausts all 3 internal retries and fails.
+      // User presses inline retry after upstream recovers.
+      // ------------------------------------------------------
+      fetchAttempts = 0;
+      failTransport = true;
+
+      await ui.loadMyLeaves();
+
+      if (
+        fetchAttempts !== 3 ||
+        !ui.state.mine.error ||
+        mineRetry.classList.contains('hidden')
+      ) {
+        interactionRecoveryFailures.push(
+          'mine: exhausted failure must expose inline retry after 3 attempts'
+        );
+      }
+
+      failTransport = false;
+      fetchAttempts = 0;
+
+      await mineRetry.listeners.click();
+
+      if (
+        fetchAttempts !== 1 ||
+        ui.state.mine.error ||
+        !mineRetry.classList.contains('hidden')
+      ) {
+        interactionRecoveryFailures.push(
+          'mine: inline retry must recover the view when upstream returns'
+        );
+      }
+
+      // ------------------------------------------------------
+      // Approval Queue:
+      // same recovery contract, no page reload.
+      // ------------------------------------------------------
+      ui.state.user = {
+        canManageApprovals: true,
+      };
+
+      fetchAttempts = 0;
+      failTransport = true;
+
+      await ui.loadApprovalQueue();
+
+      if (
+        fetchAttempts !== 3 ||
+        !ui.state.approvals.error ||
+        approvalRetry.classList.contains('hidden')
+      ) {
+        interactionRecoveryFailures.push(
+          'approvals: exhausted failure must expose inline retry after 3 attempts'
+        );
+      }
+
+      failTransport = false;
+      fetchAttempts = 0;
+
+      await approvalRetry.listeners.click();
+
+      if (
+        fetchAttempts !== 1 ||
+        ui.state.approvals.error ||
+        !approvalRetry.classList.contains('hidden')
+      ) {
+        interactionRecoveryFailures.push(
+          'approvals: inline retry must recover the view when upstream returns'
+        );
+      }
+
+      if (
+        reloadCalls !== 0 ||
+        replaceCalls !== 0
+      ) {
+        interactionRecoveryFailures.push(
+          'data retry must not reload or replace the LIFF page; reload=' +
+          reloadCalls +
+          ', replace=' +
+          replaceCalls
+        );
+      }
+    } finally {
+      context.fetch =
+        recoveryOriginalFetch;
+
+      context.setTimeout =
+        recoveryOriginalSetTimeout;
+
+      context.location.reload =
+        recoveryOriginalReload;
+
+      context.location.replace =
+        recoveryOriginalReplace;
+    }
+  }
+
+  assert(
+    interactionRecoveryFailures.length === 0,
+    'LIFF-REL-P06 interaction recovery contract failed: ' +
+      interactionRecoveryFailures.join('; ')
+  );
+
   const leave = {
     pageId: 'page-1', leaveType: 'ลากิจ', start: '2026-09-01', end: '2026-09-01',
     period: 'เต็มวัน', workDays: 1, workDaysLabel: '1 วัน', status: 'รอผู้อนุมัติ',
