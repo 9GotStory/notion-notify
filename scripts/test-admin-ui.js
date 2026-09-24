@@ -579,6 +579,159 @@ async function run() {
     );
   }
 
+
+  // --------------------------------------------------------
+  // ADMIN-REL-P11C
+  // Apps Script transport must bypass the browser HTTP cache.
+  //
+  // Live external-browser diagnostics reproduced an
+  // intermittent 404 on the one-time googleusercontent
+  // redirect when repeatedly POSTing the same /exec URL.
+  // `cache: 'no-store'` recovered 10/10 without retrying the
+  // request, so this belongs in the shared transport rather
+  // than in retry policy.
+  //
+  // Contract:
+  // - ADMIN API requests use cache: 'no-store'
+  // - Main API requests use cache: 'no-store'
+  // - transport remains POST
+  // --------------------------------------------------------
+  {
+    const noStoreFailures = [];
+
+    const adminFetches = [];
+
+    fetchImpl = async (url, options) => {
+      adminFetches.push({
+        url,
+        options,
+      });
+
+      return response(
+        200,
+        {
+          ok: true,
+          overview: {},
+        }
+      );
+    };
+
+    let adminCaught = null;
+
+    try {
+      await api.call(
+        'get_overview'
+      );
+    } catch (err) {
+      adminCaught = err;
+    }
+
+    if (adminCaught) {
+      noStoreFailures.push(
+        'ADMIN probe should succeed; error=' +
+          String(
+            adminCaught &&
+            adminCaught.message
+          )
+      );
+    }
+
+    if (adminFetches.length !== 1) {
+      noStoreFailures.push(
+        'ADMIN successful request must use exactly one fetch; attempts=' +
+          adminFetches.length
+      );
+    } else {
+      const options =
+        adminFetches[0].options || {};
+
+      if (options.method !== 'POST') {
+        noStoreFailures.push(
+          'ADMIN transport must remain POST; method=' +
+            String(options.method)
+        );
+      }
+
+      if (options.cache !== 'no-store') {
+        noStoreFailures.push(
+          "ADMIN transport must use cache='no-store'; cache=" +
+            String(options.cache)
+        );
+      }
+    }
+
+    const mainFetches = [];
+
+    fetchImpl = async (url, options) => {
+      mainFetches.push({
+        url,
+        options,
+      });
+
+      return response(
+        200,
+        {
+          ok: true,
+        }
+      );
+    };
+
+    let mainCaught = null;
+
+    try {
+      await api.callMain(
+        'adminAdjustLeave',
+        {
+          pageId: 'page-1',
+          requestId: 'request-1',
+        }
+      );
+    } catch (err) {
+      mainCaught = err;
+    }
+
+    if (mainCaught) {
+      noStoreFailures.push(
+        'Main API probe should succeed; error=' +
+          String(
+            mainCaught &&
+            mainCaught.message
+          )
+      );
+    }
+
+    if (mainFetches.length !== 1) {
+      noStoreFailures.push(
+        'Main write must remain exactly one fetch; attempts=' +
+          mainFetches.length
+      );
+    } else {
+      const options =
+        mainFetches[0].options || {};
+
+      if (options.method !== 'POST') {
+        noStoreFailures.push(
+          'Main transport must remain POST; method=' +
+            String(options.method)
+        );
+      }
+
+      if (options.cache !== 'no-store') {
+        noStoreFailures.push(
+          "Main transport must use cache='no-store'; cache=" +
+            String(options.cache)
+        );
+      }
+    }
+
+    if (noStoreFailures.length) {
+      fail(
+        'ADMIN-REL-P11C no-store transport contract failed: ' +
+          noStoreFailures.join('; ')
+      );
+    }
+  }
+
   if (failures.length) {
     fail(
       'ADMIN-REL-P03A transport/retry contract failed: ' +

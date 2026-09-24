@@ -278,6 +278,7 @@ const AdminAPI = {
         // token/params อยู่ใน body ไม่ติด URL/log/referrer
         res = await fetch(url, {
           method: 'POST',
+          cache: 'no-store',
           headers: {
             'Content-Type':
               'text/plain;charset=utf-8',
