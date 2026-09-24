@@ -1648,6 +1648,270 @@ async function run() {
     }
   }
 
+
+  // --------------------------------------------------------
+  // ADMIN-REL-P10D
+  // External-browser LINE login must explicitly return to
+  // the Admin page.
+  //
+  // liff.login() without redirectUri falls back to the LIFF
+  // Endpoint URL, which may not be the current /web/admin/
+  // route. Both first login and expired-session recovery
+  // must pin the redirect target to this Admin page.
+  // --------------------------------------------------------
+  {
+    const redirectFailures = [];
+
+    const expectedRedirect =
+      'https://9gotstory.github.io/notion-notify/web/admin/';
+
+    function makeClassList() {
+      return {
+        add() {},
+        remove() {},
+        contains() {
+          return false;
+        },
+      };
+    }
+
+    function makeNode() {
+      return {
+        textContent: '',
+        disabled: false,
+        dataset: {},
+        classList: makeClassList(),
+
+        addEventListener() {},
+        setAttribute() {},
+        removeAttribute() {},
+        scrollIntoView() {},
+      };
+    }
+
+    async function probeLoginRedirect(expiredSession) {
+      const loginCalls = [];
+      let logoutCount = 0;
+
+      const unauthorized =
+        new Error(
+          'เซสชัน LINE หมดอายุ กรุณาเข้าสู่ระบบใหม่'
+        );
+
+      unauthorized.code =
+        'UNAUTHORIZED';
+
+      const context =
+        vm.createContext({
+          console,
+
+          AdminViews: {},
+
+          AdminAPI: {
+            getToken() {
+              return '';
+            },
+
+            getLineSession() {
+              return false;
+            },
+
+            clearToken() {},
+
+            async loginLine() {
+              if (expiredSession) {
+                throw unauthorized;
+              }
+
+              return {
+                ok: true,
+                actor: 'Tester',
+                via: 'line',
+              };
+            },
+          },
+
+          UI: {
+            $(id) {
+              return makeNode();
+            },
+
+            setBusy() {},
+            showToast() {},
+
+            escapeHtml(value) {
+              return String(value);
+            },
+
+            el() {
+              return makeNode();
+            },
+          },
+
+          ADMIN_CONFIG: {
+            ADMIN_LIFF_ID:
+              'test-admin-liff',
+          },
+
+          liff: {
+            isLoggedIn() {
+              return !!expiredSession;
+            },
+
+            getAccessToken() {
+              return expiredSession
+                ? 'expired-token'
+                : '';
+            },
+
+            isInClient() {
+              return false;
+            },
+
+            logout() {
+              logoutCount += 1;
+            },
+
+            login(config) {
+              loginCalls.push(config);
+            },
+          },
+
+          location: {
+            origin:
+              'https://9gotstory.github.io',
+
+            pathname:
+              '/notion-notify/web/admin/',
+
+            hash: '',
+
+            reload() {},
+          },
+
+          window: {
+            innerWidth: 1024,
+
+            addEventListener() {},
+          },
+
+          document: {
+            addEventListener() {},
+
+            querySelectorAll() {
+              return [];
+            },
+          },
+
+          requestAnimationFrame(callback) {
+            if (callback) callback();
+            return 1;
+          },
+
+          setTimeout,
+          clearTimeout,
+        });
+
+      vm.runInContext(
+        fs.readFileSync(
+          path.join(
+            root,
+            'web/admin/js/app.js'
+          ),
+          'utf8'
+        ) +
+          '\n' +
+          'globalThis.__adminRedirectApp = App;',
+        context,
+        {
+          filename:
+            'web/admin/js/app.js',
+        }
+      );
+
+      const app =
+        context.__adminRedirectApp;
+
+      app.ensureLiffReady_ =
+        async function () {
+          return true;
+        };
+
+      await app.loginLine(false);
+
+      return {
+        loginCalls,
+        logoutCount,
+      };
+    }
+
+    const firstLogin =
+      await probeLoginRedirect(false);
+
+    if (
+      firstLogin.loginCalls.length !== 1
+    ) {
+      redirectFailures.push(
+        'first external-browser login must call liff.login exactly once; calls=' +
+          firstLogin.loginCalls.length
+      );
+    } else if (
+      !firstLogin.loginCalls[0] ||
+      firstLogin.loginCalls[0].redirectUri !==
+        expectedRedirect
+    ) {
+      redirectFailures.push(
+        'first external-browser login must set redirectUri=' +
+          expectedRedirect +
+          '; got=' +
+          JSON.stringify(
+            firstLogin.loginCalls[0]
+          )
+      );
+    }
+
+    const expiredLogin =
+      await probeLoginRedirect(true);
+
+    if (
+      expiredLogin.logoutCount !== 1
+    ) {
+      redirectFailures.push(
+        'expired external-browser session must logout exactly once before relogin; logout=' +
+          expiredLogin.logoutCount
+      );
+    }
+
+    if (
+      expiredLogin.loginCalls.length !== 1
+    ) {
+      redirectFailures.push(
+        'expired external-browser recovery must call liff.login exactly once; calls=' +
+          expiredLogin.loginCalls.length
+      );
+    } else if (
+      !expiredLogin.loginCalls[0] ||
+      expiredLogin.loginCalls[0].redirectUri !==
+        expectedRedirect
+    ) {
+      redirectFailures.push(
+        'expired external-browser recovery must set redirectUri=' +
+          expectedRedirect +
+          '; got=' +
+          JSON.stringify(
+            expiredLogin.loginCalls[0]
+          )
+      );
+    }
+
+    if (redirectFailures.length) {
+      fail(
+        'ADMIN-REL-P10D LINE redirect contract failed: ' +
+          redirectFailures.join('; ')
+      );
+    }
+  }
+
   console.log(
     'PASS testAdminRuntimeReliability'
   );
