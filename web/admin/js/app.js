@@ -71,6 +71,13 @@ const App = {
     return ready;
   },
 
+  /** URL กลับหลัง LINE Login สำหรับ external browser
+   *  pin กลับหน้า Admin ปัจจุบันโดยตัด query/hash ออก
+   *  ไม่พึ่ง LIFF Endpoint URL default ซึ่งอาจชี้คนละ route */
+  loginRedirectUri_() {
+    return location.origin + location.pathname;
+  },
+
   /** ล็อกอินด้วยบัญชี LINE ของผู้ได้รับสิทธิ์ (Settings > admin_staff) — ไม่ต้องจำรหัสกลางอีกต่อไป
    *  auto=true = เรียกเองตอนเปิดหน้า: ถ้ายังไม่ได้ล็อกอิน LINE ให้เงียบไว้ ไม่ดันไปหน้าล็อกอินของ LINE */
   async loginLine(auto) {
@@ -86,7 +93,9 @@ const App = {
       if (!ready) throw new Error('เชื่อมต่อ LINE ช้าเกินไป — ลองกดอีกครั้ง หรือเปิดหน้านี้ในแอป LINE');
       if (!liff.isLoggedIn()) {
         if (auto) return; // ยังไม่ได้ล็อกอิน — รอผู้ใช้กดปุ่ม (ตอนนั้นจะพาไปหน้าล็อกอินของ LINE แล้วเด้งกลับ)
-        liff.login();
+        liff.login({
+          redirectUri: App.loginRedirectUri_(),
+        });
         return;
       }
       const accessToken = liff.getAccessToken();
@@ -117,7 +126,9 @@ const App = {
 
         if (!auto) {
           try {
-            liff.login();
+            liff.login({
+              redirectUri: App.loginRedirectUri_(),
+            });
             return;
           } catch (_) {
             /* redirect ไม่เกิด — ไปแสดง notice ด้านล่างต่อ */
