@@ -2884,7 +2884,11 @@
         candidate.year ===
           draft.year &&
         candidate.activity ===
-          draft.activity
+          draft.activity &&
+        candidate.eventDate ===
+          draft.eventDate &&
+        candidate.activityName ===
+          draft.activityName
       );
     }
 
@@ -2931,6 +2935,12 @@
           draftDestination.year,
         activity:
           draftDestination.activity,
+
+        eventDate:
+          draftDestination.eventDate,
+
+        activityName:
+          draftDestination.activityName,
       };
 
       const promoted = {
@@ -3052,13 +3062,54 @@
         target.type ===
           'activity'
       ) {
-        const endpoint =
-          target.draft === true
-            ? '/v1/draft-activity/uploads'
-            : '/v1/uploads';
+        if (
+          target.draft ===
+            true
+        ) {
+          const eventDate =
+            String(
+              target.eventDate || ''
+            ).trim();
+
+          const activityName =
+            String(
+              target.activityName || ''
+            )
+              .trim()
+              .normalize('NFC');
+
+          if (
+            !eventDate ||
+            !activityName
+          ) {
+            throw new Error(
+              'ข้อมูลกิจกรรมฉบับร่างไม่สมบูรณ์'
+            );
+          }
+
+          return (
+            '/v1/draft-activity/uploads' +
+            '?topic=' +
+            encodeURIComponent(
+              target.topic
+            ) +
+            '&eventDate=' +
+            encodeURIComponent(
+              eventDate
+            ) +
+            '&activityName=' +
+            encodeURIComponent(
+              activityName
+            ) +
+            '&filename=' +
+            encodeURIComponent(
+              filename
+            )
+          );
+        }
 
         return (
-          endpoint +
+          '/v1/uploads' +
           '?topic=' +
           encodeURIComponent(
             target.topic
@@ -3072,7 +3123,9 @@
             target.activity
           ) +
           '&filename=' +
-          encodeURIComponent(filename)
+          encodeURIComponent(
+            filename
+          )
         );
       }
 
@@ -3778,10 +3831,22 @@
         );
       }
 
+      const eventDate =
+        String(
+          dateValue || ''
+        ).trim();
+
+      const semanticActivityName =
+        String(
+          activityName || ''
+        )
+          .trim()
+          .normalize('NFC');
+
       const canonicalName =
         buildActivityName(
-          dateValue,
-          activityName
+          eventDate,
+          semanticActivityName
         );
 
       if (
@@ -3803,6 +3868,12 @@
           name: canonicalName,
           path: '',
           draft: true,
+
+          eventDate:
+            eventDate,
+
+          activityName:
+            semanticActivityName,
         };
 
         state.selectedActivity =
@@ -3820,6 +3891,12 @@
 
           activity:
             canonicalName,
+
+          eventDate:
+            eventDate,
+
+          activityName:
+            semanticActivityName,
 
           path: '',
         };

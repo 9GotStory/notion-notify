@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  buildEventIdentity,
   isValidActivityName,
   isValidBuddhistYear,
 } from './archive-policy.js';
@@ -83,40 +84,81 @@ export class UploadService {
         .trim()
         .normalize('NFC');
 
-    const year =
-      String(input?.year || '')
-        .trim();
-
-    const activityName =
-      String(
-        input?.activityName || ''
-      )
-        .trim()
-        .normalize('NFC');
-
-    if (!isValidBuddhistYear(year)) {
-      throw new ArchiveInputError(
-        'Buddhist year must be four digits'
+    const hasEventDate =
+      Object.prototype.hasOwnProperty.call(
+        input || {},
+        'eventDate'
       );
-    }
 
-    if (
-      !isValidActivityName(
-        activityName
-      )
-    ) {
-      throw new ArchiveInputError(
-        'Invalid activity folder name'
-      );
-    }
+    let year;
+    let activityName;
 
-    if (
-      activityName.slice(0, 4) !==
-      year
-    ) {
-      throw new ArchiveInputError(
-        'Activity year does not match selected year'
-      );
+    if (hasEventDate) {
+      let identity;
+
+      try {
+        identity =
+          buildEventIdentity(
+            input?.eventDate,
+            input?.activityName
+          );
+      } catch (error) {
+        throw new ArchiveInputError(
+          error &&
+          error.message
+            ? error.message
+            : 'Invalid event identity'
+        );
+      }
+
+      year =
+        identity.buddhistYear;
+
+      activityName =
+        identity.folderName;
+    } else {
+      // Transitional compatibility:
+      // legacy callers may still supply Buddhist year +
+      // canonical YYYY-MM-DD_activity folder name.
+      //
+      // Semantic HTTP/LIFF callers now use eventDate +
+      // human activityName. Keep this legacy path only
+      // for the deployment compatibility window.
+      year =
+        String(input?.year || '')
+          .trim();
+
+      activityName =
+        String(
+          input?.activityName || ''
+        )
+          .trim()
+          .normalize('NFC');
+
+      if (!isValidBuddhistYear(year)) {
+        throw new ArchiveInputError(
+          'Buddhist year must be four digits'
+        );
+      }
+
+      if (
+        !isValidActivityName(
+          activityName
+        )
+      ) {
+        throw new ArchiveInputError(
+          'Invalid activity folder name'
+        );
+      }
+
+      if (
+        activityName.slice(0, 4) !==
+        year
+      ) {
+        throw new ArchiveInputError(
+          'Activity year does not match selected year'
+        );
+      }
     }
 
     // Bytes are validated before any WebDAV write.

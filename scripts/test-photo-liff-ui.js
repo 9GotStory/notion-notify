@@ -378,6 +378,11 @@ async function run() {
   // destination snapshot เดิมตลอดทั้ง batch
   let destinationMutationMode = 'off';
 
+  // PEM-P02-C:
+  // prove that the successful draft-upload response,
+  // not the local preview, becomes canonical authority.
+  let semanticAuthorityMode = 'off';
+
   // UX-P02 async-state probes
   let pauseUploadMode = false;
   let releasePausedUpload = null;
@@ -1182,19 +1187,62 @@ async function run() {
             ) || ''
           );
 
-        const year =
+        const eventDate =
+          String(
+            parsed.searchParams.get(
+              'eventDate'
+            ) || ''
+          );
+
+        const semanticActivityName =
+          String(
+            parsed.searchParams.get(
+              'activityName'
+            ) || ''
+          );
+
+        const legacyYear =
           String(
             parsed.searchParams.get(
               'year'
             ) || ''
           );
 
-        const activityName =
+        const legacyActivityName =
           String(
             parsed.searchParams.get(
               'activity'
             ) || ''
           );
+
+        const semanticYear =
+          /^\d{4}-\d{2}-\d{2}$/.test(
+            eventDate
+          )
+            ? String(
+                Number(
+                  eventDate.slice(
+                    0,
+                    4
+                  )
+                ) + 543
+              )
+            : '';
+
+        const year =
+          eventDate
+            ? semanticYear
+            : legacyYear;
+
+        const activityName =
+          eventDate
+            ? (
+                semanticYear +
+                eventDate.slice(4) +
+                '_' +
+                semanticActivityName
+              )
+            : legacyActivityName;
 
         const filename =
           String(
@@ -1222,12 +1270,22 @@ async function run() {
           };
         }
 
+        const responseActivityName =
+          semanticAuthorityMode ===
+            'override'
+            ? (
+                year +
+                '-09-22_' +
+                'Server Canonical'
+              )
+            : activityName;
+
         const activityPath =
           topic +
           '/' +
           year +
           '/' +
-          activityName;
+          responseActivityName;
 
         return {
           ok: true,
@@ -1241,7 +1299,7 @@ async function run() {
 
               activity: {
                 name:
-                  activityName,
+                  responseActivityName,
 
                 path:
                   activityPath,
@@ -2234,6 +2292,22 @@ async function run() {
     'draft activity must not appear in persisted activity list before upload'
   );
 
+  // ---------- PEM-P02-A: Semantic draft transport ----------
+
+  const pemP02AFailures = [];
+
+  if (
+    !ui.state.destination ||
+    ui.state.destination.eventDate !==
+      '2026-09-21' ||
+    ui.state.destination.activityName !==
+      'ทดสอบ Photo Bridge'
+  ) {
+    pemP02AFailures.push(
+      'draft state must preserve semantic eventDate + human activityName for materialization'
+    );
+  }
+
   // ---------- DA-P07: Draft upload promotion ----------
 
   assert(
@@ -2304,24 +2378,40 @@ async function run() {
       firstDraftCall.url
     );
 
-  assert(
+  const semanticDraftTransportOk =
     firstDraftUrl.searchParams.get(
       'topic'
     ) ===
       '80_งานกิจกรรมกลาง' &&
-      firstDraftUrl.searchParams.get(
-        'year'
-      ) ===
-        '2569' &&
-      firstDraftUrl.searchParams.get(
-        'activity'
-      ) ===
-        draftActivityName &&
-      firstDraftUrl.searchParams.get(
-        'filename'
-      ) ===
-        'draft-first.jpg',
-    'draft upload endpoint must receive canonical destination fields'
+    firstDraftUrl.searchParams.get(
+      'eventDate'
+    ) ===
+      '2026-09-21' &&
+    firstDraftUrl.searchParams.get(
+      'activityName'
+    ) ===
+      'ทดสอบ Photo Bridge' &&
+    firstDraftUrl.searchParams.get(
+      'filename'
+    ) ===
+      'draft-first.jpg' &&
+    !firstDraftUrl.searchParams.has(
+      'year'
+    ) &&
+    !firstDraftUrl.searchParams.has(
+      'activity'
+    );
+
+  if (!semanticDraftTransportOk) {
+    pemP02AFailures.push(
+      'first draft upload must send topic + Gregorian eventDate + human activityName and must not send caller-derived year/activity identity'
+    );
+  }
+
+  assert(
+    pemP02AFailures.length === 0,
+    'PEM-P02-A semantic LIFF draft transport failed:\n- ' +
+      pemP02AFailures.join('\n- ')
   );
 
   assert(
@@ -2394,6 +2484,209 @@ async function run() {
     ).length === 1,
     'materialized draft must enter persisted activity list exactly once'
   );
+
+  // ---------- PEM-P02-C: Server canonical authority ----------
+
+  const authorityDraft =
+    await ui.createActivity(
+      '2026-09-22',
+      'Local Preview'
+    );
+
+  assert(
+    authorityDraft &&
+      authorityDraft.name ===
+        '2569-09-22_Local Preview' &&
+      authorityDraft.draft === true,
+    'canonical-authority setup must begin with the local preview draft'
+  );
+
+  semanticAuthorityMode =
+    'override';
+
+  const authorityStart =
+    fetchCalls.length;
+
+  const authorityFiles = [
+    {
+      name:
+        'authority-first.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+
+    {
+      name:
+        'authority-second.jpg',
+      size: 3,
+      type: 'image/jpeg',
+    },
+  ];
+
+  const authorityResults =
+    await ui.uploadFiles(
+      authorityFiles
+    );
+
+  semanticAuthorityMode =
+    'off';
+
+  const authorityCalls =
+    fetchCalls.slice(
+      authorityStart
+    );
+
+  const authorityFailures = [];
+
+  if (
+    authorityResults.length !== 2 ||
+    authorityResults.some(
+      item =>
+        !item ||
+        item.ok !== true
+    )
+  ) {
+    authorityFailures.push(
+      'authority probe must upload both files successfully'
+    );
+  }
+
+  if (
+    authorityCalls.length !== 2
+  ) {
+    authorityFailures.push(
+      'authority probe must issue exactly two upload requests'
+    );
+  }
+
+  if (
+    authorityCalls.length >= 1
+  ) {
+    const first =
+      new URL(
+        authorityCalls[0].url
+      );
+
+    const firstIsSemantic =
+      first.pathname ===
+        '/v1/draft-activity/uploads' &&
+      first.searchParams.get(
+        'eventDate'
+      ) ===
+        '2026-09-22' &&
+      first.searchParams.get(
+        'activityName'
+      ) ===
+        'Local Preview' &&
+      !first.searchParams.has(
+        'year'
+      ) &&
+      !first.searchParams.has(
+        'activity'
+      );
+
+    if (!firstIsSemantic) {
+      authorityFailures.push(
+        'first authority request must use semantic draft identity'
+      );
+    }
+  }
+
+  const serverCanonicalName =
+    '2569-09-22_Server Canonical';
+
+  const serverCanonicalPath =
+    '80_งานกิจกรรมกลาง/' +
+    '2569/' +
+    serverCanonicalName;
+
+  if (
+    authorityCalls.length >= 2
+  ) {
+    const second =
+      new URL(
+        authorityCalls[1].url
+      );
+
+    const secondUsesServerIdentity =
+      second.pathname ===
+        '/v1/uploads' &&
+      second.searchParams.get(
+        'year'
+      ) ===
+        '2569' &&
+      second.searchParams.get(
+        'activity'
+      ) ===
+        serverCanonicalName &&
+      second.searchParams.get(
+        'filename'
+      ) ===
+        'authority-second.jpg';
+
+    if (
+      !secondUsesServerIdentity
+    ) {
+      authorityFailures.push(
+        'after materialization, the next file must use the canonical activity returned by the server'
+      );
+    }
+  }
+
+  const liveStateUsesServerIdentity =
+    ui.state.selectedActivity &&
+    ui.state.selectedActivity.draft !==
+      true &&
+    ui.state.selectedActivity.name ===
+      serverCanonicalName &&
+    ui.state.selectedActivity.path ===
+      serverCanonicalPath &&
+    ui.state.destination &&
+    ui.state.destination.draft !==
+      true &&
+    ui.state.destination.activity ===
+      serverCanonicalName &&
+    ui.state.destination.path ===
+      serverCanonicalPath;
+
+  if (
+    !liveStateUsesServerIdentity
+  ) {
+    authorityFailures.push(
+      'successful materialization must replace the local preview identity with the canonical server response'
+    );
+  }
+
+  const persistedUsesServerIdentity =
+    ui.state.activities.some(
+      item =>
+        item &&
+        item.name ===
+          serverCanonicalName &&
+        item.path ===
+          serverCanonicalPath
+    ) &&
+    !ui.state.activities.some(
+      item =>
+        item &&
+        item.name ===
+          '2569-09-22_Local Preview'
+    );
+
+  if (
+    !persistedUsesServerIdentity
+  ) {
+    authorityFailures.push(
+      'persisted activity list must contain only the canonical server identity, not the local preview'
+    );
+  }
+
+  assert(
+    authorityFailures.length === 0,
+    'PEM-P02-C server canonical authority failed:\n- ' +
+      authorityFailures.join('\n- ')
+  );
+
 
   // ---------- DA-P07-C: Draft failure and retry safety ----------
 

@@ -140,24 +140,135 @@ export async function handleHttpRequest(request, context) {
         );
       }
 
+      const hasEventDate =
+        url.searchParams.has(
+          'eventDate'
+        );
+
+      const hasSemanticActivityName =
+        url.searchParams.has(
+          'activityName'
+        );
+
+      const hasLegacyYear =
+        url.searchParams.has(
+          'year'
+        );
+
+      const hasLegacyActivity =
+        url.searchParams.has(
+          'activity'
+        );
+
+      const hasSemanticIdentity =
+        hasEventDate ||
+        hasSemanticActivityName;
+
+      const hasLegacyIdentity =
+        hasLegacyYear ||
+        hasLegacyActivity;
+
+      if (
+        hasSemanticIdentity &&
+        hasLegacyIdentity
+      ) {
+        throw new ArchiveInputError(
+          'Draft activity identity must not mix semantic and legacy fields'
+        );
+      }
+
+      if (
+        hasSemanticIdentity &&
+        (
+          !hasEventDate ||
+          !hasSemanticActivityName
+        )
+      ) {
+        throw new ArchiveInputError(
+          'Semantic draft activity identity requires eventDate and activityName'
+        );
+      }
+
+      if (
+        hasLegacyIdentity &&
+        (
+          !hasLegacyYear ||
+          !hasLegacyActivity
+        )
+      ) {
+        throw new ArchiveInputError(
+          'Legacy draft activity identity requires year and activity'
+        );
+      }
+
+      if (
+        !hasSemanticIdentity &&
+        !hasLegacyIdentity
+      ) {
+        throw new ArchiveInputError(
+          'Draft activity identity is required'
+        );
+      }
+
+      const uploadInput =
+        hasSemanticIdentity
+          ? {
+              topic:
+                url.searchParams.get(
+                  'topic'
+                ),
+
+              eventDate:
+                url.searchParams.get(
+                  'eventDate'
+                ),
+
+              activityName:
+                url.searchParams.get(
+                  'activityName'
+                ),
+
+              filename:
+                url.searchParams.get(
+                  'filename'
+                ),
+
+              content:
+                request.body,
+            }
+          : {
+              // Transitional compatibility for
+              // callers that still send Buddhist year +
+              // canonical activity folder name.
+              topic:
+                url.searchParams.get(
+                  'topic'
+                ),
+
+              year:
+                url.searchParams.get(
+                  'year'
+                ),
+
+              activityName:
+                url.searchParams.get(
+                  'activity'
+                ),
+
+              filename:
+                url.searchParams.get(
+                  'filename'
+                ),
+
+              content:
+                request.body,
+            };
+
       const result =
         await context.uploadService
-          .uploadToDraftActivity({
-            topic:
-              url.searchParams.get('topic'),
-
-            year:
-              url.searchParams.get('year'),
-
-            activityName:
-              url.searchParams.get('activity'),
-
-            filename:
-              url.searchParams.get('filename'),
-
-            content:
-              request.body,
-          });
+          .uploadToDraftActivity(
+            uploadInput
+          );
 
       return response(201, {
         ok: true,
