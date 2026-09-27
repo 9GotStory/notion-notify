@@ -203,6 +203,31 @@ async function run() {
         ? renderIdentity_
         : null,
 
+    renderManagerPanel:
+      typeof renderManagerPanel_ === 'function'
+        ? renderManagerPanel_
+        : null,
+
+    loadManagerInbox:
+      typeof loadManagerInbox === 'function'
+        ? loadManagerInbox
+        : null,
+
+    moveInboxFile:
+      typeof moveInboxFile === 'function'
+        ? moveInboxFile
+        : null,
+
+    renameSelectedActivity:
+      typeof renameSelectedActivity === 'function'
+        ? renameSelectedActivity
+        : null,
+
+    archiveSelectedActivity:
+      typeof archiveSelectedActivity === 'function'
+        ? archiveSelectedActivity
+        : null,
+
     setDestinationMode:
       typeof setDestinationMode_ === 'function'
         ? setDestinationMode_
@@ -362,6 +387,15 @@ async function run() {
 
   let pauseCreateActivityMode = false;
   let releasePausedCreateActivity = null;
+
+  // PMUI-P04-B01:
+  // pause manager writes to simulate the user changing
+  // activity selection while a request is in flight.
+  let pauseManagerRenameMode = false;
+  let releasePausedManagerRename = null;
+
+  let pauseManagerArchiveMode = false;
+  let releasePausedManagerArchive = null;
 
   const bridgeActor = {
     sub: 'U123',
@@ -1341,6 +1375,339 @@ async function run() {
                     'number'
                     ? options.body.size
                     : 3,
+              },
+            };
+          },
+        };
+      }
+
+      // --------------------------------------------------
+      // PMUI-P03-C:
+      // manager writes must remain single-shot on
+      // ambiguous network failure.
+      // ------------------------------------------------------
+
+      if (
+        runtimeReliabilityMode ===
+          'manager-write-network-fail' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST' &&
+        (
+          requestUrl ===
+            'https://photo.example.test:8443/v1/move' ||
+          requestUrl ===
+            'https://photo.example.test:8443/v1/rename' ||
+          requestUrl ===
+            'https://photo.example.test:8443/v1/archive'
+        )
+      ) {
+        runtimeReliabilityAttempts += 1;
+
+        throw new Error(
+          'simulated ambiguous manager write failure'
+        );
+      }
+
+      // --------------------------------------------------
+      // PMUI-P04-B01:
+      // delayed manager writes for stale-selection probes
+      // ------------------------------------------------------
+
+      if (
+        pauseManagerRenameMode &&
+        requestUrl ===
+          'https://photo.example.test:8443/v1/rename' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        pauseManagerRenameMode =
+          false;
+
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        await new Promise(resolve => {
+          releasePausedManagerRename =
+            resolve;
+        });
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              renamed: {
+                oldName:
+                  body.activityName,
+
+                newName:
+                  body.newActivityName,
+
+                source:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName,
+
+                destination:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.newActivityName,
+              },
+            };
+          },
+        };
+      }
+
+      if (
+        pauseManagerArchiveMode &&
+        requestUrl ===
+          'https://photo.example.test:8443/v1/archive' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        pauseManagerArchiveMode =
+          false;
+
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        await new Promise(resolve => {
+          releasePausedManagerArchive =
+            resolve;
+        });
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              archived: {
+                name:
+                  body.activityName,
+
+                source:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName,
+
+                destination:
+                  '99_ARCHIVE_คลังภาพเก่า/' +
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName,
+              },
+            };
+          },
+        };
+      }
+
+      // --------------------------------------------------
+      // PMUI-P03-A:
+      // deterministic Photo Manager UI API probes
+      // --------------------------------------------------
+
+      if (
+        requestUrl ===
+          'https://photo.example.test:8443/v1/manager/inbox' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'GET'
+      ) {
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              files: [
+                {
+                  name:
+                    '20260927T010203Z_abcd1234_photo-one.jpg',
+
+                  path:
+                    '00_INBOX_รอจัดหมวด/' +
+                    '20260927T010203Z_abcd1234_photo-one.jpg',
+
+                  mime:
+                    'image/jpeg',
+                },
+
+                {
+                  name:
+                    '20260927T010204Z_efgh5678_photo-two.jpg',
+
+                  path:
+                    '00_INBOX_รอจัดหมวด/' +
+                    '20260927T010204Z_efgh5678_photo-two.jpg',
+
+                  mime:
+                    'image/jpeg',
+                },
+              ],
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          'https://photo.example.test:8443/v1/move' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              moved: {
+                name:
+                  body.filename,
+
+                source:
+                  '00_INBOX_รอจัดหมวด/' +
+                  body.filename,
+
+                destination:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName +
+                  '/' +
+                  body.filename,
+              },
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          'https://photo.example.test:8443/v1/rename' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              renamed: {
+                oldName:
+                  body.activityName,
+
+                newName:
+                  body.newActivityName,
+
+                source:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName,
+
+                destination:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.newActivityName,
+              },
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          'https://photo.example.test:8443/v1/archive' &&
+        String(
+          options.method || 'GET'
+        ).toUpperCase() === 'POST'
+      ) {
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              archived: {
+                name:
+                  body.activityName,
+
+                source:
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName,
+
+                destination:
+                  '99_ARCHIVE_คลังภาพเก่า/' +
+                  body.topic +
+                  '/' +
+                  body.year +
+                  '/' +
+                  body.activityName,
               },
             };
           },
@@ -5126,6 +5493,1353 @@ async function run() {
     'PHOTO-REL-P04-A RED contracts failed:\n- ' +
       retryBackoffFailures.join('\n- ')
   );
+
+  // ---------- PMUI-P03-A: Manager UI contract ----------
+
+  const pmuiP03Failures = [];
+
+  const managerMarkupIds = [
+    'managerPanel',
+    'managerInboxRefreshButton',
+    'managerInboxList',
+    'managerInboxStatus',
+    'managerRenameInput',
+    'managerRenameButton',
+    'managerArchiveButton',
+    'managerActionStatus',
+  ];
+
+  const managerMarkupOk =
+    managerMarkupIds.every(
+      id =>
+        html.includes(
+          'id="' + id + '"'
+        )
+    );
+
+  if (!managerMarkupOk) {
+    pmuiP03Failures.push(
+      'manager surface: manager-only panel, Inbox list, rename action, archive action, and status surfaces must exist'
+    );
+  }
+
+  const managerHelpersOk =
+    typeof ui.renderManagerPanel ===
+      'function' &&
+    typeof ui.loadManagerInbox ===
+      'function' &&
+    typeof ui.moveInboxFile ===
+      'function' &&
+    typeof ui.renameSelectedActivity ===
+      'function' &&
+    typeof ui.archiveSelectedActivity ===
+      'function';
+
+  if (!managerHelpersOk) {
+    pmuiP03Failures.push(
+      'manager behavior: render/load/move/rename/archive helpers must exist'
+    );
+  }
+
+  const managerStateOk =
+    Array.isArray(
+      ui.state.managerInboxFiles
+    ) &&
+    ui.state.managerInboxFiles.length === 0;
+
+  if (!managerStateOk) {
+    pmuiP03Failures.push(
+      'manager state: Inbox collection must start empty'
+    );
+  }
+
+  if (
+    managerMarkupOk &&
+    managerHelpersOk &&
+    managerStateOk
+  ) {
+    const managerPanel =
+      document.getElementById(
+        'managerPanel'
+      );
+
+    // --------------------------------------------------------
+    // Role visibility must use verified Bridge actor only.
+    // --------------------------------------------------------
+
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'user',
+    };
+
+    ui.renderManagerPanel();
+
+    const hiddenForUser =
+      managerPanel &&
+      managerPanel.classList.contains(
+        'hidden'
+      );
+
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'manager',
+    };
+
+    ui.renderManagerPanel();
+
+    const visibleForManager =
+      managerPanel &&
+      !managerPanel.classList.contains(
+        'hidden'
+      );
+
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'admin',
+    };
+
+    ui.renderManagerPanel();
+
+    const visibleForAdmin =
+      managerPanel &&
+      !managerPanel.classList.contains(
+        'hidden'
+      );
+
+    if (
+      !hiddenForUser ||
+      !visibleForManager ||
+      !visibleForAdmin
+    ) {
+      pmuiP03Failures.push(
+        'manager authorization UX: normal users must not see manager controls; manager/admin must see them'
+      );
+    }
+
+    // --------------------------------------------------------
+    // Inbox discovery is a safe GET.
+    // --------------------------------------------------------
+
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'manager',
+    };
+
+    const inboxFetchStart =
+      fetchCalls.length;
+
+    await ui.loadManagerInbox();
+
+    const inboxCall =
+      fetchCalls[
+        inboxFetchStart
+      ];
+
+    const inboxList =
+      document.getElementById(
+        'managerInboxList'
+      );
+
+    const inboxHtml =
+      String(
+        inboxList &&
+        inboxList.innerHTML
+          ? inboxList.innerHTML
+          : ''
+      );
+
+    const inboxLoadOk =
+      inboxCall &&
+      inboxCall.url ===
+        context.CONFIG.PHOTO_API_URL +
+        '/v1/manager/inbox' &&
+      inboxCall.method === 'GET' &&
+      Array.isArray(
+        ui.state.managerInboxFiles
+      ) &&
+      ui.state.managerInboxFiles.length ===
+        2 &&
+      inboxHtml.includes(
+        '20260927T010203Z_abcd1234_photo-one.jpg'
+      ) &&
+      inboxHtml.includes(
+        '20260927T010204Z_efgh5678_photo-two.jpg'
+      );
+
+    if (!inboxLoadOk) {
+      pmuiP03Failures.push(
+        'manager Inbox: explicit load must GET /v1/manager/inbox and render the returned files'
+      );
+    }
+
+    // Shared persisted activity destination.
+    const topicName =
+      '80_งานกิจกรรมกลาง';
+
+    const year =
+      '2569';
+
+    const activityName =
+      '2569-09-03_กิจกรรมเดิม';
+
+    const activityPath =
+      topicName +
+      '/' +
+      year +
+      '/' +
+      activityName;
+
+    ui.state.selectedTopic = {
+      name: topicName,
+      path: topicName,
+      type: 'topic',
+    };
+
+    ui.state.selectedYear =
+      year;
+
+    ui.state.selectedActivity = {
+      name: activityName,
+      path: activityPath,
+    };
+
+    ui.state.destination = {
+      type: 'activity',
+      topic: topicName,
+      year,
+      activity:
+        activityName,
+      path:
+        activityPath,
+    };
+
+    ui.state.activities = [
+      {
+        name:
+          activityName,
+        path:
+          activityPath,
+      },
+    ];
+
+    // --------------------------------------------------------
+    // Inbox -> selected persisted activity.
+    // --------------------------------------------------------
+
+    const inboxFilename =
+      '20260927T010203Z_abcd1234_photo-one.jpg';
+
+    const moveFetchStart =
+      fetchCalls.length;
+
+    await ui.moveInboxFile(
+      inboxFilename
+    );
+
+    const moveCall =
+      fetchCalls[
+        moveFetchStart
+      ];
+
+    let moveBody = {};
+
+    try {
+      moveBody =
+        JSON.parse(
+          String(
+            moveCall &&
+            moveCall.body
+              ? moveCall.body
+              : '{}'
+          )
+        );
+    } catch (err) {
+      moveBody = {};
+    }
+
+    const moveOk =
+      moveCall &&
+      moveCall.url ===
+        context.CONFIG.PHOTO_API_URL +
+        '/v1/move' &&
+      moveCall.method === 'POST' &&
+      moveBody.filename ===
+        inboxFilename &&
+      moveBody.topic ===
+        topicName &&
+      moveBody.year ===
+        year &&
+      moveBody.activityName ===
+        activityName &&
+      !ui.state.managerInboxFiles.some(
+        item =>
+          item &&
+          item.name ===
+            inboxFilename
+      );
+
+    if (!moveOk) {
+      pmuiP03Failures.push(
+        'manager move: Inbox file must POST canonical destination fields once and disappear from local Inbox state after success'
+      );
+    }
+
+    // --------------------------------------------------------
+    // Rename preserves YYYY-MM-DD prefix for friendly UX.
+    // --------------------------------------------------------
+
+    const renameFetchStart =
+      fetchCalls.length;
+
+    await ui.renameSelectedActivity(
+      'กิจกรรมชื่อใหม่'
+    );
+
+    const renameCall =
+      fetchCalls[
+        renameFetchStart
+      ];
+
+    let renameBody = {};
+
+    try {
+      renameBody =
+        JSON.parse(
+          String(
+            renameCall &&
+            renameCall.body
+              ? renameCall.body
+              : '{}'
+          )
+        );
+    } catch (err) {
+      renameBody = {};
+    }
+
+    const renamedName =
+      '2569-09-03_กิจกรรมชื่อใหม่';
+
+    const renameOk =
+      renameCall &&
+      renameCall.url ===
+        context.CONFIG.PHOTO_API_URL +
+        '/v1/rename' &&
+      renameCall.method ===
+        'POST' &&
+      renameBody.topic ===
+        topicName &&
+      renameBody.year ===
+        year &&
+      renameBody.activityName ===
+        activityName &&
+      renameBody.newActivityName ===
+        renamedName &&
+      ui.state.selectedActivity &&
+      ui.state.selectedActivity.name ===
+        renamedName &&
+      ui.state.destination &&
+      ui.state.destination.activity ===
+        renamedName;
+
+    if (!renameOk) {
+      pmuiP03Failures.push(
+        'manager rename: friendly name edit must preserve the original YYYY-MM-DD prefix, POST /v1/rename, and update local selected destination after success'
+      );
+    }
+
+    // --------------------------------------------------------
+    // Archive current persisted activity.
+    // --------------------------------------------------------
+
+    const archiveFetchStart =
+      fetchCalls.length;
+
+    await ui.archiveSelectedActivity();
+
+    const archiveCall =
+      fetchCalls[
+        archiveFetchStart
+      ];
+
+    let archiveBody = {};
+
+    try {
+      archiveBody =
+        JSON.parse(
+          String(
+            archiveCall &&
+            archiveCall.body
+              ? archiveCall.body
+              : '{}'
+          )
+        );
+    } catch (err) {
+      archiveBody = {};
+    }
+
+    const archiveOk =
+      archiveCall &&
+      archiveCall.url ===
+        context.CONFIG.PHOTO_API_URL +
+        '/v1/archive' &&
+      archiveCall.method ===
+        'POST' &&
+      archiveBody.topic ===
+        topicName &&
+      archiveBody.year ===
+        year &&
+      archiveBody.activityName ===
+        renamedName &&
+      ui.state.selectedActivity ===
+        null &&
+      ui.state.destination ===
+        null &&
+      !ui.state.activities.some(
+        item =>
+          item &&
+          item.name ===
+            renamedName
+      );
+
+    if (!archiveOk) {
+      pmuiP03Failures.push(
+        'manager archive: selected activity must POST /v1/archive and be removed from active local state only after success'
+      );
+    }
+
+    // Restore ordinary actor for later unrelated contracts.
+    ui.state.actor =
+      bridgeActor;
+
+    ui.renderManagerPanel();
+  }
+
+  assert(
+    pmuiP03Failures.length === 0,
+    'PMUI-P03-A RED contracts failed:\n- ' +
+      pmuiP03Failures.join('\n- ')
+  );
+
+
+  // ---------- PMUI-P03-C: Manager write safety ----------
+
+  const pmuiP03CSafetyFailures = [];
+
+  const safetyTopic =
+    '80_งานกิจกรรมกลาง';
+
+  const safetyYear =
+    '2569';
+
+  const safetyActivity =
+    '2569-09-27_Manager Safety';
+
+  const safetyActivityPath =
+    safetyTopic +
+    '/' +
+    safetyYear +
+    '/' +
+    safetyActivity;
+
+  const safetyInboxFile =
+    '20260927T020304Z_safe_photo.jpg';
+
+  function setManagerSafetyActivity_() {
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'manager',
+    };
+
+    ui.state.selectedTopic = {
+      name:
+        safetyTopic,
+
+      path:
+        safetyTopic,
+
+      type:
+        'topic',
+    };
+
+    ui.state.selectedYear =
+      safetyYear;
+
+    ui.state.selectedActivity = {
+      name:
+        safetyActivity,
+
+      path:
+        safetyActivityPath,
+    };
+
+    ui.state.destination = {
+      type:
+        'activity',
+
+      topic:
+        safetyTopic,
+
+      year:
+        safetyYear,
+
+      activity:
+        safetyActivity,
+
+      path:
+        safetyActivityPath,
+    };
+
+    ui.state.activities = [
+      {
+        name:
+          safetyActivity,
+
+        path:
+          safetyActivityPath,
+      },
+    ];
+  }
+
+
+  // ----------------------------------------------------------
+  // MOVE:
+  // ambiguous network failure must remain single-shot and
+  // must preserve Inbox + selected destination.
+  // ----------------------------------------------------------
+
+  setManagerSafetyActivity_();
+
+  ui.state.managerInboxFiles = [
+    {
+      name:
+        safetyInboxFile,
+
+      path:
+        '00_INBOX_รอจัดหมวด/' +
+        safetyInboxFile,
+
+      mime:
+        'image/jpeg',
+    },
+  ];
+
+  runtimeReliabilityMode =
+    'manager-write-network-fail';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  let managerMoveFailure = null;
+
+  try {
+    await ui.moveInboxFile(
+      safetyInboxFile
+    );
+  } catch (err) {
+    managerMoveFailure = err;
+  }
+
+  const managerMoveSingleShotOk =
+    managerMoveFailure &&
+    managerMoveFailure.code ===
+      'NETWORK_ERROR' &&
+    runtimeReliabilityAttempts === 1 &&
+    runtimeBackoffDelays.length === 0 &&
+    ui.state.managerActionBusy ===
+      false &&
+    ui.state.managerInboxFiles.some(
+      item =>
+        item &&
+        item.name ===
+          safetyInboxFile
+    ) &&
+    ui.state.selectedActivity &&
+    ui.state.selectedActivity.name ===
+      safetyActivity &&
+    ui.state.destination &&
+    ui.state.destination.activity ===
+      safetyActivity;
+
+  if (!managerMoveSingleShotOk) {
+    pmuiP03CSafetyFailures.push(
+      'manager move: ambiguous POST failure must make exactly 1 request, use no retry backoff, preserve Inbox file, and preserve selected destination'
+    );
+  }
+
+
+  // ----------------------------------------------------------
+  // RENAME:
+  // ambiguous network failure must not assume rename succeeded.
+  // ----------------------------------------------------------
+
+  setManagerSafetyActivity_();
+
+  runtimeReliabilityMode =
+    'manager-write-network-fail';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  let managerRenameFailure = null;
+
+  try {
+    await ui.renameSelectedActivity(
+      'ชื่อใหม่ที่ห้าม assume success'
+    );
+  } catch (err) {
+    managerRenameFailure = err;
+  }
+
+  const managerRenameSingleShotOk =
+    managerRenameFailure &&
+    managerRenameFailure.code ===
+      'NETWORK_ERROR' &&
+    runtimeReliabilityAttempts === 1 &&
+    runtimeBackoffDelays.length === 0 &&
+    ui.state.managerActionBusy ===
+      false &&
+    ui.state.selectedActivity &&
+    ui.state.selectedActivity.name ===
+      safetyActivity &&
+    ui.state.destination &&
+    ui.state.destination.activity ===
+      safetyActivity &&
+    ui.state.activities.length === 1 &&
+    ui.state.activities[0].name ===
+      safetyActivity;
+
+  if (!managerRenameSingleShotOk) {
+    pmuiP03CSafetyFailures.push(
+      'manager rename: ambiguous POST failure must make exactly 1 request, use no retry backoff, and preserve the original local activity identity'
+    );
+  }
+
+
+  // ----------------------------------------------------------
+  // ARCHIVE:
+  // ambiguous network failure must not remove activity locally.
+  // ----------------------------------------------------------
+
+  setManagerSafetyActivity_();
+
+  runtimeReliabilityMode =
+    'manager-write-network-fail';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  let managerArchiveFailure = null;
+
+  try {
+    await ui.archiveSelectedActivity();
+  } catch (err) {
+    managerArchiveFailure = err;
+  }
+
+  const managerArchiveSingleShotOk =
+    managerArchiveFailure &&
+    managerArchiveFailure.code ===
+      'NETWORK_ERROR' &&
+    runtimeReliabilityAttempts === 1 &&
+    runtimeBackoffDelays.length === 0 &&
+    ui.state.managerActionBusy ===
+      false &&
+    ui.state.selectedActivity &&
+    ui.state.selectedActivity.name ===
+      safetyActivity &&
+    ui.state.destination &&
+    ui.state.destination.activity ===
+      safetyActivity &&
+    ui.state.activities.some(
+      item =>
+        item &&
+        item.name ===
+          safetyActivity
+    );
+
+  if (!managerArchiveSingleShotOk) {
+    pmuiP03CSafetyFailures.push(
+      'manager archive: ambiguous POST failure must make exactly 1 request, use no retry backoff, and keep the activity in active local state'
+    );
+  }
+
+
+  runtimeReliabilityMode =
+    'off';
+
+  runtimeReliabilityAttempts = 0;
+  runtimeBackoffDelays.length = 0;
+
+  ui.state.actor =
+    bridgeActor;
+
+  if (
+    typeof ui.renderManagerPanel ===
+      'function'
+  ) {
+    ui.renderManagerPanel();
+  }
+
+
+  assert(
+    pmuiP03CSafetyFailures.length === 0,
+    'PMUI-P03-C manager write safety failed:\n- ' +
+      pmuiP03CSafetyFailures.join('\n- ')
+  );
+
+
+  // ---------- PMUI-P03-D: Manager interaction guardrails ----------
+
+  const pmuiP03DGuardFailures = [];
+
+  const guardTopic =
+    '80_งานกิจกรรมกลาง';
+
+  const guardYear =
+    '2569';
+
+  const guardActivity =
+    '2569-09-27_Manager Guard';
+
+  const guardActivityPath =
+    guardTopic +
+    '/' +
+    guardYear +
+    '/' +
+    guardActivity;
+
+  const guardInboxFile =
+    '20260927T030405Z_guard_photo.jpg';
+
+
+  function setPersistedManagerGuardState_() {
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'manager',
+    };
+
+    ui.state.selectedTopic = {
+      name:
+        guardTopic,
+
+      path:
+        guardTopic,
+
+      type:
+        'topic',
+    };
+
+    ui.state.selectedYear =
+      guardYear;
+
+    ui.state.selectedActivity = {
+      name:
+        guardActivity,
+
+      path:
+        guardActivityPath,
+    };
+
+    ui.state.destination = {
+      type:
+        'activity',
+
+      topic:
+        guardTopic,
+
+      year:
+        guardYear,
+
+      activity:
+        guardActivity,
+
+      path:
+        guardActivityPath,
+    };
+
+    ui.state.activities = [
+      {
+        name:
+          guardActivity,
+
+        path:
+          guardActivityPath,
+      },
+    ];
+
+    ui.state.managerInboxFiles = [
+      {
+        name:
+          guardInboxFile,
+
+        path:
+          '00_INBOX_รอจัดหมวด/' +
+          guardInboxFile,
+
+        mime:
+          'image/jpeg',
+      },
+    ];
+
+    ui.state.managerInboxLoading =
+      false;
+
+    ui.state.managerActionBusy =
+      false;
+  }
+
+
+  // ----------------------------------------------------------
+  // Normal user:
+  // helper itself must enforce authorization, not only hidden UI.
+  // ----------------------------------------------------------
+
+  ui.state.actor = {
+    ...bridgeActor,
+    role: 'user',
+  };
+
+  const userInboxFetchStart =
+    fetchCalls.length;
+
+  let userInboxError = null;
+
+  try {
+    await ui.loadManagerInbox();
+  } catch (err) {
+    userInboxError = err;
+  }
+
+  if (
+    !userInboxError ||
+    fetchCalls.length !==
+      userInboxFetchStart
+  ) {
+    pmuiP03DGuardFailures.push(
+      'manager authorization: normal user loadManagerInbox() must fail locally before any network request'
+    );
+  }
+
+
+  // ----------------------------------------------------------
+  // Draft activity:
+  // Inbox MOVE must never target an unmaterialized draft.
+  // ----------------------------------------------------------
+
+  setPersistedManagerGuardState_();
+
+  ui.state.selectedActivity = {
+    name:
+      guardActivity,
+
+    path: '',
+    draft: true,
+  };
+
+  ui.state.destination = {
+    type:
+      'activity',
+
+    draft: true,
+
+    topic:
+      guardTopic,
+
+    year:
+      guardYear,
+
+    activity:
+      guardActivity,
+
+    path: '',
+  };
+
+  const draftMoveFetchStart =
+    fetchCalls.length;
+
+  let draftMoveError = null;
+
+  try {
+    await ui.moveInboxFile(
+      guardInboxFile
+    );
+  } catch (err) {
+    draftMoveError = err;
+  }
+
+  if (
+    !draftMoveError ||
+    fetchCalls.length !==
+      draftMoveFetchStart ||
+    !ui.state.managerInboxFiles.some(
+      item =>
+        item &&
+        item.name ===
+          guardInboxFile
+    )
+  ) {
+    pmuiP03DGuardFailures.push(
+      'manager move: draft activity must be rejected locally without a write request and Inbox state must remain intact'
+    );
+  }
+
+
+  // ----------------------------------------------------------
+  // Draft activity:
+  // archive must also be impossible before materialization.
+  // ----------------------------------------------------------
+
+  const draftArchiveFetchStart =
+    fetchCalls.length;
+
+  let draftArchiveError = null;
+
+  try {
+    await ui.archiveSelectedActivity();
+  } catch (err) {
+    draftArchiveError = err;
+  }
+
+  if (
+    !draftArchiveError ||
+    fetchCalls.length !==
+      draftArchiveFetchStart ||
+    !ui.state.selectedActivity ||
+    ui.state.selectedActivity.draft !==
+      true
+  ) {
+    pmuiP03DGuardFailures.push(
+      'manager archive: draft activity must be rejected locally before POST /v1/archive'
+    );
+  }
+
+
+  // ----------------------------------------------------------
+  // Rename validation:
+  // empty, unsafe, and unchanged friendly names must not write.
+  // ----------------------------------------------------------
+
+  setPersistedManagerGuardState_();
+
+  const invalidRenameCases = [
+    [
+      '',
+      'blank name',
+    ],
+
+    [
+      'ชื่อ/ไม่ปลอดภัย',
+      'path separator',
+    ],
+
+    [
+      'Manager Guard',
+      'unchanged friendly name',
+    ],
+  ];
+
+  for (
+    const [
+      candidate,
+      label,
+    ] of invalidRenameCases
+  ) {
+    const before =
+      fetchCalls.length;
+
+    const originalActivity =
+      ui.state.selectedActivity.name;
+
+    const originalDestination =
+      ui.state.destination.activity;
+
+    let failure = null;
+
+    try {
+      await ui.renameSelectedActivity(
+        candidate
+      );
+    } catch (err) {
+      failure = err;
+    }
+
+    const rejectedLocally =
+      Boolean(failure) &&
+      fetchCalls.length ===
+        before &&
+      ui.state.selectedActivity &&
+      ui.state.selectedActivity.name ===
+        originalActivity &&
+      ui.state.destination &&
+      ui.state.destination.activity ===
+        originalDestination &&
+      ui.state.managerActionBusy ===
+        false;
+
+    if (!rejectedLocally) {
+      pmuiP03DGuardFailures.push(
+        'manager rename: ' +
+        label +
+        ' must fail locally without POST /v1/rename or local identity mutation'
+      );
+    }
+  }
+
+
+  // ----------------------------------------------------------
+  // Missing Inbox source:
+  // stale/nonexistent filename must not be submitted.
+  // ----------------------------------------------------------
+
+  setPersistedManagerGuardState_();
+
+  const missingMoveFetchStart =
+    fetchCalls.length;
+
+  let missingMoveError = null;
+
+  try {
+    await ui.moveInboxFile(
+      'not-in-current-inbox.jpg'
+    );
+  } catch (err) {
+    missingMoveError = err;
+  }
+
+  if (
+    !missingMoveError ||
+    fetchCalls.length !==
+      missingMoveFetchStart ||
+    ui.state.managerInboxFiles.length !==
+      1 ||
+    ui.state.managerInboxFiles[0].name !==
+      guardInboxFile
+  ) {
+    pmuiP03DGuardFailures.push(
+      'manager move: stale filename absent from current Inbox state must be rejected before POST /v1/move'
+    );
+  }
+
+
+  // Restore ordinary runtime state for unrelated contracts.
+  ui.state.actor =
+    bridgeActor;
+
+  ui.state.managerInboxFiles = [];
+  ui.state.managerInboxLoading =
+    false;
+
+  ui.state.managerActionBusy =
+    false;
+
+  if (
+    typeof ui.renderManagerPanel ===
+      'function'
+  ) {
+    ui.renderManagerPanel();
+  }
+
+
+  assert(
+    pmuiP03DGuardFailures.length === 0,
+    'PMUI-P03-D interaction guardrails failed:\n- ' +
+      pmuiP03DGuardFailures.join('\n- ')
+  );
+
+
+  // ---------- PMUI-P04-B01: Stale selection safety ----------
+
+  const pmuiP04B01Failures = [];
+
+  const staleTopic =
+    '80_งานกิจกรรมกลาง';
+
+  const staleYear =
+    '2569';
+
+  const staleOriginal =
+    '2569-09-27_กิจกรรมเดิม';
+
+  const staleOriginalPath =
+    staleTopic +
+    '/' +
+    staleYear +
+    '/' +
+    staleOriginal;
+
+  const staleOther =
+    '2569-09-28_กิจกรรมที่ผู้ใช้เลือกใหม่';
+
+  const staleOtherPath =
+    staleTopic +
+    '/' +
+    staleYear +
+    '/' +
+    staleOther;
+
+
+  function setStaleOriginalSelection_() {
+    ui.state.actor = {
+      ...bridgeActor,
+      role: 'manager',
+    };
+
+    ui.state.selectedTopic = {
+      name:
+        staleTopic,
+
+      path:
+        staleTopic,
+
+      type:
+        'topic',
+    };
+
+    ui.state.selectedYear =
+      staleYear;
+
+    ui.state.activities = [
+      {
+        name:
+          staleOriginal,
+
+        path:
+          staleOriginalPath,
+      },
+
+      {
+        name:
+          staleOther,
+
+        path:
+          staleOtherPath,
+      },
+    ];
+
+    ui.state.selectedActivity = {
+      name:
+        staleOriginal,
+
+      path:
+        staleOriginalPath,
+    };
+
+    ui.state.destination = {
+      type:
+        'activity',
+
+      topic:
+        staleTopic,
+
+      year:
+        staleYear,
+
+      activity:
+        staleOriginal,
+
+      path:
+        staleOriginalPath,
+    };
+
+    ui.state.managerActionBusy =
+      false;
+  }
+
+
+  function switchToOtherActivity_() {
+    ui.state.selectedActivity = {
+      name:
+        staleOther,
+
+      path:
+        staleOtherPath,
+    };
+
+    ui.state.destination = {
+      type:
+        'activity',
+
+      topic:
+        staleTopic,
+
+      year:
+        staleYear,
+
+      activity:
+        staleOther,
+
+      path:
+        staleOtherPath,
+    };
+  }
+
+
+  // ----------------------------------------------------------
+  // Rename:
+  // response belongs to the original activity.
+  // It may update that item in activities, but must not steal
+  // selection back from an activity chosen while waiting.
+  // ----------------------------------------------------------
+
+  setStaleOriginalSelection_();
+
+  pauseManagerRenameMode =
+    true;
+
+  releasePausedManagerRename =
+    null;
+
+  const staleRenamePromise =
+    ui.renameSelectedActivity(
+      'กิจกรรมเปลี่ยนชื่อแล้ว'
+    );
+
+  if (
+    typeof releasePausedManagerRename !==
+      'function'
+  ) {
+    pmuiP04B01Failures.push(
+      'rename stale-state probe: delayed request did not pause'
+    );
+  } else {
+    switchToOtherActivity_();
+
+    releasePausedManagerRename();
+
+    await staleRenamePromise;
+
+    const expectedRenamed =
+      '2569-09-27_กิจกรรมเปลี่ยนชื่อแล้ว';
+
+    const renamedListUpdated =
+      ui.state.activities.some(
+        item =>
+          item &&
+          item.name ===
+            expectedRenamed
+      ) &&
+      !ui.state.activities.some(
+        item =>
+          item &&
+          item.name ===
+            staleOriginal
+      );
+
+    const newSelectionPreserved =
+      ui.state.selectedActivity &&
+      ui.state.selectedActivity.name ===
+        staleOther &&
+      ui.state.destination &&
+      ui.state.destination.activity ===
+        staleOther;
+
+    if (
+      !renamedListUpdated ||
+      !newSelectionPreserved
+    ) {
+      pmuiP04B01Failures.push(
+        'manager rename: successful response may update the original activity in the list but must not overwrite a newer user selection'
+      );
+    }
+  }
+
+
+  // ----------------------------------------------------------
+  // Archive:
+  // response may remove the archived original from activities,
+  // but must not clear a newer user selection.
+  // ----------------------------------------------------------
+
+  setStaleOriginalSelection_();
+
+  pauseManagerArchiveMode =
+    true;
+
+  releasePausedManagerArchive =
+    null;
+
+  const staleArchivePromise =
+    ui.archiveSelectedActivity();
+
+  if (
+    typeof releasePausedManagerArchive !==
+      'function'
+  ) {
+    pmuiP04B01Failures.push(
+      'archive stale-state probe: delayed request did not pause'
+    );
+  } else {
+    switchToOtherActivity_();
+
+    releasePausedManagerArchive();
+
+    await staleArchivePromise;
+
+    const archivedRemoved =
+      !ui.state.activities.some(
+        item =>
+          item &&
+          item.name ===
+            staleOriginal
+      ) &&
+      ui.state.activities.some(
+        item =>
+          item &&
+          item.name ===
+            staleOther
+      );
+
+    const newSelectionPreserved =
+      ui.state.selectedActivity &&
+      ui.state.selectedActivity.name ===
+        staleOther &&
+      ui.state.destination &&
+      ui.state.destination.activity ===
+        staleOther;
+
+    if (
+      !archivedRemoved ||
+      !newSelectionPreserved
+    ) {
+      pmuiP04B01Failures.push(
+        'manager archive: successful response may remove the archived original but must not clear a newer user selection'
+      );
+    }
+  }
+
+
+  pauseManagerRenameMode =
+    false;
+
+  releasePausedManagerRename =
+    null;
+
+  pauseManagerArchiveMode =
+    false;
+
+  releasePausedManagerArchive =
+    null;
+
+  ui.state.actor =
+    bridgeActor;
+
+  ui.state.managerActionBusy =
+    false;
+
+  if (
+    typeof ui.renderManagerPanel ===
+      'function'
+  ) {
+    ui.renderManagerPanel();
+  }
+
+
+  assert(
+    pmuiP04B01Failures.length === 0,
+    'PMUI-P04-B01 stale selection safety failed:\n- ' +
+      pmuiP04B01Failures.join('\n- ')
+  );
+
 
   // ---------- UX-F01-A: Friendly category labels ----------
 

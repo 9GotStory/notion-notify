@@ -479,6 +479,115 @@
 
         </div>
       </div>
+      <!-- Photo Manager -->
+      <div
+        id="managerPanel"
+        class="hidden ui-card"
+      >
+        <div class="ui-card-body space-y-5">
+          <div>
+            <h2 class="ui-section-title">
+              จัดการคลังภาพ
+            </h2>
+
+            <p class="ui-help">
+              สำหรับผู้จัดการคลังภาพและผู้ดูแลระบบ
+            </p>
+          </div>
+
+          <div
+            class="space-y-3 rounded-control border border-border bg-surface-subtle p-3"
+          >
+            <div>
+              <h3 class="text-sm font-semibold text-text">
+                รูปที่รอจัดหมวด
+              </h3>
+
+              <p class="ui-help">
+                เลือกกิจกรรมด้านบนก่อน แล้วจึงจัดรูปจาก Inbox เข้ากิจกรรม
+              </p>
+            </div>
+
+            <button
+              id="managerInboxRefreshButton"
+              type="button"
+              class="ui-btn-secondary min-h-11 w-full"
+            >
+              โหลดรายการรูปที่รอจัดหมวด
+            </button>
+
+            <p
+              id="managerInboxStatus"
+              class="ui-help"
+              aria-live="polite"
+            ></p>
+
+            <div
+              id="managerInboxList"
+              class="space-y-2"
+              aria-live="polite"
+            ></div>
+          </div>
+
+          <div
+            class="space-y-3 rounded-control border border-border bg-surface-subtle p-3"
+          >
+            <div>
+              <h3 class="text-sm font-semibold text-text">
+                เปลี่ยนชื่อกิจกรรม
+              </h3>
+
+              <p class="ui-help">
+                ระบบจะคงวันที่ YYYY-MM-DD เดิมไว้ และเปลี่ยนเฉพาะชื่อกิจกรรม
+              </p>
+            </div>
+
+            <input
+              id="managerRenameInput"
+              type="text"
+              autocomplete="off"
+              class="ui-input w-full"
+              placeholder="ชื่อกิจกรรมใหม่"
+            >
+
+            <button
+              id="managerRenameButton"
+              type="button"
+              class="ui-btn-secondary min-h-11 w-full"
+            >
+              เปลี่ยนชื่อกิจกรรม
+            </button>
+          </div>
+
+          <div
+            class="space-y-3 rounded-control border border-border bg-surface-subtle p-3"
+          >
+            <div>
+              <h3 class="text-sm font-semibold text-text">
+                เก็บกิจกรรมเข้าคลัง
+              </h3>
+
+              <p class="ui-help">
+                ย้ายกิจกรรมที่เลือกไปยังคลังภาพเก่า โดยคงหมวดงานและปีเดิม
+              </p>
+            </div>
+
+            <button
+              id="managerArchiveButton"
+              type="button"
+              class="ui-btn-secondary min-h-11 w-full"
+            >
+              เก็บกิจกรรมที่เลือกเข้าคลัง
+            </button>
+          </div>
+
+          <p
+            id="managerActionStatus"
+            class="ui-help"
+            aria-live="polite"
+          ></p>
+        </div>
+      </div>
     </section>
 
     <!-- Error -->
@@ -556,6 +665,12 @@
       // successful files จะไม่ค้างใน retry queue
       failedFiles: [],
       failedDestination: null,
+
+      // PMUI:
+      // manager-only runtime state
+      managerInboxFiles: [],
+      managerInboxLoading: false,
+      managerActionBusy: false,
     };
 
     function $(id) {
@@ -1861,6 +1976,8 @@
         label.textContent =
           destinationDisplayLabel_();
       }
+
+      renderManagerPanel_();
     }
 
     async function loadTopics() {
@@ -3740,6 +3857,710 @@
       }
     }
 
+    function isManagerActor_() {
+      const role =
+        state.actor &&
+        state.actor.role
+          ? String(
+              state.actor.role
+            )
+          : '';
+
+      return (
+        role === 'manager' ||
+        role === 'admin'
+      );
+    }
+
+    function selectedPersistedActivity_() {
+      const destination =
+        state.destination;
+
+      const activity =
+        state.selectedActivity;
+
+      if (
+        !destination ||
+        destination.type !==
+          'activity' ||
+        destination.draft === true ||
+        !activity ||
+        activity.draft === true ||
+        !destination.topic ||
+        !destination.year ||
+        !activity.name
+      ) {
+        return null;
+      }
+
+      return {
+        topic:
+          String(
+            destination.topic
+          ),
+
+        year:
+          String(
+            destination.year
+          ),
+
+        name:
+          String(
+            activity.name
+          ),
+
+        path:
+          String(
+            activity.path ||
+            destination.path ||
+            ''
+          ),
+      };
+    }
+
+    function samePersistedActivitySelection_(
+      expected
+    ) {
+      if (!expected) {
+        return false;
+      }
+
+      const current =
+        selectedPersistedActivity_();
+
+      return Boolean(
+        current &&
+        current.topic ===
+          expected.topic &&
+        current.year ===
+          expected.year &&
+        current.name ===
+          expected.name
+      );
+    }
+
+    function renderManagerInbox_() {
+      const list =
+        $('managerInboxList');
+
+      const status =
+        $('managerInboxStatus');
+
+      const files =
+        Array.isArray(
+          state.managerInboxFiles
+        )
+          ? state.managerInboxFiles
+          : [];
+
+      if (status) {
+        if (
+          state.managerInboxLoading
+        ) {
+          status.textContent =
+            'กำลังโหลดรายการรูป…';
+        } else if (
+          files.length
+        ) {
+          status.textContent =
+            'พบ ' +
+            files.length +
+            ' รูปที่รอจัดหมวด';
+        } else {
+          status.textContent =
+            'ยังไม่มีรูปที่รอจัดหมวด';
+        }
+      }
+
+      if (!list) {
+        return files;
+      }
+
+      if (!files.length) {
+        list.innerHTML = '';
+        return files;
+      }
+
+      const canMove =
+        Boolean(
+          selectedPersistedActivity_()
+        ) &&
+        !state.managerActionBusy;
+
+      list.innerHTML =
+        files
+          .map(file => {
+            const name =
+              String(
+                file &&
+                file.name
+                  ? file.name
+                  : ''
+              );
+
+            return (
+              '<div ' +
+                'class="rounded-control border border-border bg-surface px-3 py-3"' +
+              '>' +
+                '<p class="break-words text-sm font-medium text-text">' +
+                  escapeHtml_(
+                    name
+                  ) +
+                '</p>' +
+                '<button ' +
+                  'type="button" ' +
+                  'class="ui-btn-secondary mt-2 min-h-11 w-full" ' +
+                  'data-manager-inbox-file="' +
+                    escapeHtml_(
+                      name
+                    ) +
+                  '" ' +
+                  (
+                    canMove
+                      ? ''
+                      : 'disabled '
+                  ) +
+                '>' +
+                  'จัดเข้ากิจกรรมที่เลือก' +
+                '</button>' +
+              '</div>'
+            );
+          })
+          .join('');
+
+      return files;
+    }
+
+    function renderManagerPanel_() {
+      const panel =
+        $('managerPanel');
+
+      const allowed =
+        isManagerActor_();
+
+      if (panel) {
+        panel.classList.toggle(
+          'hidden',
+          !allowed
+        );
+      }
+
+      if (!allowed) {
+        return false;
+      }
+
+      const selected =
+        selectedPersistedActivity_();
+
+      const renameInput =
+        $('managerRenameInput');
+
+      const renameButton =
+        $('managerRenameButton');
+
+      const archiveButton =
+        $('managerArchiveButton');
+
+      const refreshButton =
+        $('managerInboxRefreshButton');
+
+      const selectedName =
+        selected
+          ? selected.name
+          : '';
+
+      if (renameInput) {
+        if (
+          String(
+            renameInput.dataset
+              .activityName ||
+            ''
+          ) !==
+            selectedName
+        ) {
+          renameInput.value =
+            selected
+              ? friendlyActivityLabel_(
+                  selected.name
+                )
+              : '';
+
+          renameInput.dataset
+            .activityName =
+              selectedName;
+        }
+
+        renameInput.disabled =
+          !selected ||
+          state.managerActionBusy;
+      }
+
+      if (renameButton) {
+        renameButton.disabled =
+          !selected ||
+          state.managerActionBusy;
+      }
+
+      if (archiveButton) {
+        archiveButton.disabled =
+          !selected ||
+          state.managerActionBusy;
+      }
+
+      if (refreshButton) {
+        refreshButton.disabled =
+          state.managerInboxLoading;
+      }
+
+      renderManagerInbox_();
+
+      return true;
+    }
+
+    async function loadManagerInbox() {
+      if (!isManagerActor_()) {
+        throw new Error(
+          'ไม่มีสิทธิ์จัดการคลังภาพ'
+        );
+      }
+
+      state.managerInboxLoading =
+        true;
+
+      renderManagerPanel_();
+
+      try {
+        const result =
+          await photoApi(
+            '/v1/manager/inbox'
+          );
+
+        if (
+          !Array.isArray(
+            result.files
+          )
+        ) {
+          throw new Error(
+            'รูปแบบรายการ Inbox ไม่ถูกต้อง'
+          );
+        }
+
+        state.managerInboxFiles =
+          result.files.filter(
+            item =>
+              item &&
+              typeof item.name ===
+                'string' &&
+              item.name &&
+              typeof item.path ===
+                'string' &&
+              item.path
+          );
+
+        return (
+          state.managerInboxFiles
+        );
+      } finally {
+        state.managerInboxLoading =
+          false;
+
+        renderManagerPanel_();
+      }
+    }
+
+    async function moveInboxFile(
+      filename
+    ) {
+      if (!isManagerActor_()) {
+        throw new Error(
+          'ไม่มีสิทธิ์จัดการคลังภาพ'
+        );
+      }
+
+      const destination =
+        selectedPersistedActivity_();
+
+      if (!destination) {
+        throw new Error(
+          'กรุณาเลือกกิจกรรมที่มีอยู่แล้วก่อนจัดรูป'
+        );
+      }
+
+      const name =
+        String(
+          filename || ''
+        )
+          .trim()
+          .normalize('NFC');
+
+      const sourceExists =
+        state.managerInboxFiles.some(
+          item =>
+            item &&
+            item.name === name
+        );
+
+      if (
+        !name ||
+        !sourceExists
+      ) {
+        throw new Error(
+          'ไม่พบรูปที่เลือกใน Inbox'
+        );
+      }
+
+      state.managerActionBusy =
+        true;
+
+      renderManagerPanel_();
+
+      try {
+        const result =
+          await photoApi(
+            '/v1/move',
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+
+              body:
+                JSON.stringify({
+                  filename:
+                    name,
+
+                  topic:
+                    destination.topic,
+
+                  year:
+                    destination.year,
+
+                  activityName:
+                    destination.name,
+                }),
+            }
+          );
+
+        if (
+          !result.moved ||
+          typeof result.moved
+            .destination !==
+              'string'
+        ) {
+          throw new Error(
+            'รูปแบบผลการจัดรูปไม่ถูกต้อง'
+          );
+        }
+
+        state.managerInboxFiles =
+          state.managerInboxFiles
+            .filter(
+              item =>
+                item &&
+                item.name !== name
+            );
+
+        return result.moved;
+      } finally {
+        state.managerActionBusy =
+          false;
+
+        renderManagerPanel_();
+      }
+    }
+
+    async function renameSelectedActivity(
+      friendlyName
+    ) {
+      if (!isManagerActor_()) {
+        throw new Error(
+          'ไม่มีสิทธิ์จัดการคลังภาพ'
+        );
+      }
+
+      const selected =
+        selectedPersistedActivity_();
+
+      if (!selected) {
+        throw new Error(
+          'กรุณาเลือกกิจกรรมที่มีอยู่แล้วก่อนเปลี่ยนชื่อ'
+        );
+      }
+
+      const name =
+        String(
+          friendlyName || ''
+        )
+          .trim()
+          .normalize('NFC');
+
+      if (!name) {
+        throw new Error(
+          'กรุณาระบุชื่อกิจกรรมใหม่'
+        );
+      }
+
+      if (
+        name.includes('/') ||
+        name.includes('\\') ||
+        name.includes('\0') ||
+        name === '.' ||
+        name === '..' ||
+        name.includes('../') ||
+        name.includes('..\\')
+      ) {
+        throw new Error(
+          'ชื่อกิจกรรมมีอักขระที่ไม่อนุญาต'
+        );
+      }
+
+      const prefixMatch =
+        /^(\d{4}-\d{2}-\d{2})_/.exec(
+          selected.name
+        );
+
+      if (!prefixMatch) {
+        throw new Error(
+          'รูปแบบชื่อกิจกรรมเดิมไม่ถูกต้อง'
+        );
+      }
+
+      const newActivityName =
+        prefixMatch[1] +
+        '_' +
+        name;
+
+      if (
+        newActivityName ===
+          selected.name
+      ) {
+        throw new Error(
+          'ชื่อกิจกรรมใหม่ต้องต่างจากชื่อเดิม'
+        );
+      }
+
+      state.managerActionBusy =
+        true;
+
+      renderManagerPanel_();
+
+      try {
+        const result =
+          await photoApi(
+            '/v1/rename',
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+
+              body:
+                JSON.stringify({
+                  topic:
+                    selected.topic,
+
+                  year:
+                    selected.year,
+
+                  activityName:
+                    selected.name,
+
+                  newActivityName:
+                    newActivityName,
+                }),
+            }
+          );
+
+        if (
+          !result.renamed ||
+          typeof result.renamed
+            .newName !==
+              'string' ||
+          !result.renamed.newName
+        ) {
+          throw new Error(
+            'รูปแบบผลการเปลี่ยนชื่อไม่ถูกต้อง'
+          );
+        }
+
+        const canonicalName =
+          result.renamed.newName;
+
+        const canonicalPath =
+          typeof result.renamed
+            .destination ===
+              'string'
+            ? result.renamed
+                .destination
+            : (
+                selected.topic +
+                '/' +
+                selected.year +
+                '/' +
+                canonicalName
+              );
+
+        state.activities =
+          state.activities
+            .map(activity => {
+              if (
+                !activity ||
+                activity.name !==
+                  selected.name
+              ) {
+                return activity;
+              }
+
+              return {
+                name:
+                  canonicalName,
+
+                path:
+                  canonicalPath,
+              };
+            })
+            .sort(
+              (left, right) =>
+                right.name.localeCompare(
+                  left.name,
+                  'th'
+                )
+            );
+
+        if (
+          samePersistedActivitySelection_(
+            selected
+          )
+        ) {
+          state.selectedActivity = {
+            name:
+              canonicalName,
+
+            path:
+              canonicalPath,
+          };
+
+          state.destination =
+            Object.assign(
+              {},
+              state.destination,
+              {
+                activity:
+                  canonicalName,
+
+                path:
+                  canonicalPath,
+              }
+            );
+        }
+
+        renderDestinationState_();
+
+        return result.renamed;
+      } finally {
+        state.managerActionBusy =
+          false;
+
+        renderManagerPanel_();
+      }
+    }
+
+    async function archiveSelectedActivity() {
+      if (!isManagerActor_()) {
+        throw new Error(
+          'ไม่มีสิทธิ์จัดการคลังภาพ'
+        );
+      }
+
+      const selected =
+        selectedPersistedActivity_();
+
+      if (!selected) {
+        throw new Error(
+          'กรุณาเลือกกิจกรรมที่มีอยู่แล้วก่อนเก็บเข้าคลัง'
+        );
+      }
+
+      state.managerActionBusy =
+        true;
+
+      renderManagerPanel_();
+
+      try {
+        const result =
+          await photoApi(
+            '/v1/archive',
+            {
+              method: 'POST',
+
+              headers: {
+                'Content-Type':
+                  'application/json',
+              },
+
+              body:
+                JSON.stringify({
+                  topic:
+                    selected.topic,
+
+                  year:
+                    selected.year,
+
+                  activityName:
+                    selected.name,
+                }),
+            }
+          );
+
+        if (
+          !result.archived ||
+          typeof result.archived
+            .destination !==
+              'string'
+        ) {
+          throw new Error(
+            'รูปแบบผลการเก็บเข้าคลังไม่ถูกต้อง'
+          );
+        }
+
+        state.activities =
+          state.activities.filter(
+            activity =>
+              activity &&
+              activity.name !==
+                selected.name
+          );
+
+        if (
+          samePersistedActivitySelection_(
+            selected
+          )
+        ) {
+          state.selectedActivity =
+            null;
+
+          state.destination =
+            null;
+
+          state.activitySearchQuery =
+            '';
+        }
+
+        renderDestinationState_();
+
+        return result.archived;
+      } finally {
+        state.managerActionBusy =
+          false;
+
+        renderManagerPanel_();
+      }
+    }
+
     function roleLabel_(role) {
       if (role === 'admin') {
         return 'ผู้ดูแลระบบ';
@@ -3827,6 +4648,10 @@
 
       state.failedFiles = [];
       state.failedDestination = null;
+
+      state.managerInboxFiles = [];
+      state.managerInboxLoading = false;
+      state.managerActionBusy = false;
 
       show('loading');
 
@@ -4634,6 +5459,219 @@
           }
         }
       );
+    }
+
+    const managerInboxRefreshButton =
+      $('managerInboxRefreshButton');
+
+    if (managerInboxRefreshButton) {
+      managerInboxRefreshButton
+        .addEventListener(
+          'click',
+          async () => {
+            const status =
+              $('managerInboxStatus');
+
+            try {
+              clearRecoverableError_();
+
+              const files =
+                await loadManagerInbox();
+
+              if (status) {
+                status.textContent =
+                  files.length
+                    ? (
+                        'พบ ' +
+                        files.length +
+                        ' รูปที่รอจัดหมวด'
+                      )
+                    : 'ยังไม่มีรูปที่รอจัดหมวด';
+              }
+            } catch (err) {
+              if (status) {
+                status.textContent =
+                  err && err.message
+                    ? err.message
+                    : String(err);
+              }
+            }
+          }
+        );
+    }
+
+    const managerInboxList =
+      $('managerInboxList');
+
+    if (managerInboxList) {
+      managerInboxList.addEventListener(
+        'click',
+        async event => {
+          const target =
+            event &&
+            event.target
+              ? event.target
+              : null;
+
+          const button =
+            target &&
+            typeof target.closest ===
+              'function'
+              ? target.closest(
+                  '[data-manager-inbox-file]'
+                )
+              : null;
+
+          if (!button) {
+            return;
+          }
+
+          const filename =
+            button.getAttribute(
+              'data-manager-inbox-file'
+            );
+
+          if (!filename) {
+            return;
+          }
+
+          const status =
+            $('managerActionStatus');
+
+          button.disabled = true;
+
+          if (status) {
+            status.textContent =
+              'กำลังจัดรูปเข้ากิจกรรม…';
+          }
+
+          try {
+            await moveInboxFile(
+              filename
+            );
+
+            if (status) {
+              status.textContent =
+                'จัดรูปเข้ากิจกรรมเรียบร้อยแล้ว';
+            }
+          } catch (err) {
+            if (status) {
+              status.textContent =
+                err && err.message
+                  ? err.message
+                  : String(err);
+            }
+          } finally {
+            renderManagerPanel_();
+          }
+        }
+      );
+    }
+
+    const managerRenameButton =
+      $('managerRenameButton');
+
+    if (managerRenameButton) {
+      managerRenameButton
+        .addEventListener(
+          'click',
+          async () => {
+            const input =
+              $('managerRenameInput');
+
+            const status =
+              $('managerActionStatus');
+
+            const value =
+              input
+                ? input.value
+                : '';
+
+            if (status) {
+              status.textContent =
+                'กำลังเปลี่ยนชื่อกิจกรรม…';
+            }
+
+            try {
+              const renamed =
+                await renameSelectedActivity(
+                  value
+                );
+
+              if (status) {
+                status.textContent =
+                  'เปลี่ยนชื่อกิจกรรมเป็น ' +
+                  friendlyActivityLabel_(
+                    renamed.newName
+                  ) +
+                  ' เรียบร้อยแล้ว';
+              }
+            } catch (err) {
+              if (status) {
+                status.textContent =
+                  err && err.message
+                    ? err.message
+                    : String(err);
+              }
+            }
+          }
+        );
+    }
+
+    const managerArchiveButton =
+      $('managerArchiveButton');
+
+    if (managerArchiveButton) {
+      managerArchiveButton
+        .addEventListener(
+          'click',
+          async () => {
+            const selected =
+              selectedPersistedActivity_();
+
+            if (!selected) {
+              return;
+            }
+
+            if (
+              typeof window.confirm ===
+                'function' &&
+              !window.confirm(
+                'ย้ายกิจกรรม "' +
+                friendlyActivityLabel_(
+                  selected.name
+                ) +
+                '" ไปยังคลังภาพเก่าหรือไม่'
+              )
+            ) {
+              return;
+            }
+
+            const status =
+              $('managerActionStatus');
+
+            if (status) {
+              status.textContent =
+                'กำลังเก็บกิจกรรมเข้าคลัง…';
+            }
+
+            try {
+              await archiveSelectedActivity();
+
+              if (status) {
+                status.textContent =
+                  'เก็บกิจกรรมเข้าคลังเรียบร้อยแล้ว';
+              }
+            } catch (err) {
+              if (status) {
+                status.textContent =
+                  err && err.message
+                    ? err.message
+                    : String(err);
+              }
+            }
+          }
+        );
     }
 
     const retryButton =

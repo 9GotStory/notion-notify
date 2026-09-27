@@ -78,6 +78,12 @@ export class ManagerService {
     this.archiveName = options.archiveName || null;
   }
 
+  async listInbox() {
+    return this.dav.listFiles(
+      this.inboxName
+    );
+  }
+
   async archiveActivity(input) {
     if (!this.archiveName) {
       throw new Error(

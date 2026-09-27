@@ -358,6 +358,40 @@ export async function handleHttpRequest(request, context) {
 
     if (
       method === 'GET' &&
+      url.pathname ===
+        '/v1/manager/inbox'
+    ) {
+      requireRole(
+        actor,
+        [
+          'manager',
+          'admin',
+        ]
+      );
+
+      if (
+        !context.managerService
+      ) {
+        throw new Error(
+          'Manager service unavailable'
+        );
+      }
+
+      const files =
+        await context.managerService
+          .listInbox();
+
+      return response(
+        200,
+        {
+          ok: true,
+          files,
+        }
+      );
+    }
+
+    if (
+      method === 'GET' &&
       url.pathname === '/v1/manager/session'
     ) {
       requireRole(actor, ['manager', 'admin']);

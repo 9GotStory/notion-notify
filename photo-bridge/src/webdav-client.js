@@ -141,6 +141,141 @@ function parseCollectionResponses(xml, requestUrl, requestedRelativePath) {
   return results;
 }
 
+function parseFileResponses(
+  xml,
+  requestUrl,
+  requestedRelativePath
+) {
+  const results = [];
+
+  const requestPath =
+    stripTrailingSlash(
+      safeDecodePathname(
+        new URL(requestUrl).pathname
+      )
+    );
+
+  const responsePattern =
+    /<(?:[\w.-]+:)?response\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?response>/gi;
+
+  let match;
+
+  while (
+    (match =
+      responsePattern.exec(xml)) !==
+    null
+  ) {
+    const block =
+      match[1];
+
+    const hrefMatch =
+      /<(?:[\w.-]+:)?href\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?href>/i.exec(
+        block
+      );
+
+    if (hrefMatch === null) {
+      continue;
+    }
+
+    const isCollection =
+      /<(?:[\w.-]+:)?collection\b[^>]*\/?>/i.test(
+        block
+      );
+
+    if (isCollection) {
+      continue;
+    }
+
+    const href =
+      decodeXml(
+        hrefMatch[1].trim()
+      );
+
+    let pathname;
+
+    try {
+      pathname =
+        new URL(
+          href,
+          requestUrl
+        ).pathname;
+    } catch {
+      continue;
+    }
+
+    const decodedPath =
+      stripTrailingSlash(
+        safeDecodePathname(
+          pathname
+        )
+      );
+
+    if (
+      decodedPath ===
+      requestPath
+    ) {
+      continue;
+    }
+
+    const prefix =
+      `${requestPath}/`;
+
+    if (
+      !decodedPath.startsWith(
+        prefix
+      )
+    ) {
+      continue;
+    }
+
+    const childName =
+      decodedPath.slice(
+        prefix.length
+      );
+
+    if (
+      !childName ||
+      childName.includes('/')
+    ) {
+      continue;
+    }
+
+    const mimeMatch =
+      /<(?:[\w.-]+:)?getcontenttype\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?getcontenttype>/i.exec(
+        block
+      );
+
+    results.push({
+      name:
+        childName.normalize(
+          'NFC'
+        ),
+
+      path:
+        requestedRelativePath
+          ? (
+              requestedRelativePath +
+              '/' +
+              childName.normalize(
+                'NFC'
+              )
+            )
+          : childName.normalize(
+              'NFC'
+            ),
+
+      mime:
+        mimeMatch
+          ? decodeXml(
+              mimeMatch[1].trim()
+            )
+          : '',
+    });
+  }
+
+  return results;
+}
+
 export class WebDavClient {
   constructor(options) {
     if (!options || typeof options !== 'object') {
@@ -250,6 +385,45 @@ export class WebDavClient {
     const xml = await response.text();
 
     return parseCollectionResponses(
+      xml,
+      url,
+      normalized
+    );
+  }
+
+  async listFiles(relativePath = '') {
+    const normalized =
+      normalizeRelativePath(
+        relativePath
+      );
+
+    const {
+      url,
+      response,
+    } =
+      await this.request(
+        'PROPFIND',
+        normalized,
+        {
+          headers: {
+            depth: '1',
+            'content-type':
+              'application/xml; charset=utf-8',
+          },
+
+          body:
+            DAV_PROPERTIES,
+
+          allowedStatuses: [
+            207,
+          ],
+        }
+      );
+
+    const xml =
+      await response.text();
+
+    return parseFileResponses(
       xml,
       url,
       normalized
