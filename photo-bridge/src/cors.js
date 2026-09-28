@@ -1,6 +1,8 @@
 const PREFLIGHT_METHODS = new Set([
   'GET',
   'POST',
+  'PUT',
+  'DELETE',
 ]);
 
 const ALLOWED_REQUEST_HEADERS = new Set([
@@ -8,7 +10,7 @@ const ALLOWED_REQUEST_HEADERS = new Set([
   'content-type',
 ]);
 
-const ALLOW_METHODS_VALUE = 'GET, POST, OPTIONS';
+const ALLOW_METHODS_VALUE = 'GET, POST, PUT, DELETE, OPTIONS';
 const ALLOW_HEADERS_VALUE = 'Authorization, Content-Type';
 
 function clean(value) {

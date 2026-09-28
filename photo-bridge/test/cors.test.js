@@ -47,7 +47,7 @@ test('valid Photo Bridge preflight is accepted without authentication', () => {
   assert.equal(result.allowed, true);
   assert.deepEqual(result.headers, {
     'access-control-allow-origin': ALLOWED,
-    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'access-control-allow-headers': 'Authorization, Content-Type',
     vary: 'Origin',
   });
@@ -78,7 +78,7 @@ test('unknown origin preflight fails closed', () => {
 test('unsupported preflight method fails closed', () => {
   const result = evaluatePreflight({
     origin: ALLOWED,
-    requestMethod: 'DELETE',
+    requestMethod: 'PATCH',
     requestHeaders: 'authorization',
     allowedOrigin: ALLOWED,
   });

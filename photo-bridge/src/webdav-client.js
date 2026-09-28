@@ -1,8 +1,24 @@
 const DAV_PROPERTIES = `<?xml version="1.0" encoding="utf-8" ?>
-<d:propfind xmlns:d="DAV:">
+<d:propfind
+  xmlns:d="DAV:"
+  xmlns:oc="http://owncloud.org/ns">
   <d:prop>
     <d:resourcetype />
     <d:getcontenttype />
+    <oc:fileid />
+  </d:prop>
+</d:propfind>`;
+
+const SYSTEM_TAG_PROPERTIES = `<?xml version="1.0" encoding="utf-8" ?>
+<d:propfind
+  xmlns:d="DAV:"
+  xmlns:oc="http://owncloud.org/ns">
+  <d:prop>
+    <oc:id />
+    <oc:display-name />
+    <oc:user-visible />
+    <oc:user-assignable />
+    <oc:can-assign />
   </d:prop>
 </d:propfind>`;
 
@@ -72,6 +88,137 @@ function stripTrailingSlash(value) {
   return value.length > 1
     ? value.replace(/\/+$/, '')
     : value;
+}
+
+function normalizeFileId(value) {
+  const fileId =
+    String(value || '').trim();
+
+  if (!/^[0-9]+$/u.test(fileId)) {
+    throw new WebDavError(
+      'Invalid Nextcloud file ID'
+    );
+  }
+
+  return fileId;
+}
+
+function xmlProperty(block, localName) {
+  const pattern =
+    new RegExp(
+      '<(?:[\\w.-]+:)?' +
+        localName +
+        '\\b[^>]*>' +
+        '([\\s\\S]*?)' +
+        '<\\/(?:[\\w.-]+:)?' +
+        localName +
+        '>',
+      'i'
+    );
+
+  const match =
+    pattern.exec(
+      String(block || '')
+    );
+
+  return match
+    ? decodeXml(
+        match[1].trim()
+      )
+    : '';
+}
+
+function xmlBoolean(value) {
+  const normalized =
+    String(value || '')
+      .trim()
+      .toLowerCase();
+
+  return (
+    normalized === 'true' ||
+    normalized === '1'
+  );
+}
+
+function parseSystemTagResponses(xml) {
+  const results = [];
+
+  const responsePattern =
+    /<(?:[\w.-]+:)?response\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?response>/gi;
+
+  let match;
+
+  while (
+    (match =
+      responsePattern.exec(xml)) !==
+    null
+  ) {
+    const block =
+      match[1];
+
+    const id =
+      xmlProperty(
+        block,
+        'id'
+      ).trim();
+
+    const name =
+      xmlProperty(
+        block,
+        'display-name'
+      )
+        .trim()
+        .normalize('NFC');
+
+    const hasCanAssign =
+      /<(?:[\w.-]+:)?can-assign\b[^>]*>/i.test(
+        block
+      );
+
+    if (
+      !/^[0-9]+$/u.test(id) ||
+      !name
+    ) {
+      continue;
+    }
+
+    results.push({
+      id,
+      name,
+
+      userVisible:
+        xmlBoolean(
+          xmlProperty(
+            block,
+            'user-visible'
+          )
+        ),
+
+      userAssignable:
+        xmlBoolean(
+          xmlProperty(
+            block,
+            'user-assignable'
+          )
+        ),
+
+      ...(
+        hasCanAssign
+          ? {
+              canAssign:
+                xmlBoolean(
+                  xmlProperty(
+                    block,
+                    'can-assign'
+                  )
+                ),
+            }
+          : {}
+      ),
+    });
+  }
+
+  return results;
 }
 
 function parseCollectionResponses(xml, requestUrl, requestedRelativePath) {
@@ -245,6 +392,18 @@ function parseFileResponses(
         block
       );
 
+    const fileIdMatch =
+      /<(?:[\w.-]+:)?fileid\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?fileid>/i.exec(
+        block
+      );
+
+    const fileId =
+      fileIdMatch
+        ? decodeXml(
+            fileIdMatch[1].trim()
+          )
+        : '';
+
     results.push({
       name:
         childName.normalize(
@@ -270,6 +429,208 @@ function parseFileResponses(
               mimeMatch[1].trim()
             )
           : '',
+
+      ...(
+        /^[0-9]+$/u.test(fileId)
+          ? {
+              fileId,
+            }
+          : {}
+      ),
+    });
+  }
+
+  return results;
+}
+
+function normalizeSystemTagIds(values) {
+  if (
+    !Array.isArray(values) ||
+    values.length === 0
+  ) {
+    throw new WebDavError(
+      'System tag IDs are required'
+    );
+  }
+
+  const result = [];
+  const seen = new Set();
+
+  for (const value of values) {
+    const id =
+      String(value ?? '').trim();
+
+    if (!/^[0-9]+$/u.test(id)) {
+      throw new WebDavError(
+        'Invalid Nextcloud system tag ID'
+      );
+    }
+
+    if (seen.has(id)) {
+      continue;
+    }
+
+    seen.add(id);
+    result.push(id);
+  }
+
+  return result;
+}
+
+function parseSystemTagSearchResponses(
+  xml,
+  rootUrl,
+  requestedScope = ''
+) {
+  const results = [];
+
+  const normalizedScope =
+    normalizeRelativePath(
+      requestedScope
+    );
+
+  const rootPath =
+    stripTrailingSlash(
+      safeDecodePathname(
+        new URL(rootUrl).pathname
+      )
+    );
+
+  const responsePattern =
+    /<(?:[\w.-]+:)?response\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?response>/gi;
+
+  let match;
+
+  while (
+    (match =
+      responsePattern.exec(xml)) !==
+    null
+  ) {
+    const block =
+      match[1];
+
+    const hrefMatch =
+      /<(?:[\w.-]+:)?href\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?href>/i.exec(
+        block
+      );
+
+    if (!hrefMatch) {
+      continue;
+    }
+
+    const isCollection =
+      /<(?:[\w.-]+:)?collection\b[^>]*\/?>/i.test(
+        block
+      );
+
+    if (isCollection) {
+      continue;
+    }
+
+    const href =
+      decodeXml(
+        hrefMatch[1].trim()
+      );
+
+    let pathname;
+
+    try {
+      pathname =
+        new URL(
+          href,
+          rootUrl
+        ).pathname;
+    } catch {
+      continue;
+    }
+
+    const decodedPath =
+      stripTrailingSlash(
+        safeDecodePathname(
+          pathname
+        )
+      );
+
+    const prefix =
+      `${rootPath}/`;
+
+    if (
+      !decodedPath.startsWith(
+        prefix
+      )
+    ) {
+      continue;
+    }
+
+    const relative =
+      decodedPath.slice(
+        prefix.length
+      );
+
+    if (!relative) {
+      continue;
+    }
+
+    let relativePath;
+
+    try {
+      relativePath =
+        normalizeRelativePath(
+          relative
+        );
+    } catch {
+      throw new WebDavError(
+        'Invalid WebDAV search response'
+      );
+    }
+
+    if (
+      normalizedScope &&
+      relativePath !==
+        normalizedScope &&
+      !relativePath.startsWith(
+        normalizedScope + '/'
+      )
+    ) {
+      continue;
+    }
+
+    const segments =
+      relativePath.split('/');
+
+    const name =
+      segments[
+        segments.length - 1
+      ];
+
+    const fileId =
+      xmlProperty(
+        block,
+        'fileid'
+      ).trim();
+
+    if (
+      !/^[0-9]+$/u.test(
+        fileId
+      )
+    ) {
+      throw new WebDavError(
+        'Invalid WebDAV search response'
+      );
+    }
+
+    const mime =
+      xmlProperty(
+        block,
+        'getcontenttype'
+      ).trim();
+
+    results.push({
+      name,
+      path:
+        relativePath,
+      mime,
+      fileId,
     });
   }
 
@@ -329,6 +690,18 @@ export class WebDavClient {
     return `${this.baseUrl}/remote.php/dav/files/${encodedUser}/${encodedRoot}${suffix}`;
   }
 
+  davUrl(relativePath = '') {
+    const encodedRelative =
+      encodePath(relativePath);
+
+    const suffix =
+      encodedRelative
+        ? `/${encodedRelative}`
+        : '';
+
+    return `${this.baseUrl}/remote.php/dav${suffix}`;
+  }
+
   authorizationHeader() {
     const token = Buffer
       .from(`${this.user}:${this.password}`, 'utf8')
@@ -354,6 +727,54 @@ export class WebDavClient {
     const allowedStatuses = options.allowedStatuses || [200];
 
     if (allowedStatuses.includes(response.status) === false) {
+      throw new WebDavError(
+        `WebDAV ${method} failed with status ${response.status}`,
+        response.status
+      );
+    }
+
+    return {
+      url,
+      response,
+    };
+  }
+
+  async requestDav(
+    method,
+    relativePath,
+    options = {}
+  ) {
+    const url =
+      this.davUrl(
+        relativePath
+      );
+
+    const headers = {
+      authorization:
+        this.authorizationHeader(),
+
+      ...options.headers,
+    };
+
+    const response =
+      await this.fetchImpl(
+        url,
+        {
+          method,
+          headers,
+          body: options.body,
+        }
+      );
+
+    const allowedStatuses =
+      options.allowedStatuses ||
+      [200];
+
+    if (
+      !allowedStatuses.includes(
+        response.status
+      )
+    ) {
       throw new WebDavError(
         `WebDAV ${method} failed with status ${response.status}`,
         response.status
@@ -427,6 +848,212 @@ export class WebDavClient {
       xml,
       url,
       normalized
+    );
+  }
+
+  async listSystemTags() {
+    const {
+      response,
+    } =
+      await this.requestDav(
+        'PROPFIND',
+        'systemtags',
+        {
+          headers: {
+            depth: '1',
+
+            'content-type':
+              'application/xml; charset=utf-8',
+          },
+
+          body:
+            SYSTEM_TAG_PROPERTIES,
+
+          allowedStatuses: [
+            207,
+          ],
+        }
+      );
+
+    const xml =
+      await response.text();
+
+    return parseSystemTagResponses(
+      xml
+    );
+  }
+
+  async listFileSystemTags(fileId) {
+    const normalizedFileId =
+      normalizeFileId(fileId);
+
+    const {
+      response,
+    } =
+      await this.requestDav(
+        'PROPFIND',
+        (
+          'systemtags-relations/files/' +
+          normalizedFileId
+        ),
+        {
+          headers: {
+            depth: '1',
+
+            'content-type':
+              'application/xml; charset=utf-8',
+          },
+
+          body:
+            SYSTEM_TAG_PROPERTIES,
+
+          allowedStatuses: [
+            207,
+          ],
+        }
+      );
+
+    const xml =
+      await response.text();
+
+    return parseSystemTagResponses(
+      xml
+    );
+  }
+
+  async assignSystemTag(
+    fileId,
+    tagId
+  ) {
+    const normalizedFileId =
+      normalizeFileId(
+        fileId
+      );
+
+    const [
+      normalizedTagId,
+    ] =
+      normalizeSystemTagIds(
+        [
+          tagId,
+        ]
+      );
+
+    await this.requestDav(
+      'PUT',
+      (
+        'systemtags-relations/files/' +
+        normalizedFileId +
+        '/' +
+        normalizedTagId
+      ),
+      {
+        allowedStatuses: [
+          201,
+        ],
+      }
+    );
+  }
+
+  async removeSystemTag(
+    fileId,
+    tagId
+  ) {
+    const normalizedFileId =
+      normalizeFileId(
+        fileId
+      );
+
+    const [
+      normalizedTagId,
+    ] =
+      normalizeSystemTagIds(
+        [
+          tagId,
+        ]
+      );
+
+    await this.requestDav(
+      'DELETE',
+      (
+        'systemtags-relations/files/' +
+        normalizedFileId +
+        '/' +
+        normalizedTagId
+      ),
+      {
+        allowedStatuses: [
+          204,
+        ],
+      }
+    );
+  }
+
+  async searchFilesBySystemTags(
+    tagIds,
+    scope = ''
+  ) {
+    const normalizedTagIds =
+      normalizeSystemTagIds(
+        tagIds
+      );
+
+    const normalizedScope =
+      normalizeRelativePath(
+        scope
+      );
+
+    const tagFilters =
+      normalizedTagIds
+        .map(
+          id =>
+            `    <oc:systemtag>${id}</oc:systemtag>`
+        )
+        .join('\n');
+
+    const body =
+      `<?xml version="1.0" encoding="utf-8" ?>
+<oc:filter-files
+  xmlns:d="DAV:"
+  xmlns:oc="http://owncloud.org/ns"
+  xmlns:nc="http://nextcloud.org/ns">
+  <d:prop>
+    <oc:fileid />
+    <d:getcontenttype />
+    <d:resourcetype />
+  </d:prop>
+  <oc:filter-rules>
+${tagFilters}
+  </oc:filter-rules>
+</oc:filter-files>`;
+
+    const {
+      response,
+    } =
+      await this.request(
+        'REPORT',
+        normalizedScope,
+        {
+          headers: {
+            'content-type':
+              'application/xml; charset=utf-8',
+          },
+
+          body,
+
+          allowedStatuses: [
+            207,
+          ],
+        }
+      );
+
+    const xml =
+      await response.text();
+
+    return parseSystemTagSearchResponses(
+      xml,
+      this.url(),
+      normalizedScope
     );
   }
 

@@ -10,8 +10,26 @@ const POST_BODY_POLICY = new Map([
 ]);
 
 export function requestBodyKind(method, pathname) {
+  const normalizedMethod =
+    String(
+      method || ''
+    ).toUpperCase();
+
   if (
-    String(method || '').toUpperCase() !== 'POST'
+    pathname === '/v1/photos/tags'
+  ) {
+    if (
+      normalizedMethod === 'PUT' ||
+      normalizedMethod === 'DELETE'
+    ) {
+      return 'json';
+    }
+
+    return null;
+  }
+
+  if (
+    normalizedMethod !== 'POST'
   ) {
     return null;
   }

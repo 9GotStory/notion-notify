@@ -7,6 +7,11 @@ import {
 import { ArchiveInputError } from './archive-service.js';
 
 import {
+  MetadataInputError,
+  MetadataPermissionError,
+} from './metadata-service.js';
+
+import {
   UploadConflictError,
   UploadPolicyError,
 } from './upload-service.js';
@@ -93,6 +98,122 @@ export async function handleHttpRequest(request, context) {
         ok: true,
         activities,
       });
+    }
+
+    if (
+      method === 'GET' &&
+      url.pathname === '/v1/tags'
+    ) {
+      if (!context.metadataService) {
+        throw new Error(
+          'Metadata service unavailable'
+        );
+      }
+
+      const tags =
+        await context.metadataService
+          .listTags();
+
+      return response(200, {
+        ok: true,
+        tags,
+      });
+    }
+
+    if (
+      method === 'GET' &&
+      url.pathname === '/v1/photos'
+    ) {
+      if (!context.metadataService) {
+        throw new Error(
+          'Metadata service unavailable'
+        );
+      }
+
+      const photos =
+        await context.metadataService
+          .searchPhotos({
+            tagIds:
+              url.searchParams
+                .getAll('tag'),
+          });
+
+      return response(200, {
+        ok: true,
+        photos,
+      });
+    }
+
+    if (
+      (
+        method === 'PUT' ||
+        method === 'DELETE'
+      ) &&
+      url.pathname === '/v1/photos/tags'
+    ) {
+      requireRole(
+        actor,
+        [
+          'manager',
+          'admin',
+        ]
+      );
+
+      if (
+        !request.body ||
+        typeof request.body !== 'object' ||
+        Array.isArray(request.body)
+      ) {
+        throw new MetadataInputError(
+          'JSON body is required'
+        );
+      }
+
+      if (!context.metadataService) {
+        throw new Error(
+          'Metadata service unavailable'
+        );
+      }
+
+      const input = {
+        actor,
+
+        path:
+          request.body.path,
+
+        fileId:
+          request.body.fileId,
+
+        tagId:
+          request.body.tagId,
+      };
+
+      const result =
+        method === 'PUT'
+          ? await context.metadataService
+              .assignPhotoTag(
+                input
+              )
+          : await context.metadataService
+              .removePhotoTag(
+                input
+              );
+
+      return response(
+        200,
+        {
+          ok: true,
+
+          changed:
+            result.changed,
+
+          fileId:
+            result.fileId,
+
+          tagId:
+            result.tagId,
+        }
+      );
     }
 
     if (
@@ -521,6 +642,8 @@ export async function handleHttpRequest(request, context) {
     if (
       error instanceof AuthError ||
       error instanceof ArchiveInputError ||
+      error instanceof MetadataInputError ||
+      error instanceof MetadataPermissionError ||
       error instanceof UploadPolicyError ||
       error instanceof UploadConflictError ||
       error instanceof ManagerNotFoundError ||

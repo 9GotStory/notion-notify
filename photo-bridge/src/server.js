@@ -9,6 +9,7 @@ import {
 } from './cors.js';
 import { handleHttpRequest } from './http-handler.js';
 import { ManagerService } from './manager-service.js';
+import { MetadataService } from './metadata-service.js';
 import { requestBodyKind } from './request-policy.js';
 import { UploadService } from './upload-service.js';
 import { WebDavClient } from './webdav-client.js';
@@ -23,6 +24,10 @@ const dav = new WebDavClient({
 });
 
 const archiveService = new ArchiveService({
+  dav,
+});
+
+const metadataService = new MetadataService({
   dav,
 });
 
@@ -199,6 +204,7 @@ const server = http.createServer(async (req, res) => {
       {
         config,
         archiveService,
+        metadataService,
         uploadService,
         managerService,
       }
