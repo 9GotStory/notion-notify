@@ -9032,6 +9032,409 @@ async function run() {
         .join(', ')
   );
 
+
+  // --------------------------------------------------------
+  // PMETA-P07-C13 :: integration-review corrective RED
+  //
+  // Finding 1:
+  // metadata writes must be single-flight and write action
+  // buttons must remain disabled while a write is pending.
+  //
+  // Finding 2:
+  // visible/searchable tags with canAssign !== true must not
+  // appear as metadata write options.
+  // --------------------------------------------------------
+
+  const p07c13Results = [];
+
+  async function p07c13Contract_(
+    id,
+    fn
+  ) {
+    try {
+      await fn();
+
+      p07c13Results.push({
+        id,
+        pass: true,
+        error: '',
+      });
+    } catch (err) {
+      p07c13Results.push({
+        id,
+        pass: false,
+        error:
+          String(
+            err && err.message
+              ? err.message
+              : err
+          ),
+      });
+    }
+  }
+
+  const p07c13ActivePhoto = {
+    fileId: '191',
+    path:
+      '80_งานกิจกรรมกลาง/2569/' +
+      '2569-09-28_C13 metadata/' +
+      'single-flight.jpg',
+    location: 'activity',
+  };
+
+  await p07c13Contract_(
+    'R01_METADATA_WRITE_SINGLE_FLIGHT',
+    async () => {
+      const originalFetch =
+        context.fetch;
+
+      let putCalls = 0;
+
+      let firstStartedResolve;
+
+      const firstStarted =
+        new Promise(resolve => {
+          firstStartedResolve =
+            resolve;
+        });
+
+      let releaseFirstPut;
+
+      const firstRelease =
+        new Promise(resolve => {
+          releaseFirstPut =
+            resolve;
+        });
+
+      context.fetch =
+        async (
+          url,
+          options = {}
+        ) => {
+          const requestUrl =
+            String(url);
+
+          const method =
+            String(
+              options.method || 'GET'
+            ).toUpperCase();
+
+          if (
+            requestUrl ===
+              context.CONFIG.PHOTO_API_URL +
+              '/v1/photos/tags' &&
+            method === 'PUT'
+          ) {
+            putCalls += 1;
+
+            if (putCalls === 1) {
+              firstStartedResolve();
+
+              await firstRelease;
+            }
+
+            return {
+              ok: true,
+              status: 200,
+
+              async json() {
+                return {
+                  ok: true,
+                  changed: true,
+                  fileId: '191',
+                  tagId: '3',
+                };
+              },
+            };
+          }
+
+          return originalFetch(
+            url,
+            options
+          );
+        };
+
+      ui.state.photoTicket =
+        'c13-runtime-ticket';
+
+      ui.state.actor = {
+        sub: 'U-C13-MANAGER',
+        staffKey: 'c13-manager',
+        role: 'manager',
+        exp: 9999999999,
+      };
+
+      ui.state.metadataTags = [
+        {
+          id: '3',
+          name: 'สถานที่',
+          userVisible: true,
+          userAssignable: false,
+          canAssign: true,
+        },
+      ];
+
+      ui.state.metadataSearchResults = [
+        p07c13ActivePhoto,
+      ];
+
+      ui.state.metadataWriteBusy =
+        false;
+
+      const firstWrite =
+        ui.assignMetadataTag(
+          p07c13ActivePhoto,
+          '3'
+        );
+
+      await firstStarted;
+
+      assert(
+        ui.state.metadataWriteBusy ===
+          true,
+        'first metadata write must hold metadataWriteBusy while request is pending'
+      );
+
+      ui.renderMetadataSearchResults();
+
+      const busyMarkup =
+        document.getElementById(
+          'metadataSearchResults'
+        ).innerHTML;
+
+      const assignBusyDisabled =
+        /data-metadata-action="assign"[\s\S]{0,180}\bdisabled\b/.test(
+          busyMarkup
+        );
+
+      const removeBusyDisabled =
+        /data-metadata-action="remove"[\s\S]{0,180}\bdisabled\b/.test(
+          busyMarkup
+        );
+
+      let secondError = null;
+
+      try {
+        await ui.assignMetadataTag(
+          p07c13ActivePhoto,
+          '3'
+        );
+      } catch (err) {
+        secondError = err;
+      }
+
+      const busyStillHeld =
+        ui.state.metadataWriteBusy ===
+          true;
+
+      releaseFirstPut();
+
+      let firstError = null;
+
+      try {
+        await firstWrite;
+      } catch (err) {
+        firstError = err;
+      } finally {
+        context.fetch =
+          originalFetch;
+      }
+
+      assert(
+        !firstError,
+        'first authorized metadata write must complete after release'
+      );
+
+      assert(
+        assignBusyDisabled &&
+          removeBusyDisabled,
+        'metadata assign/remove buttons must be disabled while metadataWriteBusy is true'
+      );
+
+      assert(
+        secondError,
+        'second metadata write while busy must be rejected'
+      );
+
+      assert(
+        putCalls === 1,
+        'second metadata write while busy must not issue another PUT'
+      );
+
+      assert(
+        busyStillHeld,
+        'rejected concurrent write must not clear busy state of the in-flight write'
+      );
+
+      assert(
+        ui.state.metadataWriteBusy ===
+          false,
+        'metadataWriteBusy must clear after the original write completes'
+      );
+    }
+  );
+
+  await p07c13Contract_(
+    'R02_WRITE_SELECTOR_ASSIGNABLE_ONLY',
+    async () => {
+      const originalCreateElement =
+        document.createElement;
+
+      document.createElement =
+        tagName => {
+          const element = {
+            value: '',
+            textContent: '',
+          };
+
+          Object.defineProperty(
+            element,
+            'outerHTML',
+            {
+              get() {
+                return (
+                  '<' +
+                  String(tagName) +
+                  ' value="' +
+                  String(
+                    element.value
+                  ) +
+                  '">' +
+                  String(
+                    element.textContent
+                  ) +
+                  '</' +
+                  String(tagName) +
+                  '>'
+                );
+              },
+            }
+          );
+
+          return element;
+        };
+
+      try {
+        ui.state.actor = {
+          sub: 'U-C13-MANAGER',
+          staffKey: 'c13-manager',
+          role: 'manager',
+          exp: 9999999999,
+        };
+
+        ui.state.metadataWriteBusy =
+          false;
+
+        ui.state.selectedMetadataWriteTagId =
+          '';
+
+        ui.state.metadataTags = [
+          {
+            id: '3',
+            name: 'สถานที่',
+            userVisible: true,
+            userAssignable: false,
+            canAssign: true,
+          },
+          {
+            id: '9',
+            name: 'ค้นหาได้แต่ห้ามแก้ไข',
+            userVisible: true,
+            userAssignable: false,
+            canAssign: false,
+          },
+        ];
+
+        ui.renderMetadataWriteControls();
+
+        const select =
+          document.getElementById(
+            'metadataWriteTagSelect'
+          );
+
+        const markup =
+          String(
+            select.innerHTML || ''
+          );
+
+        assert(
+          markup.includes(
+            'สถานที่'
+          ),
+          'canAssign=true tag must appear in metadata write selector'
+        );
+
+        assert(
+          !markup.includes(
+            'ค้นหาได้แต่ห้ามแก้ไข'
+          ),
+          'canAssign=false tag must remain searchable but must not appear in metadata write selector'
+        );
+      } finally {
+        document.createElement =
+          originalCreateElement;
+      }
+    }
+  );
+
+  const p07c13Passes =
+    p07c13Results.filter(
+      result => result.pass
+    );
+
+  const p07c13Failures =
+    p07c13Results.filter(
+      result => !result.pass
+    );
+
+  console.log(
+    'PMETA-P07-C13_CONTRACT_TOTAL=' +
+      p07c13Results.length
+  );
+
+  console.log(
+    'PMETA-P07-C13_CONTRACT_PASS=' +
+      p07c13Passes.length
+  );
+
+  console.log(
+    'PMETA-P07-C13_CONTRACT_FAIL=' +
+      p07c13Failures.length
+  );
+
+  for (
+    const result
+    of p07c13Results
+  ) {
+    console.log(
+      'PMETA-P07-C13_' +
+        result.id +
+        '=' +
+        (
+          result.pass
+            ? 'PASS'
+            : (
+                'RED (' +
+                result.error +
+                ')'
+              )
+        )
+    );
+  }
+
+  assert(
+    p07c13Results.length === 2,
+    'PMETA-P07-C13 corrective contract count mismatch'
+  );
+
+  assert(
+    p07c13Failures.length === 0,
+    'PMETA-P07-C13 corrective RED contracts failed: ' +
+      p07c13Failures
+        .map(result => result.id)
+        .join(', ')
+  );
+
   console.log(
     'Photo LIFF upload + ticket renewal contract passed'
   );
