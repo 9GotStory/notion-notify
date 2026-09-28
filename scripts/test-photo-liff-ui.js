@@ -148,6 +148,211 @@ async function run() {
     'Photo Ticket must not be stored in sessionStorage'
   );
 
+
+  // ------------------------------------------------------
+  // PMETA-P07-C2 :: metadata UI RED contracts
+  //
+  // Initial TDD contract only. The production LIFF is
+  // intentionally untouched in this gate.
+  // ------------------------------------------------------
+
+  const pmetaMetadataUiSource =
+    source.replace(/\s+/g, ' ');
+
+  const pmetaMetadataUiContracts = [
+    {
+      id: 'C01_METADATA_STATE_AND_TAG_CATALOG',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'metadataTags:'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          'selectedMetadataTagIds:'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          'metadataSearchResults:'
+        ),
+    },
+
+    {
+      id: 'C02_GET_TAGS_LOAD',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'async function loadMetadataTags'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          "photoApi('/v1/tags')"
+        ),
+    },
+
+    {
+      id: 'C03_MULTI_TAG_AND_SEARCH_QUERY',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'function metadataSearchPath_'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          'async function searchMetadataPhotos'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          '/v1/photos?'
+        ),
+    },
+
+    {
+      id: 'C04_SEARCH_RESULT_RENDERING',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'function renderMetadataSearchResults_'
+        ),
+    },
+
+    {
+      id: 'C05_USER_WRITE_CONTROLS_HIDDEN',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'function renderMetadataWriteControls_'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          '!canManageMetadata_('
+        ),
+    },
+
+    {
+      id: 'C06_MANAGER_ADMIN_WRITE_CONTROLS_VISIBLE',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'function canManageMetadata_'
+        ) &&
+        /role\s*===\s*['"]manager['"]/.test(
+          source
+        ) &&
+        /role\s*===\s*['"]admin['"]/.test(
+          source
+        ),
+    },
+
+    {
+      id: 'C07_PUT_ASSIGN_REQUEST_SHAPE',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'async function assignMetadataTag'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          '/v1/photos/tags'
+        ) &&
+        /method\s*:\s*['"]PUT['"]/.test(
+          source
+        ) &&
+        pmetaMetadataUiSource.includes(
+          'path:'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          'fileId:'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          'tagId:'
+        ),
+    },
+
+    {
+      id: 'C08_DELETE_REMOVE_REQUEST_SHAPE',
+      pass:
+        pmetaMetadataUiSource.includes(
+          'async function removeMetadataTag'
+        ) &&
+        pmetaMetadataUiSource.includes(
+          '/v1/photos/tags'
+        ) &&
+        /method\s*:\s*['"]DELETE['"]/.test(
+          source
+        ),
+    },
+
+    {
+      id: 'C09_METADATA_WRITES_NO_NETWORK_AUTO_RETRY',
+      pass:
+        /const\s+retryableRead\s*=\s*method\s*===\s*['"]GET['"]/.test(
+          source
+        ),
+    },
+
+    {
+      id: 'C10_NO_TAXONOMY_MUTATION_SURFACE',
+      pass:
+        !pmetaMetadataUiSource.includes(
+          'createMetadataTag'
+        ) &&
+        !pmetaMetadataUiSource.includes(
+          'renameMetadataTag'
+        ) &&
+        !pmetaMetadataUiSource.includes(
+          'deleteMetadataTag'
+        ) &&
+        !pmetaMetadataUiSource.includes(
+          '/v1/tags/create'
+        ) &&
+        !pmetaMetadataUiSource.includes(
+          '/v1/tags/rename'
+        ) &&
+        !pmetaMetadataUiSource.includes(
+          '/v1/tags/delete'
+        ),
+    },
+  ];
+
+  const pmetaMetadataUiFailures =
+    pmetaMetadataUiContracts.filter(
+      contract => !contract.pass
+    );
+
+  const pmetaMetadataUiPasses =
+    pmetaMetadataUiContracts.filter(
+      contract => contract.pass
+    );
+
+  console.log(
+    'PMETA-P07-C2_CONTRACT_TOTAL=' +
+      pmetaMetadataUiContracts.length
+  );
+
+  console.log(
+    'PMETA-P07-C2_CONTRACT_PASS=' +
+      pmetaMetadataUiPasses.length
+  );
+
+  console.log(
+    'PMETA-P07-C2_CONTRACT_FAIL=' +
+      pmetaMetadataUiFailures.length
+  );
+
+  for (
+    const contract
+    of pmetaMetadataUiContracts
+  ) {
+    console.log(
+      'PMETA-P07-C2_' +
+        contract.id +
+        '=' +
+        (
+          contract.pass
+            ? 'PASS'
+            : 'RED'
+        )
+    );
+  }
+
+  if (
+    pmetaMetadataUiFailures.length > 0
+  ) {
+    throw new Error(
+      'PMETA-P07-C2 RED contracts failed: ' +
+      pmetaMetadataUiFailures
+        .map(contract => contract.id)
+        .join(', ')
+    );
+  }
+
   // แทน boot() ท้ายไฟล์ด้วย test hook
   source = source.replace(
     /\n\s*boot\(\);\s*\n\s*\}\)\(\);\s*$/,
@@ -301,6 +506,42 @@ async function run() {
     renderYearOptions:
       typeof renderYearOptions_ === 'function'
         ? renderYearOptions_
+        : null,
+
+    // PMETA-P07-C4 runtime metadata hooks
+    loadMetadataTags:
+      typeof loadMetadataTags === 'function'
+        ? loadMetadataTags
+        : null,
+
+    metadataSearchPath:
+      typeof metadataSearchPath_ === 'function'
+        ? metadataSearchPath_
+        : null,
+
+    searchMetadataPhotos:
+      typeof searchMetadataPhotos === 'function'
+        ? searchMetadataPhotos
+        : null,
+
+    renderMetadataWriteControls:
+      typeof renderMetadataWriteControls_ === 'function'
+        ? renderMetadataWriteControls_
+        : null,
+
+    renderMetadataSearchResults:
+      typeof renderMetadataSearchResults_ === 'function'
+        ? renderMetadataSearchResults_
+        : null,
+
+    assignMetadataTag:
+      typeof assignMetadataTag === 'function'
+        ? assignMetadataTag
+        : null,
+
+    removeMetadataTag:
+      typeof removeMetadataTag === 'function'
+        ? removeMetadataTag
         : null,
 
     yearConstants: {
@@ -7969,6 +8210,826 @@ async function run() {
     semanticYearFailures.length === 0,
     'UX-F16-B RED contracts failed:\n- ' +
       semanticYearFailures.join('\n- ')
+  );
+
+
+  // --------------------------------------------------------
+  // PMETA-P07-C4 :: runtime metadata interaction
+  //
+  // Behavioral qualification of the C3 implementation.
+  // No production source is changed by this gate.
+  // --------------------------------------------------------
+
+  const pmetaRuntimeResults = [];
+
+  async function pmetaRuntimeContract_(
+    id,
+    fn
+  ) {
+    try {
+      const result =
+        await fn();
+
+      if (result !== true) {
+        throw new Error(
+          'contract returned non-true result'
+        );
+      }
+
+      pmetaRuntimeResults.push({
+        id,
+        pass: true,
+        error: '',
+      });
+    } catch (err) {
+      pmetaRuntimeResults.push({
+        id,
+        pass: false,
+        error:
+          String(
+            err && err.message
+              ? err.message
+              : err
+          ),
+      });
+    }
+  }
+
+  [
+    'loadMetadataTags',
+    'metadataSearchPath',
+    'searchMetadataPhotos',
+    'renderMetadataWriteControls',
+    'renderMetadataSearchResults',
+    'assignMetadataTag',
+    'removeMetadataTag',
+  ].forEach(name => {
+    assert(
+      typeof ui[name] === 'function',
+      'PMETA-P07-C4 test hook missing: ' +
+        name
+    );
+  });
+
+  const originalMetadataFetch =
+    context.fetch;
+
+  const metadataFetchCalls = [];
+
+  let metadataRuntimeMode =
+    'normal';
+
+  context.fetch =
+    async (
+      url,
+      options = {}
+    ) => {
+      const requestUrl =
+        String(url);
+
+      const method =
+        String(
+          options.method || 'GET'
+        ).toUpperCase();
+
+      const call = {
+        url: requestUrl,
+        method,
+        headers:
+          options.headers || {},
+        body:
+          options.body == null
+            ? ''
+            : String(
+                options.body
+              ),
+      };
+
+      metadataFetchCalls.push(call);
+
+      if (
+        requestUrl ===
+          context.CONFIG.PHOTO_API_URL +
+          '/v1/tags' &&
+        method === 'GET'
+      ) {
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              tags: [
+                {
+                  id: '1',
+                  name: 'ภาพเด่น',
+                  userVisible: true,
+                  userAssignable: false,
+                  canAssign: true,
+                },
+                {
+                  id: '3',
+                  name: 'สถานที่',
+                  userVisible: true,
+                  userAssignable: false,
+                  canAssign: true,
+                },
+                {
+                  id: '5',
+                  name: 'ประชาสัมพันธ์',
+                  userVisible: true,
+                  userAssignable: false,
+                  canAssign: true,
+                },
+              ],
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl.startsWith(
+          context.CONFIG.PHOTO_API_URL +
+          '/v1/photos?'
+        ) &&
+        method === 'GET'
+      ) {
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+
+              photos: [
+                {
+                  fileId: '91',
+                  path:
+                    '80_งานกิจกรรมกลาง/2569/' +
+                    '2569-09-28_ทดสอบ metadata/' +
+                    'activity.jpg',
+                  location:
+                    'activity',
+                },
+                {
+                  fileId: '92',
+                  path:
+                    '99_ARCHIVE_คลังภาพเก่า/' +
+                    '80_งานกิจกรรมกลาง/2569/' +
+                    '2569-08-01_กิจกรรมเก่า/' +
+                    'archive.jpg',
+                  location:
+                    'archive',
+                },
+              ],
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          context.CONFIG.PHOTO_API_URL +
+          '/v1/photos/tags' &&
+        method === 'PUT'
+      ) {
+        if (
+          metadataRuntimeMode ===
+            'put-network-fail'
+        ) {
+          throw new Error(
+            'simulated ambiguous PUT network failure'
+          );
+        }
+
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              changed: true,
+              fileId:
+                body.fileId,
+              tagId:
+                body.tagId,
+            };
+          },
+        };
+      }
+
+      if (
+        requestUrl ===
+          context.CONFIG.PHOTO_API_URL +
+          '/v1/photos/tags' &&
+        method === 'DELETE'
+      ) {
+        if (
+          metadataRuntimeMode ===
+            'delete-network-fail'
+        ) {
+          throw new Error(
+            'simulated ambiguous DELETE network failure'
+          );
+        }
+
+        const body =
+          JSON.parse(
+            String(
+              options.body || '{}'
+            )
+          );
+
+        return {
+          ok: true,
+          status: 200,
+
+          async json() {
+            return {
+              ok: true,
+              changed: true,
+              fileId:
+                body.fileId,
+              tagId:
+                body.tagId,
+            };
+          },
+        };
+      }
+
+      return originalMetadataFetch(
+        url,
+        options
+      );
+    };
+
+  ui.state.photoTicket =
+    'runtime-metadata-ticket';
+
+  await pmetaRuntimeContract_(
+    'R01_GET_TAG_CATALOG',
+    async () => {
+      ui.state.actor = {
+        sub: 'U-META-USER',
+        staffKey:
+          'metadata-user',
+        role: 'user',
+        exp: 9999999999,
+      };
+
+      ui.state.metadataTags = [];
+      ui.state.metadataTagsLoaded =
+        false;
+
+      const before =
+        metadataFetchCalls.length;
+
+      const tags =
+        await ui.loadMetadataTags();
+
+      const calls =
+        metadataFetchCalls.slice(
+          before
+        );
+
+      const tagCalls =
+        calls.filter(
+          call =>
+            call.method === 'GET' &&
+            call.url ===
+              context.CONFIG
+                .PHOTO_API_URL +
+              '/v1/tags'
+        );
+
+      assert(
+        tagCalls.length === 1,
+        'GET /v1/tags must execute exactly once'
+      );
+
+      assert(
+        Array.isArray(tags) &&
+          tags.length === 3,
+        'tag catalog must retain the three visible native tags'
+      );
+
+      assert(
+        ui.state.metadataTagsLoaded ===
+          true,
+        'metadataTagsLoaded must become true'
+      );
+
+      assert(
+        ui.state.metadataTags.every(
+          tag =>
+            tag.userVisible ===
+              true &&
+            tag.canAssign ===
+              true
+        ),
+        'native visible/assignable authority must be preserved'
+      );
+
+      return true;
+    }
+  );
+
+  await pmetaRuntimeContract_(
+    'R02_MULTI_TAG_AND_QUERY',
+    async () => {
+      ui.state.selectedMetadataTagIds =
+        ['1', '3'];
+
+      const path =
+        ui.metadataSearchPath();
+
+      assert(
+        path ===
+          '/v1/photos?tag=1&tag=3',
+        'multi-tag search must use repeated tag parameters in canonical order'
+      );
+
+      const before =
+        metadataFetchCalls.length;
+
+      const photos =
+        await ui.searchMetadataPhotos();
+
+      const calls =
+        metadataFetchCalls.slice(
+          before
+        );
+
+      const searchCalls =
+        calls.filter(
+          call =>
+            call.method === 'GET' &&
+            call.url ===
+              context.CONFIG
+                .PHOTO_API_URL +
+              '/v1/photos?tag=1&tag=3'
+        );
+
+      assert(
+        searchCalls.length === 1,
+        'AND search must issue exactly one GET with both repeated tag parameters'
+      );
+
+      assert(
+        Array.isArray(photos) &&
+          photos.length === 2,
+        'search results must retain active and archived durable locations'
+      );
+
+      return true;
+    }
+  );
+
+  await pmetaRuntimeContract_(
+    'R03_USER_WRITE_CONTROLS_HIDDEN',
+    async () => {
+      ui.state.actor = {
+        sub: 'U-META-USER',
+        staffKey:
+          'metadata-user',
+        role: 'user',
+        exp: 9999999999,
+      };
+
+      ui.renderMetadataWriteControls();
+
+      const panel =
+        document.getElementById(
+          'metadataWritePanel'
+        );
+
+      assert(
+        panel.classList.contains(
+          'hidden'
+        ),
+        'ordinary user metadata write panel must stay hidden'
+      );
+
+      ui.renderMetadataSearchResults();
+
+      const results =
+        document.getElementById(
+          'metadataSearchResults'
+        );
+
+      assert(
+        !results.innerHTML.includes(
+          'data-metadata-action='
+        ),
+        'ordinary user search results must expose no write buttons'
+      );
+
+      return true;
+    }
+  );
+
+  await pmetaRuntimeContract_(
+    'R04_MANAGER_WRITE_AND_ARCHIVE_READONLY',
+    async () => {
+      ui.state.actor = {
+        sub: 'U-META-MANAGER',
+        staffKey:
+          'metadata-manager',
+        role: 'manager',
+        exp: 9999999999,
+      };
+
+      ui.renderMetadataWriteControls();
+
+      const panel =
+        document.getElementById(
+          'metadataWritePanel'
+        );
+
+      assert(
+        !panel.classList.contains(
+          'hidden'
+        ),
+        'manager metadata write panel must be visible'
+      );
+
+      ui.renderMetadataSearchResults();
+
+      const markup =
+        document.getElementById(
+          'metadataSearchResults'
+        ).innerHTML;
+
+      const assignCount =
+        (
+          markup.match(
+            /data-metadata-action="assign"/g
+          ) || []
+        ).length;
+
+      const removeCount =
+        (
+          markup.match(
+            /data-metadata-action="remove"/g
+          ) || []
+        ).length;
+
+      assert(
+        assignCount === 1 &&
+          removeCount === 1,
+        'only writable active/organization result may expose assign/remove controls'
+      );
+
+      assert(
+        markup.includes(
+          'รูปในคลังภาพเก่าอ่านได้อย่างเดียว'
+        ),
+        'archive result must render as read-only'
+      );
+
+      return true;
+    }
+  );
+
+  const activeMetadataPhoto = {
+    fileId: '91',
+    path:
+      '80_งานกิจกรรมกลาง/2569/' +
+      '2569-09-28_ทดสอบ metadata/' +
+      'activity.jpg',
+    location: 'activity',
+  };
+
+  await pmetaRuntimeContract_(
+    'R05_PUT_CURRENT_RESULT_IDENTITY',
+    async () => {
+      metadataRuntimeMode =
+        'normal';
+
+      ui.state.actor = {
+        sub: 'U-META-MANAGER',
+        staffKey:
+          'metadata-manager',
+        role: 'manager',
+        exp: 9999999999,
+      };
+
+      ui.state.metadataSearchResults = [
+        activeMetadataPhoto,
+      ];
+
+      ui.state.metadataTags = [
+        {
+          id: '3',
+          name: 'สถานที่',
+          userVisible: true,
+          userAssignable: false,
+          canAssign: true,
+        },
+      ];
+
+      const before =
+        metadataFetchCalls.length;
+
+      const result =
+        await ui.assignMetadataTag(
+          activeMetadataPhoto,
+          '3'
+        );
+
+      const calls =
+        metadataFetchCalls.slice(
+          before
+        );
+
+      const puts =
+        calls.filter(
+          call =>
+            call.method === 'PUT' &&
+            call.url ===
+              context.CONFIG
+                .PHOTO_API_URL +
+              '/v1/photos/tags'
+        );
+
+      assert(
+        puts.length === 1,
+        'assign must issue exactly one PUT'
+      );
+
+      const body =
+        JSON.parse(
+          puts[0].body
+        );
+
+      assert(
+        body.path ===
+          activeMetadataPhoto.path &&
+        body.fileId === '91' &&
+        body.tagId === '3',
+        'PUT body must bind current search result path + fileId + tagId'
+      );
+
+      assert(
+        result &&
+          result.ok === true &&
+          result.changed === true,
+        'assign result must preserve backend success'
+      );
+
+      return true;
+    }
+  );
+
+  await pmetaRuntimeContract_(
+    'R06_DELETE_CURRENT_RESULT_IDENTITY',
+    async () => {
+      metadataRuntimeMode =
+        'normal';
+
+      ui.state.metadataSearchResults = [
+        activeMetadataPhoto,
+      ];
+
+      const before =
+        metadataFetchCalls.length;
+
+      const result =
+        await ui.removeMetadataTag(
+          activeMetadataPhoto,
+          '3'
+        );
+
+      const calls =
+        metadataFetchCalls.slice(
+          before
+        );
+
+      const deletes =
+        calls.filter(
+          call =>
+            call.method ===
+              'DELETE' &&
+            call.url ===
+              context.CONFIG
+                .PHOTO_API_URL +
+              '/v1/photos/tags'
+        );
+
+      assert(
+        deletes.length === 1,
+        'remove must issue exactly one DELETE'
+      );
+
+      const body =
+        JSON.parse(
+          deletes[0].body
+        );
+
+      assert(
+        body.path ===
+          activeMetadataPhoto.path &&
+        body.fileId === '91' &&
+        body.tagId === '3',
+        'DELETE body must bind current search result path + fileId + tagId'
+      );
+
+      assert(
+        result &&
+          result.ok === true &&
+          result.changed === true,
+        'remove result must preserve backend success'
+      );
+
+      return true;
+    }
+  );
+
+  await pmetaRuntimeContract_(
+    'R07_PUT_NETWORK_FAILURE_SINGLE_SHOT',
+    async () => {
+      metadataRuntimeMode =
+        'put-network-fail';
+
+      ui.state.metadataSearchResults = [
+        activeMetadataPhoto,
+      ];
+
+      const before =
+        metadataFetchCalls.length;
+
+      let error = null;
+
+      try {
+        await ui.assignMetadataTag(
+          activeMetadataPhoto,
+          '3'
+        );
+      } catch (err) {
+        error = err;
+      }
+
+      const calls =
+        metadataFetchCalls.slice(
+          before
+        );
+
+      const puts =
+        calls.filter(
+          call =>
+            call.method === 'PUT' &&
+            call.url ===
+              context.CONFIG
+                .PHOTO_API_URL +
+              '/v1/photos/tags'
+        );
+
+      assert(
+        error,
+        'ambiguous PUT network failure must surface to caller'
+      );
+
+      assert(
+        puts.length === 1,
+        'ambiguous PUT network failure must never auto-retry'
+      );
+
+      return true;
+    }
+  );
+
+  await pmetaRuntimeContract_(
+    'R08_DELETE_NETWORK_FAILURE_SINGLE_SHOT',
+    async () => {
+      metadataRuntimeMode =
+        'delete-network-fail';
+
+      ui.state.metadataSearchResults = [
+        activeMetadataPhoto,
+      ];
+
+      const before =
+        metadataFetchCalls.length;
+
+      let error = null;
+
+      try {
+        await ui.removeMetadataTag(
+          activeMetadataPhoto,
+          '3'
+        );
+      } catch (err) {
+        error = err;
+      }
+
+      const calls =
+        metadataFetchCalls.slice(
+          before
+        );
+
+      const deletes =
+        calls.filter(
+          call =>
+            call.method ===
+              'DELETE' &&
+            call.url ===
+              context.CONFIG
+                .PHOTO_API_URL +
+              '/v1/photos/tags'
+        );
+
+      assert(
+        error,
+        'ambiguous DELETE network failure must surface to caller'
+      );
+
+      assert(
+        deletes.length === 1,
+        'ambiguous DELETE network failure must never auto-retry'
+      );
+
+      return true;
+    }
+  );
+
+  metadataRuntimeMode =
+    'normal';
+
+  context.fetch =
+    originalMetadataFetch;
+
+  const pmetaRuntimePasses =
+    pmetaRuntimeResults.filter(
+      result => result.pass
+    );
+
+  const pmetaRuntimeFailures =
+    pmetaRuntimeResults.filter(
+      result => !result.pass
+    );
+
+  console.log(
+    'PMETA-P07-C4_RUNTIME_TOTAL=' +
+      pmetaRuntimeResults.length
+  );
+
+  console.log(
+    'PMETA-P07-C4_RUNTIME_PASS=' +
+      pmetaRuntimePasses.length
+  );
+
+  console.log(
+    'PMETA-P07-C4_RUNTIME_FAIL=' +
+      pmetaRuntimeFailures.length
+  );
+
+  for (
+    const result
+    of pmetaRuntimeResults
+  ) {
+    console.log(
+      'PMETA-P07-C4_' +
+        result.id +
+        '=' +
+        (
+          result.pass
+            ? 'PASS'
+            : 'RED'
+        ) +
+        (
+          result.pass
+            ? ''
+            : (
+                ' (' +
+                result.error +
+                ')'
+              )
+        )
+    );
+  }
+
+  assert(
+    pmetaRuntimeResults.length === 8,
+    'PMETA-P07-C4 runtime contract count mismatch'
+  );
+
+  assert(
+    pmetaRuntimeFailures.length === 0,
+    'PMETA-P07-C4 runtime contracts failed: ' +
+      pmetaRuntimeFailures
+        .map(result => result.id)
+        .join(', ')
   );
 
   console.log(
