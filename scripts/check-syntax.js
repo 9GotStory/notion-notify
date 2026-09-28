@@ -160,7 +160,6 @@ function checkPhotoLiffFoundationContracts() {
   );
 
   const workflowRequired = [
-    "web/liff-photo/**",
     "PHOTO_LIFF_ID:",
     "PHOTO_API_URL:",
     "__PHOTO_LIFF_ID__",
@@ -178,6 +177,25 @@ function checkPhotoLiffFoundationContracts() {
       workflowFile +
       ' photo LIFF deploy contract failed; missing: ' +
       workflowMissing.join(', ')
+    );
+    process.exitCode = 1;
+  }
+
+  const manualDispatchOnly =
+    workflow.includes(
+      'on:\n  workflow_dispatch:\n\npermissions:'
+    ) &&
+    !workflow.includes('  push:\n');
+
+  const mainBranchOnly =
+    workflow.includes(
+      "jobs:\n  deploy:\n    if: github.ref == 'refs/heads/main'\n"
+    );
+
+  if (!manualDispatchOnly || !mainBranchOnly) {
+    console.error(
+      workflowFile +
+      ' manual-only deployment contract failed'
     );
     process.exitCode = 1;
   }
