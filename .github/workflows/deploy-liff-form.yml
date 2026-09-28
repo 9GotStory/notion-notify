@@ -16,16 +16,6 @@
 name: Deploy web pages
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'web/liff-form/**'
-      - 'web/liff-photo/**'
-      - 'web/schedule/**'
-      - 'web/admin/**'
-      - 'web/shared/**'
-      - 'web/assets/**'
-      - '.github/workflows/deploy-liff-form.yml'
   workflow_dispatch:
 
 permissions:
@@ -39,6 +29,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment:
       name: liff
