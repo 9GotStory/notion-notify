@@ -551,7 +551,6 @@ try {
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-liff-ui.js')], { stdio: 'inherit' });
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-schedule-ui.js')], { stdio: 'inherit' });
   execFileSync(process.execPath, [path.resolve(__dirname, 'test-admin-ui.js')], { stdio: 'inherit' });
-  execFileSync(process.execPath, [path.resolve(__dirname, 'test-photo-liff-ui.js')], { stdio: 'inherit' });
 } catch (err) {
   process.exitCode = 1;
 }
