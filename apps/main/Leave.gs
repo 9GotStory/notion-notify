@@ -88,7 +88,15 @@ const LEAVE_NOTIFICATION_STATE = {
   sent: 'แจ้งแล้ว',
   failed: 'แจ้งไม่สำเร็จ',
   manual: 'ต้องตรวจสอบ',
+  // "งดแจ้ง" = ยื่นในโหมดที่ปิดการ์ดเข้ากลุ่มตอนยื่น (ไม่มีอะไรต้องส่ง ไม่ใช่ส่งสำเร็จ)
+  // แยกจาก "แจ้งแล้ว" เพื่อให้สถานะใน Notion บอกความจริงเสมอ และคิว retry/duplicate ตีความถูก
+  suppressed: 'งดแจ้ง',
 };
+
+// สถานะที่จบขั้นส่งแล้ว (ไม่ต้อง retry): ส่งถึงจริง หรือ งดแจ้งตามสวิตช์ — pure
+function isLeaveNotificationSettled_(state) {
+  return state === LEAVE_NOTIFICATION_STATE.sent || state === LEAVE_NOTIFICATION_STATE.suppressed;
+}
 
 const LEAVE_STATUS = {
   pendingApprover: 'รอผู้อนุมัติ',

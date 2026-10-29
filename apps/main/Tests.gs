@@ -428,7 +428,7 @@ function testApprovalSnapshot_() {
     'การ reassign ใบรุ่นเก่าต้องไม่เปลี่ยน undefined เป็น false');
   assertFalse_(duplicateSubmissionResponse_({ currentApprover: { stage: 'first', needsSecond: false },
     requestId: 'r', pageId: 'p', workDays: 1, leaveType: 'ลากิจ', period: 'เต็มวัน', status: LEAVE_STATUS.pendingApprover,
-    notificationState: LEAVE_NOTIFICATION_STATE.sent }).needsSecond,
+    notificationState: LEAVE_NOTIFICATION_STATE.sent }, {}).needsSecond,
   'duplicate response ต้องใช้ snapshot ไม่เดาจาก stage');
 }
 
@@ -642,6 +642,33 @@ function testLeaveSubmitGroupNoticeSwitch_() {
   assertFalse_(isLeaveSubmitGroupNoticeEnabled_({ leave_submit_group_notice_enabled: ' false ' }));
   // เป็นอิสระจากโหมดอนุมัติ (โหมดอนุมัติส่งการ์ดหาผู้อนุมัติเสมอโดยไม่ดูสวิตช์นี้)
   assertTrue_(isLeaveSubmitGroupNoticeEnabled_({ leave_approval_enabled: 'FALSE' }));
+
+  // สถานะที่จบขั้นส่ง: "แจ้งแล้ว" และ "งดแจ้ง" เท่านั้น — รอแจ้ง/แจ้งไม่สำเร็จ/ต้องตรวจสอบ ยังต้องเตือนว่าค้างอยู่
+  assertTrue_(isLeaveNotificationSettled_(LEAVE_NOTIFICATION_STATE.sent));
+  assertTrue_(isLeaveNotificationSettled_(LEAVE_NOTIFICATION_STATE.suppressed));
+  assertFalse_(isLeaveNotificationSettled_(LEAVE_NOTIFICATION_STATE.pending));
+  assertFalse_(isLeaveNotificationSettled_(LEAVE_NOTIFICATION_STATE.failed));
+  assertFalse_(isLeaveNotificationSettled_(LEAVE_NOTIFICATION_STATE.manual));
+  assertFalse_(isLeaveNotificationSettled_(''));
+
+  // groupNotice ของคำตอบ duplicate อ่านจากสถานะจริงของใบ ไม่เดาจากสวิตช์ปัจจุบัน
+  const autoSettings = { leave_approval_enabled: 'FALSE' };
+  const page = state => ({ status: LEAVE_STATUS.approved, notificationState: state });
+  assertTrue_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.sent), autoSettings),
+    'ใบที่การ์ดส่งถึงแล้วต้องตอบ true');
+  assertFalse_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.suppressed), autoSettings),
+    'ใบที่งดแจ้งต้องตอบ false แม้เปิดสวิตช์คืนภายหลัง');
+  assertFalse_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.failed), autoSettings),
+    'ใบที่การ์ดยังไม่ถึงต้องตอบ false');
+  assertFalse_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.suppressed),
+    { leave_approval_enabled: 'FALSE', leave_submit_group_notice_enabled: 'TRUE' }),
+    'สวิตช์ปัจจุบันไม่เปลี่ยนความจริงของใบที่งดไปแล้ว');
+  assertTrue_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.suppressed),
+    { leave_approval_enabled: 'TRUE' }),
+    'โหมดอนุมัติแจ้งผู้อนุมัติ = true เสมอ');
+  assertTrue_(duplicateGroupNoticeFlag_(
+    { status: LEAVE_STATUS.pendingApprover, notificationState: LEAVE_NOTIFICATION_STATE.pending },
+    autoSettings), 'ใบรออนุมัติแจ้งผู้อนุมัติแล้ว = true');
 }
 
 function testBuildLeaveNoticeBubble_() {
@@ -980,15 +1007,15 @@ function testBuildLeavePagePayload_() {
   });
   assertEqual_(directPayload.properties[PROPS_LEAVE.status].select.name, 'รอหัวหน้า สสอ.อนุมัติ');
 
-  // โหมดที่ปิดการ์ดแจ้งเข้ากลุ่มตอนยื่น: ไม่มีอะไรต้องส่ง ใบเกิดเป็น "แจ้งแล้ว" ตั้งแต่สร้าง
+  // โหมดที่ปิดการ์ดแจ้งเข้ากลุ่มตอนยื่น: ไม่มีอะไรต้องส่ง ใบเกิดเป็น "งดแจ้ง" ตั้งแต่สร้าง (ไม่ใช่ "แจ้งแล้ว")
   const quietPayload = buildLeavePagePayload_({
     dataSourceId: 'DS_ID', fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า',
     submitterUserId: 'U_SUBMITTER', leaveType: 'ลากิจ', start: '2026-08-20', end: '2026-08-20',
     reason: '', workDays: 1, initialStatus: LEAVE_STATUS.approved, currentApprover: '',
-    notificationState: LEAVE_NOTIFICATION_STATE.sent,
+    notificationState: LEAVE_NOTIFICATION_STATE.suppressed,
   });
   assertEqual_(quietPayload.properties[PROPS_LEAVE.notificationState].select.name,
-    LEAVE_NOTIFICATION_STATE.sent);
+    LEAVE_NOTIFICATION_STATE.suppressed);
 }
 
 function testParseLeavePage_() {

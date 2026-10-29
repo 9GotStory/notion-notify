@@ -308,13 +308,12 @@ function mutationRequestId_(body) {
   return requestId ? requireSubmissionRequestId_(body) : Utilities.getUuid();
 }
 
-/** คำตอบ groupNotice ให้สอดคล้องสวิตช์การ์ดเข้ากลุ่ม: โหมดอนุมัติแจ้งผู้อนุมัติ = true,
- *  โหมดอัตโนมัติแจ้งเฉพาะเมื่อเปิดการ์ดและส่งถึงแล้ว (สถานะการแจ้งเป็น "แจ้งแล้ว") */
+/** คำตอบ groupNotice อ่านจากสถานะการแจ้งของใบ (ไม่เดาจากสวิตช์ปัจจุบัน): โหมดอนุมัติแจ้งผู้อนุมัติ = true,
+ *  โหมดอัตโนมัติส่งการ์ดจริงเฉพาะใบที่สถานะเป็น "แจ้งแล้ว" — ใบ "งดแจ้ง" ไม่เคยมีการ์ดแม้เปิดสวิตช์คืนภายหลัง */
 function duplicateGroupNoticeFlag_(leavePage, settings) {
   if (leavePage.status !== LEAVE_STATUS.approved) return true;
   if (isLeaveApprovalEnabled_(settings)) return true;
-  return isLeaveSubmitGroupNoticeEnabled_(settings) &&
-    leavePage.notificationState === LEAVE_NOTIFICATION_STATE.sent;
+  return leavePage.notificationState === LEAVE_NOTIFICATION_STATE.sent;
 }
 
 function duplicateSubmissionResponse_(leavePage, settings) {
@@ -337,7 +336,7 @@ function duplicateSubmissionResponse_(leavePage, settings) {
         ? leavePage.currentApprover.needsSecond
         : leavePage.currentApprover.stage === 'first')),
     autoApproved: leavePage.status === LEAVE_STATUS.approved,
-    notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
+    notificationPending: !isLeaveNotificationSettled_(leavePage.notificationState),
     groupNotice: duplicateGroupNoticeFlag_(leavePage, settings),
     warnings: [],
   };
@@ -427,8 +426,8 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       currentApprover: '',
       systemNote: systemNote,
       requestId: requestId,
-      // ปิดการ์ดตอนยื่น = ไม่มีการแจ้งที่ค้างส่ง สร้างใบเป็น "แจ้งแล้ว" เลย ไม่เข้าคิวส่งซ้ำ
-      notificationState: notifyGroup ? '' : LEAVE_NOTIFICATION_STATE.sent,
+      // ปิดการ์ดตอนยื่น = ไม่มีการแจ้งที่ค้างส่ง สร้างใบเป็น "งดแจ้ง" เลย ไม่เข้าคิวส่งซ้ำ
+      notificationState: notifyGroup ? '' : LEAVE_NOTIFICATION_STATE.suppressed,
     });
     const autoPage = parseLeavePage_(createNotionLeavePage_(autoPayload));
     appendAuditEvent_(requestId, staff.lineUserId, 'leave.submit', autoPage.pageId, '', LEAVE_STATUS.approved);
@@ -469,7 +468,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       period: period,
       approverName: notifyGroup
         ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
-        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าวันก่อนลาและวันที่ลา',
+        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าตามวันลา',
       needsSecond: false,
       autoApproved: true,
       requestId: requestId,
@@ -625,7 +624,7 @@ function duplicateUpdateResponse_(leavePage, settings) {
         ? leavePage.currentApprover.needsSecond
         : leavePage.currentApprover.stage === 'first')),
     autoApproved: leavePage.status === LEAVE_STATUS.approved,
-    notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
+    notificationPending: !isLeaveNotificationSettled_(leavePage.notificationState),
     groupNotice: duplicateGroupNoticeFlag_(leavePage, settings),
     warnings: [],
   };
@@ -885,7 +884,7 @@ function apiUpdateLeave_(body) {
       notifyGroup = isLeaveSubmitGroupNoticeEnabled_(settings);
       approverLabel = notifyGroup
         ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
-        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าวันก่อนลาและวันที่ลา';
+        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าตามวันลา';
     } else {
       // รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด (throw ไทยได้ — ใบเดิมยังอยู่สถานะเดิม ผู้ใช้ยังยกเลิกได้)
       const chain = resolveApprovalChain_(readApproversConfig_(), settings, roster, staff);
@@ -906,9 +905,9 @@ function apiUpdateLeave_(body) {
       [PROPS_LEAVE.status]: { select: { name: newStatus } },
       [PROPS_LEAVE.currentApprover]: richTextValue_(currentApproverJson),
       [PROPS_LEAVE.workDays]: { number: workDays },
-      // ปิดการ์ดเข้ากลุ่มตอนยื่น = ไม่มีการแจ้งที่ค้างส่ง จดเป็น "แจ้งแล้ว" ตั้งแต่แก้ใบ
+      // ปิดการ์ดเข้ากลุ่มตอนยื่น = ไม่มีการแจ้งที่ค้างส่ง จดเป็น "งดแจ้ง" ตั้งแต่แก้ใบ
       [PROPS_LEAVE.notificationState]: { select: { name: notifyGroup
-        ? LEAVE_NOTIFICATION_STATE.pending : LEAVE_NOTIFICATION_STATE.sent } },
+        ? LEAVE_NOTIFICATION_STATE.pending : LEAVE_NOTIFICATION_STATE.suppressed } },
       [PROPS_LEAVE.audit]: richTextValue_(appendLeaveAuditLine_(leavePage.audit, formatAuditLine_(staff,
         'ผู้ยื่นแก้ไขใบลา — ส่งขออนุมัติใหม่ ' + leaveMutationAuditMarker_('update', requestId)))),
     };

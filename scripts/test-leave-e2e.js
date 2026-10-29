@@ -481,7 +481,7 @@ test('approval-disabled mode auto-approves and sends a notice without approval b
 
 test('submit-group-notice switch silences auto-mode submit and edit but keeps 1:1 replies', () => {
   state.settings.leave_system_enabled = 'TRUE';
-  // ยื่นในโหมดอัตโนมัติที่ปิดการ์ดตอนยื่น: เงียบทั้งกลุ่ม แต่ยังยืนยัน 1:1 และจด "แจ้งแล้ว" ตั้งแต่สร้าง
+  // ยื่นในโหมดอัตโนมัติที่ปิดการ์ดตอนยื่น: เงียบทั้งกลุ่ม แต่ยังยืนยัน 1:1 และจด "งดแจ้ง" ตั้งแต่สร้าง
   state.settings.leave_approval_enabled = 'FALSE';
   state.settings.leave_submit_group_notice_enabled = 'FALSE';
   const before = state.messages.length;
@@ -492,8 +492,8 @@ test('submit-group-notice switch silences auto-mode submit and edit but keeps 1:
     'quiet submission result flags mismatch');
   assert(!newMessages.some(item => item.target === 'group-main'),
     'quiet mode still messaged the main group');
-  assert(leave.status === 'อนุมัติ' && leave.notificationState === 'แจ้งแล้ว',
-    'quiet mode left the notification state pending');
+  assert(leave.status === 'อนุมัติ' && leave.notificationState === 'งดแจ้ง',
+    'quiet mode left the notification state pending or lied as delivered');
   assert(newMessages.some(item => item.target === 'U-owner' && /บันทึกการลาแล้ว/.test(item.message.text || '')),
     'quiet mode dropped the submitter confirmation');
   const duplicate = submit('token-owner', 12, { start: '2026-09-11', end: '2026-09-11' });
@@ -514,10 +514,36 @@ test('submit-group-notice switch silences auto-mode submit and edit but keeps 1:
   assert(edit.ok && edit.autoApproved && edit.groupNotice === false, 'quiet edit result flags mismatch');
   assert(!state.messages.slice(beforeEdit).some(item => item.target === 'group-main'),
     'quiet mode still messaged the main group on edit');
-  assert(parsed(pending.pageId).notificationState === 'แจ้งแล้ว',
-    'quiet edit left the notification state pending');
+  assert(parsed(pending.pageId).notificationState === 'งดแจ้ง',
+    'quiet edit left the notification state pending or lied as delivered');
   state.settings.leave_submit_group_notice_enabled = 'TRUE';
   state.settings.leave_approval_enabled = 'TRUE';
+});
+
+test('notification retry respects mode: quiet pages suppressed truthfully, approval pages compensated', () => {
+  const quietPage = Array.from(state.pages.values())
+    .map(p => parsed(p.id))
+    .find(l => l.status === 'อนุมัติ' && l.notificationState === 'งดแจ้ง');
+  assert(quietPage, 'quiet-mode approved page fixture missing');
+
+  // โหมดอัตโนมัติ + ปิดการ์ด: ใบอนุมัติในคิว retry ต้องถูกงดและรายงาน suppressed (ไม่ปลอมเป็นส่งสำเร็จ)
+  state.settings.leave_approval_enabled = 'FALSE';
+  state.settings.leave_submit_group_notice_enabled = 'FALSE';
+  const beforeQuiet = state.messages.length;
+  context.__quietPage = quietPage;
+  assert(call('sendStoredLeaveNotification_(__quietPage, getSettings_())') === 'suppressed',
+    'quiet-mode retry should report suppressed');
+  assert(state.messages.length === beforeQuiet, 'quiet-mode retry still sent a message');
+
+  // โหมดอนุมัติ + สวิตช์ปิด: ใบอนุมัติที่การ์ดเคยพังต้องได้การ์ดชดเชยเข้ากลุ่ม ห้ามงดเงียบ
+  state.settings.leave_approval_enabled = 'TRUE';
+  const beforeComp = state.messages.length;
+  assert(call('sendStoredLeaveNotification_(__quietPage, getSettings_())') !== 'suppressed',
+    'approval-mode retry must not suppress approved pages');
+  assert(state.messages.length === beforeComp + 1 &&
+    state.messages[state.messages.length - 1].target === 'group-main',
+    'approval-mode compensation card missing from the main group');
+  state.settings.leave_submit_group_notice_enabled = 'TRUE';
 });
 
 test('short-notice personal leave warning stays out of the LINE group card', () => {

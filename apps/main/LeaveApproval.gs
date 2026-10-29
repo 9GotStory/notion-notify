@@ -16,7 +16,7 @@ function appendLeaveAuditLine_(existingAudit, newLine) {
 /** สร้าง payload สร้างหน้าใบลา (pure — ทดสอบได้โดยไม่ยิง Notion)
  *  "ช่วงวัน"/"หมายเหตุระบบ" ใส่เฉพาะเมื่อมีค่า เพื่อให้ database รุ่นเก่าที่ยังไม่มีสอง property นี้
  *  ยังบันทึกใบเต็มวันได้ก่อน (เพิ่ม property ใน Notion แล้วของใหม่จะเข้าครบ)
- *  notificationState (ไม่บังคับ) ใช้ตอนยื่นในโหมดที่ปิดการ์ดแจ้ง — ไม่มีอะไรต้องส่งจึงเป็น "แจ้งแล้ว" ตั้งแต่สร้าง */
+ *  notificationState (ไม่บังคับ) ใช้ตอนยื่นในโหมดที่ปิดการ์ดแจ้ง — ไม่มีอะไรต้องส่งจึงเป็น "งดแจ้ง" ตั้งแต่สร้าง */
 function buildLeavePagePayload_(leave) {
   const properties = {
     [PROPS_LEAVE.title]: { title: [{ text: { content: leave.fullName } }] },
@@ -402,10 +402,15 @@ function retryFailedLeaveNotificationsJob() {
   }
 }
 
+/** ส่งแจ้งใบลาที่บันทึกแล้วตามสถานะ/โหมดปัจจุบัน — คืน 'suppressed' เมื่อโหมดปัจจุบันไม่ต้องส่ง
+ *  (ให้ผู้เรียกจดสถานะ "งดแจ้ง" แทน "แจ้งแล้ว" เพื่อไม่ให้คอลัมน์สถานะพูดเกินความจริง) */
 function sendStoredLeaveNotification_(leavePage, settings) {
   if (leavePage.status === LEAVE_STATUS.approved) {
-    // โหมดแจ้งอัตโนมัติที่ปิดการ์ดตอนยื่นแล้ว: ไม่มีอะไรต้องส่งซ้ำ (ใบอนุมัติแจ้งผ่านสรุปเช้าวันก่อนลา/วันที่ลา)
-    if (!isLeaveSubmitGroupNoticeEnabled_(settings)) return;
+    // งดได้เฉพาะโหมดแจ้งลาอัตโนมัติที่ปิดการ์ดตอนยื่น: ใบอนุมัติแจ้งผ่านสรุปเช้าตามวันลาอยู่แล้ว
+    // โหมดอนุมัติไม่ผ่านเกณฑ์นี้ — ใบอนุมัติที่การ์ดเคยพังต้องได้การ์ดชดเชยตามเดิม ห้ามปล่อยเงียบ
+    if (!isLeaveApprovalEnabled_(settings) && !isLeaveSubmitGroupNoticeEnabled_(settings)) {
+      return 'suppressed';
+    }
     sendLineMessage_(settings.line_group_id, {
       type: 'flex',
       altText: '🏖️ แจ้งลาอัตโนมัติ: ' + leavePage.fullName + ' — ' + leavePage.leaveType + ' ' +
@@ -452,9 +457,10 @@ function retryFailedLeaveNotifications_(settings) {
       return;
     }
     try {
-      sendStoredLeaveNotification_(leavePage, settings);
+      const outcome = sendStoredLeaveNotification_(leavePage, settings) === 'suppressed'
+        ? LEAVE_NOTIFICATION_STATE.suppressed : LEAVE_NOTIFICATION_STATE.sent;
       updateLeavePage_(leavePage.pageId, {
-        [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.sent } },
+        [PROPS_LEAVE.notificationState]: { select: { name: outcome } },
       });
       clearLeaveNotificationFailure_(leavePage.pageId);
       result.retried++;
