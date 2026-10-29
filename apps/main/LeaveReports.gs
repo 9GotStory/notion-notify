@@ -287,7 +287,7 @@ function buildMonthlyLeaveSummary_(monthKey, aggregates) {
  *  เพราะการรันเช้าข้ามวันหยุดไปแล้ว) — summary เป็น null ได้เมื่อเดือนก่อนไม่มีใครลาเลย
  *  ไม่ upsert marker เอง: ผู้เรียก mark หลังส่งสำเร็จเท่านั้น (ผิดพลาดวันนั้น = ลองใหม่วันถัดไป) */
 function maybeCollectMonthlyLeaveSummary_(now, settings, props) {
-  if (String(settings.monthly_leave_summary_enabled || '').trim().toUpperCase() === 'FALSE') return null;
+  if (!isSettingNotFalse_(settings, 'monthly_leave_summary_enabled')) return null;
   const currentMonth = Utilities.formatDate(now, 'Asia/Bangkok', 'yyyy-MM');
   if (props.getProperty('last_monthly_leave_summary') === currentMonth) return null;
   const targetMonth = previousMonthKey_(currentMonth);

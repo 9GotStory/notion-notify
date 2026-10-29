@@ -1205,6 +1205,9 @@ function testAdvanceNoticeSection_() {
   const flexAdvanceOnly = buildLineMessage_(date, [], [], 'flex', advance);
   assertEqual_(flexAdvanceOnly.contents.body.contents.length, 2);
   assertEqual_(flexAdvanceOnly.contents.body.contents[1].backgroundColor, ADVANCE_SECTION_THEME.bg);
+  // วันหยุดที่ส่งเฉพาะส่วนล่วงหน้า (เช่น เสาร์ไม่มีงาน อาทิตย์มีงาน): altText ไม่ต้องมี "(0 รายการ)"
+  assertContains_(flexAdvanceOnly.altText, 'ล่วงหน้า 2 รายการ');
+  assertFalse_(flexAdvanceOnly.altText.indexOf('(0 รายการ)') !== -1);
 
   // ค่า advance_notice_days นอกช่วง 1-7 (รวมเว้นว่าง) → collectAdvanceNotice_ คืน null โดยไม่ต้องยิง Notion
   const now = new Date();
