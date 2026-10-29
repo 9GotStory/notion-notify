@@ -148,6 +148,8 @@ function apiSession_(body) {
     leaveEnabled: isLeaveSystemEnabled_(settings),
     leaveClosedMessage: isLeaveSystemEnabled_(settings) ? '' : leaveClosedMessage_(settings),
     approvalEnabled: isLeaveApprovalEnabled_(settings),
+    // ใช้กับแบนเนอร์ "อนุมัติอัตโนมัติ" ในฟอร์ม: บอกว่ายื่นแล้วแจ้งกลุ่มทันทีหรือรอสรุปเช้าตามวันลา
+    submitGroupNotice: isLeaveSubmitGroupNoticeEnabled_(settings),
   };
   const roster = readStaffRoster_();
   const staff = findStaffByUserId_(roster, profile.userId);
@@ -306,7 +308,16 @@ function mutationRequestId_(body) {
   return requestId ? requireSubmissionRequestId_(body) : Utilities.getUuid();
 }
 
-function duplicateSubmissionResponse_(leavePage) {
+/** คำตอบ groupNotice ให้สอดคล้องสวิตช์การ์ดเข้ากลุ่ม: โหมดอนุมัติแจ้งผู้อนุมัติ = true,
+ *  โหมดอัตโนมัติแจ้งเฉพาะเมื่อเปิดการ์ดและส่งถึงแล้ว (สถานะการแจ้งเป็น "แจ้งแล้ว") */
+function duplicateGroupNoticeFlag_(leavePage, settings) {
+  if (leavePage.status !== LEAVE_STATUS.approved) return true;
+  if (isLeaveApprovalEnabled_(settings)) return true;
+  return isLeaveSubmitGroupNoticeEnabled_(settings) &&
+    leavePage.notificationState === LEAVE_NOTIFICATION_STATE.sent;
+}
+
+function duplicateSubmissionResponse_(leavePage, settings) {
   const pendingNames = leavePage.currentApprover && leavePage.currentApprover.names
     ? leavePage.currentApprover.names.join(', ')
     : '';
@@ -327,6 +338,7 @@ function duplicateSubmissionResponse_(leavePage) {
         : leavePage.currentApprover.stage === 'first')),
     autoApproved: leavePage.status === LEAVE_STATUS.approved,
     notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
+    groupNotice: duplicateGroupNoticeFlag_(leavePage, settings),
     warnings: [],
   };
 }
@@ -345,7 +357,7 @@ function apiSubmit_(body) {
     const existing = findLeaveByRequestId_(leaveDbId, requestId);
     if (existing) {
       if (existing.submitterUserId !== profile.userId) throw new Error('รหัสคำขอนี้ถูกใช้แล้ว กรุณาเปิดแบบฟอร์มใหม่');
-      return duplicateSubmissionResponse_(existing);
+      return duplicateSubmissionResponse_(existing, settings);
     }
     return apiSubmitNew_(body, profile, settings, leaveDbId, requestId);
   } finally {
@@ -396,7 +408,9 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
 
   // โหมดปิดการอนุมัติ ("แจ้งลาอัตโนมัติ"): บันทึกเป็น "อนุมัติ" ทันที ไม่ต้องตั้งค่าผู้อนุมัติ
   // แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก + แจ้งผู้ยื่นกลับ — ใบลาขึ้นสรุปเช้า "ผู้ลาวันนี้" ทันทีเพราะอนุมัติแล้ว
+  // ปิดการ์ดตอนยื่นได้ที่ leave_submit_group_notice_enabled = FALSE: ยื่นเงียบ รอสรุปเช้าตามวันลา
   if (!isLeaveApprovalEnabled_(settings)) {
+    const notifyGroup = isLeaveSubmitGroupNoticeEnabled_(settings);
     const autoPayload = buildLeavePagePayload_({
       dataSourceId: resolveLeaveDataSourceId_(leaveDbId),
       fullName: staffDisplayName_(staff),
@@ -413,26 +427,30 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       currentApprover: '',
       systemNote: systemNote,
       requestId: requestId,
+      // ปิดการ์ดตอนยื่น = ไม่มีการแจ้งที่ค้างส่ง สร้างใบเป็น "แจ้งแล้ว" เลย ไม่เข้าคิวส่งซ้ำ
+      notificationState: notifyGroup ? '' : LEAVE_NOTIFICATION_STATE.sent,
     });
     const autoPage = parseLeavePage_(createNotionLeavePage_(autoPayload));
     appendAuditEvent_(requestId, staff.lineUserId, 'leave.submit', autoPage.pageId, '', LEAVE_STATUS.approved);
     let notificationPending = false;
-    try {
-      sendLineMessage_(settings.line_group_id, {
-        type: 'flex',
-        altText: '🏖️ แจ้งลาอัตโนมัติ: ' + autoPage.fullName + ' — ' + leaveType + ' ' +
-          leaveDateLabel_(range.start, range.end),
-        contents: buildLeaveNoticeBubble_(autoPage),
+    if (notifyGroup) {
+      try {
+        sendLineMessage_(settings.line_group_id, {
+          type: 'flex',
+          altText: '🏖️ แจ้งลาอัตโนมัติ: ' + autoPage.fullName + ' — ' + leaveType + ' ' +
+            leaveDateLabel_(range.start, range.end),
+          contents: buildLeaveNoticeBubble_(autoPage),
+        });
+      } catch (notifyErr) {
+        notificationPending = true;
+        recordLeaveNotificationFailure_(autoPage.pageId);
+        logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลาเข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
+      }
+      updateLeavePage_(autoPage.pageId, {
+        [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
+          ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
       });
-    } catch (notifyErr) {
-      notificationPending = true;
-      recordLeaveNotificationFailure_(autoPage.pageId);
-      logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลาเข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
     }
-    updateLeavePage_(autoPage.pageId, {
-      [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
-        ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
-    });
     pushPrivateMessage_(staff.lineUserId, {
       type: 'text',
       text: '✅ บันทึกการลาแล้ว (ไม่ต้องรออนุมัติ — ระบบปิดการอนุมัติอยู่)\n' + leaveSummaryText_(autoPage),
@@ -440,7 +458,8 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
     notifyLeaveSubstitute_(autoPage, 'ℹ️ มีการระบุให้คุณปฏิบัติงานแทนในช่วงลานี้');
     logResult_(new Date(), 'leave',
       autoPage.fullName + ' ยื่น' + leaveType + ' ' + leaveDateLabel_(range.start, range.end) +
-      ' (' + workDays + ' วันทำการ) — อัตโนมัติ ไม่ต้องอนุมัติ');
+      ' (' + workDays + ' วันทำการ) — อัตโนมัติ ไม่ต้องอนุมัติ' +
+      (notifyGroup ? '' : ' (ปิดการ์ดเข้ากลุ่มตอนยื่น — แจ้งในสรุปเช้าตามวันลา)'));
     return {
       ok: true,
       workDays: workDays,
@@ -448,12 +467,15 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       quotaDays: quotaDays,
       quotaDaysLabel: quotaDaysLabel_(leaveType, quotaDays),
       period: period,
-      approverName: 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว',
+      approverName: notifyGroup
+        ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
+        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าวันก่อนลาและวันที่ลา',
       needsSecond: false,
       autoApproved: true,
       requestId: requestId,
       pageId: autoPage.pageId,
       notificationPending: notificationPending,
+      groupNotice: notifyGroup && !notificationPending,
       warnings: warnings,
     };
   }
@@ -539,6 +561,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
     requestId: requestId,
     pageId: leavePage.pageId,
     notificationPending: notificationPending,
+    groupNotice: true, // โหมดอนุมัติส่งการ์ดหาผู้อนุมัติ — ถือว่าแจ้ง LINE แล้ว
     warnings: warnings,
   };
 }
@@ -585,7 +608,7 @@ function leaveAuditHasMutation_(audit, action, requestId) {
   return String(audit || '').indexOf(leaveMutationAuditMarker_(action, requestId)) !== -1;
 }
 
-function duplicateUpdateResponse_(leavePage) {
+function duplicateUpdateResponse_(leavePage, settings) {
   const approverNames = leavePage.currentApprover ? (leavePage.currentApprover.names || []) : [];
   return {
     ok: true,
@@ -603,6 +626,7 @@ function duplicateUpdateResponse_(leavePage) {
         : leavePage.currentApprover.stage === 'first')),
     autoApproved: leavePage.status === LEAVE_STATUS.approved,
     notificationPending: leavePage.notificationState !== LEAVE_NOTIFICATION_STATE.sent,
+    groupNotice: duplicateGroupNoticeFlag_(leavePage, settings),
     warnings: [],
   };
 }
@@ -807,7 +831,7 @@ function apiUpdateLeave_(body) {
       throw new Error('คุณไม่ใช่เจ้าของใบลานี้');
     }
     if (leaveAuditHasMutation_(leavePage.audit, 'update', requestId)) {
-      return duplicateUpdateResponse_(leavePage);
+      return duplicateUpdateResponse_(leavePage, settings);
     }
     const isPending = leavePage.status === LEAVE_STATUS.pendingApprover ||
       leavePage.status === LEAVE_STATUS.pendingChiefOffice;
@@ -852,11 +876,16 @@ function apiUpdateLeave_(body) {
     let needsSecond = false;
     let chainTargets = [];
     let viaPool = false;
+    // โหมดอนุมัติต้องส่งการ์ดหาผู้อนุมัติเสมอ; โหมดอัตโนมัติตามสวิตช์การ์ดเข้ากลุ่มตอนยื่น
+    let notifyGroup = true;
     if (!isLeaveApprovalEnabled_(settings)) {
       // โหมดแจ้งลาอัตโนมัติ: คงสถานะ "อนุมัติ" ไว้ (กันใบค้างเป็น "รอ" โดยไม่มีใครได้รับการ์ด)
       newStatus = LEAVE_STATUS.approved;
       currentApproverJson = '';
-      approverLabel = 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว';
+      notifyGroup = isLeaveSubmitGroupNoticeEnabled_(settings);
+      approverLabel = notifyGroup
+        ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
+        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าวันก่อนลาและวันที่ลา';
     } else {
       // รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด (throw ไทยได้ — ใบเดิมยังอยู่สถานะเดิม ผู้ใช้ยังยกเลิกได้)
       const chain = resolveApprovalChain_(readApproversConfig_(), settings, roster, staff);
@@ -877,7 +906,9 @@ function apiUpdateLeave_(body) {
       [PROPS_LEAVE.status]: { select: { name: newStatus } },
       [PROPS_LEAVE.currentApprover]: richTextValue_(currentApproverJson),
       [PROPS_LEAVE.workDays]: { number: workDays },
-      [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
+      // ปิดการ์ดเข้ากลุ่มตอนยื่น = ไม่มีการแจ้งที่ค้างส่ง จดเป็น "แจ้งแล้ว" ตั้งแต่แก้ใบ
+      [PROPS_LEAVE.notificationState]: { select: { name: notifyGroup
+        ? LEAVE_NOTIFICATION_STATE.pending : LEAVE_NOTIFICATION_STATE.sent } },
       [PROPS_LEAVE.audit]: richTextValue_(appendLeaveAuditLine_(leavePage.audit, formatAuditLine_(staff,
         'ผู้ยื่นแก้ไขใบลา — ส่งขออนุมัติใหม่ ' + leaveMutationAuditMarker_('update', requestId)))),
     };
@@ -924,7 +955,9 @@ function apiUpdateLeave_(body) {
     }
 
     let notificationPending = false;
-    if (newStatus === LEAVE_STATUS.approved) {
+    if (newStatus === LEAVE_STATUS.approved && !notifyGroup) {
+      // โหมดอัตโนมัติที่ปิดการ์ดตอนยื่น: แก้ไขแล้วก็เงียบเหมือนกัน รอแจ้งในสรุปเช้าตามวันลา
+    } else if (newStatus === LEAVE_STATUS.approved) {
       // โหมดแจ้งลาอัตโนมัติ: แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก — ใบลาขึ้นสรุปเช้าได้ทันทีเพราะยังเป็น "อนุมัติ"
       try {
         sendLineMessage_(settings.line_group_id, {
@@ -954,10 +987,12 @@ function apiUpdateLeave_(body) {
       }
     }
 
-    updateLeavePage_(updatedPage.pageId, {
-      [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
-        ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
-    });
+    if (notifyGroup) {
+      updateLeavePage_(updatedPage.pageId, {
+        [PROPS_LEAVE.notificationState]: { select: { name: notificationPending
+          ? LEAVE_NOTIFICATION_STATE.failed : LEAVE_NOTIFICATION_STATE.sent } },
+      });
+    }
     if (notificationPending) recordLeaveNotificationFailure_(updatedPage.pageId);
     else clearLeaveNotificationFailure_(updatedPage.pageId);
 
@@ -976,6 +1011,8 @@ function apiUpdateLeave_(body) {
       needsSecond: needsSecond,
       autoApproved: newStatus === LEAVE_STATUS.approved,
       notificationPending: notificationPending,
+      groupNotice: newStatus === LEAVE_STATUS.approved
+        ? notifyGroup && !notificationPending : true,
       warnings: warnings,
     };
   } finally {

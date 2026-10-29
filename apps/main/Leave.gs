@@ -527,6 +527,15 @@ function isLeaveApprovalEnabled_(settings) {
   return String((settings && settings.leave_approval_enabled) || '').trim().toUpperCase() !== 'FALSE';
 }
 
+// สวิตช์แยก: การ์ดแจ้งเข้ากลุ่มหลัก "ทันทีที่ยื่น/แก้ไขใบลา" ในโหมดแจ้งลาอัตโนมัติ
+// (leave_submit_group_notice_enabled = FALSE = ปิด)
+// ปิดแล้ว: ยื่นแล้วเงียบ (ยังส่ง 1:1 ยืนยันผู้ยื่นและแจ้งผู้ปฏิบัติงานแทนตามเดิม)
+// แล้วรอแจ้งในสรุปเช้าเท่านั้น — วันก่อนลา 1 วัน (advance_notice_days) และวันที่ลา
+// โหมดอนุมัติไม่เกี่ยวกับสวิตช์นี้: การ์ดขออนุมัติ 1:1 คือกลไกที่ผู้อนุมัติใช้กดอนุมัติ ต้องส่งเสมอ
+function isLeaveSubmitGroupNoticeEnabled_(settings) {
+  return String((settings && settings.leave_submit_group_notice_enabled) || '').trim().toUpperCase() !== 'FALSE';
+}
+
 // ---------- API actions ----------
 
 // ตัวเลือก dropdown ทั้งหมดมาจากชีต — แก้ที่ Settings ได้เลยไม่ต้องแตะโค้ด

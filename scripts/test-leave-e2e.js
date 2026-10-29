@@ -479,6 +479,47 @@ test('approval-disabled mode auto-approves and sends a notice without approval b
   state.settings.leave_approval_enabled = 'TRUE';
 });
 
+test('submit-group-notice switch silences auto-mode submit and edit but keeps 1:1 replies', () => {
+  state.settings.leave_system_enabled = 'TRUE';
+  // ยื่นในโหมดอัตโนมัติที่ปิดการ์ดตอนยื่น: เงียบทั้งกลุ่ม แต่ยังยืนยัน 1:1 และจด "แจ้งแล้ว" ตั้งแต่สร้าง
+  state.settings.leave_approval_enabled = 'FALSE';
+  state.settings.leave_submit_group_notice_enabled = 'FALSE';
+  const before = state.messages.length;
+  const result = submit('token-owner', 12, { start: '2026-09-11', end: '2026-09-11' });
+  const leave = parsed(result.pageId);
+  const newMessages = state.messages.slice(before);
+  assert(result.ok && result.autoApproved && result.groupNotice === false,
+    'quiet submission result flags mismatch');
+  assert(!newMessages.some(item => item.target === 'group-main'),
+    'quiet mode still messaged the main group');
+  assert(leave.status === 'อนุมัติ' && leave.notificationState === 'แจ้งแล้ว',
+    'quiet mode left the notification state pending');
+  assert(newMessages.some(item => item.target === 'U-owner' && /บันทึกการลาแล้ว/.test(item.message.text || '')),
+    'quiet mode dropped the submitter confirmation');
+  const duplicate = submit('token-owner', 12, { start: '2026-09-11', end: '2026-09-11' });
+  assert(duplicate.ok && duplicate.duplicate && duplicate.groupNotice === false,
+    'quiet duplicate retry still claimed a group notice');
+
+  // แก้ไข: ใบที่ยื่นตอนเปิดอนุมัติไว้ (ยังรออนุมัติ) แล้วองค์กรปิดอนุมัติ+ปิดการ์ดภายหลัง → แก้แล้วเงียบเหมือนกัน
+  state.settings.leave_approval_enabled = 'TRUE';
+  state.settings.leave_submit_group_notice_enabled = 'TRUE';
+  const pending = submit('token-owner', 13, { start: '2026-09-04', end: '2026-09-04' });
+  assert(pending.ok && parsed(pending.pageId).status === 'รอผู้อนุมัติ', 'baseline pending leave mismatch');
+  const beforeEdit = state.messages.length;
+  state.settings.leave_approval_enabled = 'FALSE';
+  state.settings.leave_submit_group_notice_enabled = 'FALSE';
+  const edit = api({ apiAction: 'update', accessToken: 'token-owner', pageId: pending.pageId,
+    requestId: requestId(51), leaveType: 'ลากิจ', reason: 'แก้ไขเหตุผลขอลา',
+    start: '2026-09-04', end: '2026-09-04', period: 'เต็มวัน' });
+  assert(edit.ok && edit.autoApproved && edit.groupNotice === false, 'quiet edit result flags mismatch');
+  assert(!state.messages.slice(beforeEdit).some(item => item.target === 'group-main'),
+    'quiet mode still messaged the main group on edit');
+  assert(parsed(pending.pageId).notificationState === 'แจ้งแล้ว',
+    'quiet edit left the notification state pending');
+  state.settings.leave_submit_group_notice_enabled = 'TRUE';
+  state.settings.leave_approval_enabled = 'TRUE';
+});
+
 test('short-notice personal leave warning stays out of the LINE group card', () => {
   state.settings.leave_approval_enabled = 'FALSE';
   const result = submit('token-owner', 10, { start: '2026-08-31', end: '2026-08-31' });

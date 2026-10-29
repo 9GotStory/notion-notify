@@ -34,6 +34,7 @@ function runUnitTests() {
     testNotionPageId_,
     testLeaveSystemSwitch_,
     testLeaveApprovalSwitch_,
+    testLeaveSubmitGroupNoticeSwitch_,
     testComputeWorkDays_,
     testLeaveQuotaDays_,
     testLeavePolicyReviewFinding_,
@@ -631,6 +632,18 @@ function testLeaveApprovalSwitch_() {
   assertTrue_(isLeaveApprovalEnabled_({ leave_system_enabled: 'FALSE' }));
 }
 
+function testLeaveSubmitGroupNoticeSwitch_() {
+  // default เป็น "ส่งการ์ดเข้ากลุ่มตอนยื่น" — ค่าว่าง/แถวหาย/ค่าแปลกๆ ไม่เปลี่ยนพฤติกรรมระบบเดิม
+  assertTrue_(isLeaveSubmitGroupNoticeEnabled_({}));
+  assertTrue_(isLeaveSubmitGroupNoticeEnabled_(null));
+  assertTrue_(isLeaveSubmitGroupNoticeEnabled_({ leave_submit_group_notice_enabled: '' }));
+  assertTrue_(isLeaveSubmitGroupNoticeEnabled_({ leave_submit_group_notice_enabled: 'TRUE' }));
+  assertFalse_(isLeaveSubmitGroupNoticeEnabled_({ leave_submit_group_notice_enabled: 'FALSE' }));
+  assertFalse_(isLeaveSubmitGroupNoticeEnabled_({ leave_submit_group_notice_enabled: ' false ' }));
+  // เป็นอิสระจากโหมดอนุมัติ (โหมดอนุมัติส่งการ์ดหาผู้อนุมัติเสมอโดยไม่ดูสวิตช์นี้)
+  assertTrue_(isLeaveSubmitGroupNoticeEnabled_({ leave_approval_enabled: 'FALSE' }));
+}
+
 function testBuildLeaveNoticeBubble_() {
   const bubble = buildLeaveNoticeBubble_(createTestLeave_());
 
@@ -966,6 +979,16 @@ function testBuildLeavePagePayload_() {
     currentApprover: serializeApproverInfo_('second', []),
   });
   assertEqual_(directPayload.properties[PROPS_LEAVE.status].select.name, 'รอหัวหน้า สสอ.อนุมัติ');
+
+  // โหมดที่ปิดการ์ดแจ้งเข้ากลุ่มตอนยื่น: ไม่มีอะไรต้องส่ง ใบเกิดเป็น "แจ้งแล้ว" ตั้งแต่สร้าง
+  const quietPayload = buildLeavePagePayload_({
+    dataSourceId: 'DS_ID', fullName: 'นายสมศักดิ์ ใจดี', groupName: 'กลุ่มงานคลังสินค้า',
+    submitterUserId: 'U_SUBMITTER', leaveType: 'ลากิจ', start: '2026-08-20', end: '2026-08-20',
+    reason: '', workDays: 1, initialStatus: LEAVE_STATUS.approved, currentApprover: '',
+    notificationState: LEAVE_NOTIFICATION_STATE.sent,
+  });
+  assertEqual_(quietPayload.properties[PROPS_LEAVE.notificationState].select.name,
+    LEAVE_NOTIFICATION_STATE.sent);
 }
 
 function testParseLeavePage_() {

@@ -15,7 +15,8 @@ function appendLeaveAuditLine_(existingAudit, newLine) {
 
 /** สร้าง payload สร้างหน้าใบลา (pure — ทดสอบได้โดยไม่ยิง Notion)
  *  "ช่วงวัน"/"หมายเหตุระบบ" ใส่เฉพาะเมื่อมีค่า เพื่อให้ database รุ่นเก่าที่ยังไม่มีสอง property นี้
- *  ยังบันทึกใบเต็มวันได้ก่อน (เพิ่ม property ใน Notion แล้วของใหม่จะเข้าครบ) */
+ *  ยังบันทึกใบเต็มวันได้ก่อน (เพิ่ม property ใน Notion แล้วของใหม่จะเข้าครบ)
+ *  notificationState (ไม่บังคับ) ใช้ตอนยื่นในโหมดที่ปิดการ์ดแจ้ง — ไม่มีอะไรต้องส่งจึงเป็น "แจ้งแล้ว" ตั้งแต่สร้าง */
 function buildLeavePagePayload_(leave) {
   const properties = {
     [PROPS_LEAVE.title]: { title: [{ text: { content: leave.fullName } }] },
@@ -28,7 +29,7 @@ function buildLeavePagePayload_(leave) {
     [PROPS_LEAVE.currentApprover]: richTextValue_(leave.currentApprover),
     [PROPS_LEAVE.workDays]: { number: leave.workDays },
     [PROPS_LEAVE.requestId]: richTextValue_(leave.requestId),
-    [PROPS_LEAVE.notificationState]: { select: { name: LEAVE_NOTIFICATION_STATE.pending } },
+    [PROPS_LEAVE.notificationState]: { select: { name: leave.notificationState || LEAVE_NOTIFICATION_STATE.pending } },
   };
   if (leave.period && leave.period !== 'เต็มวัน') {
     properties[PROPS_LEAVE.period] = richTextValue_(leave.period);
@@ -403,6 +404,8 @@ function retryFailedLeaveNotificationsJob() {
 
 function sendStoredLeaveNotification_(leavePage, settings) {
   if (leavePage.status === LEAVE_STATUS.approved) {
+    // โหมดแจ้งอัตโนมัติที่ปิดการ์ดตอนยื่นแล้ว: ไม่มีอะไรต้องส่งซ้ำ (ใบอนุมัติแจ้งผ่านสรุปเช้าวันก่อนลา/วันที่ลา)
+    if (!isLeaveSubmitGroupNoticeEnabled_(settings)) return;
     sendLineMessage_(settings.line_group_id, {
       type: 'flex',
       altText: '🏖️ แจ้งลาอัตโนมัติ: ' + leavePage.fullName + ' — ' + leavePage.leaveType + ' ' +

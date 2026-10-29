@@ -268,7 +268,7 @@
     registrationMessage: '', bindingRequestId: '', bindingRequestKey: '',
     submitRequestId: '', submitRequestKey: '',
     updateRequestId: '', updateRequestKey: '',
-    leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true,
+    leaveEnabled: true, leaveClosedMessage: '', approvalEnabled: true, submitGroupNotice: true,
     mine: { loading: false, error: '', success: '', leaves: [], usage: null, leaveYear: '',
       pendingPageId: '', cancelRequestIds: {} },
     approvals: { loading: false, error: '', leaves: [], staffOptions: [], pendingPageId: '' },
@@ -643,6 +643,7 @@
       state.leaveEnabled = session.leaveEnabled !== false;
       state.leaveClosedMessage = session.leaveClosedMessage || '';
       state.approvalEnabled = session.approvalEnabled !== false;
+      state.submitGroupNotice = session.submitGroupNotice !== false;
       state.options.leaveTypes = session.leaveTypes || (session.options && session.options.leaveTypes) || [];
       state.options.halfDayTypes = session.halfDayTypes || (session.options && session.options.halfDayTypes) || [];
       state.options.staffOptions = session.staffOptions || (session.options && session.options.staffOptions) || [];
@@ -704,6 +705,12 @@
       if (off) el.textContent = state.leaveClosedMessage || 'ระบบลาปิดรับคำขอชั่วคราว — หากเร่งด่วนติดต่อผู้ดูแลระบบ';
     });
     $('approvalOffNote').classList.toggle('hidden', state.approvalEnabled !== false);
+    if (state.approvalEnabled === false) {
+      // ข้อความตามสวิตช์จริง: แจ้งกลุ่มทันทีตอนยื่น หรือเงียบแล้วรอสรุปเช้าตามวันลา
+      $('approvalOffNote').innerHTML = state.submitGroupNotice === false
+        ? '<span class="font-semibold text-sky-700">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกทันที และแจ้งในสรุปเช้าวันก่อนลาและวันที่ลา'
+        : '<span class="font-semibold text-sky-700">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกและแจ้งกลุ่มหลักทันที';
+    }
     $('btnRegNext').disabled = off || state.registrationPending;
     if (!state.sending) $('btnSubmit').disabled = off;
   }
@@ -1335,7 +1342,9 @@
       $('successMessage').textContent = result.notificationPending
         ? 'บันทึกใบลาแล้ว แต่ยังส่งการแจ้งเตือนผ่าน LINE ไม่สำเร็จ ระบบจะลองส่งซ้ำอัตโนมัติ'
         : (result.autoApproved
-          ? 'บันทึกเป็นอนุมัติแล้วและแจ้งเข้ากลุ่มหลักเรียบร้อย'
+          ? (result.groupNotice === false
+            ? 'บันทึกเป็นอนุมัติแล้ว — ระบบแจ้งในสรุปเช้าวันก่อนลาและวันที่ลา'
+            : 'บันทึกเป็นอนุมัติแล้วและแจ้งเข้ากลุ่มหลักเรียบร้อย')
           : 'ระบบแจ้งผู้อนุมัติแล้ว ผลจะแจ้งกลับมาในแชทนี้');
       const periodNote = result.period && result.period !== 'เต็มวัน' ? ' (' + result.period + ')' : '';
       $('successCard').innerHTML =
@@ -1348,7 +1357,9 @@
           ? '<div class="flex justify-between"><span class="text-slate-500">วันใช้สิทธิ์</span><span class="font-semibold">' + escapeHtml(result.quotaDaysLabel || '') + '</span></div>' : '') +
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
         (result.autoApproved && !result.notificationPending
-          ? '<span class="block text-xs text-sky-700 mt-1">อนุมัติอัตโนมัติ · ระบบบันทึกและแจ้งกลุ่มหลักแล้ว</span>'
+          ? (result.groupNotice === false
+            ? '<span class="block text-xs text-sky-700 mt-1">อนุมัติอัตโนมัติ · แจ้งในสรุปเช้าวันก่อนลาและวันที่ลา</span>'
+            : '<span class="block text-xs text-sky-700 mt-1">อนุมัติอัตโนมัติ · ระบบบันทึกและแจ้งกลุ่มหลักแล้ว</span>')
           : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) +
         (result.warnings && result.warnings.length
           ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2 whitespace-pre-line">' + escapeHtml(result.warnings.join('\n')) + '</span>'
