@@ -402,14 +402,14 @@ function retryFailedLeaveNotificationsJob() {
   }
 }
 
-/** ส่งแจ้งใบลาที่บันทึกแล้วตามสถานะ/โหมดปัจจุบัน — คืน 'suppressed' เมื่อโหมดปัจจุบันไม่ต้องส่ง
- *  (ให้ผู้เรียกจดสถานะ "งดแจ้ง" แทน "แจ้งแล้ว" เพื่อไม่ให้คอลัมน์สถานะพูดเกินความจริง) */
+/** ส่งแจ้งใบลาที่บันทึกแล้วตามสถานะ/โหมดปัจจุบัน — คืน "สถานะการแจ้ง" ที่ผู้เรียกควรจดลงใบ:
+ *  "งดแจ้ง" เมื่อโหมดปัจจุบันไม่ต้องส่ง, "แจ้งแล้ว" เมื่อส่งการ์ดแล้ว */
 function sendStoredLeaveNotification_(leavePage, settings) {
   if (leavePage.status === LEAVE_STATUS.approved) {
     // งดได้เฉพาะโหมดแจ้งลาอัตโนมัติที่ปิดการ์ดตอนยื่น: ใบอนุมัติแจ้งผ่านสรุปเช้าตามวันลาอยู่แล้ว
     // โหมดอนุมัติไม่ผ่านเกณฑ์นี้ — ใบอนุมัติที่การ์ดเคยพังต้องได้การ์ดชดเชยตามเดิม ห้ามปล่อยเงียบ
     if (!isLeaveApprovalEnabled_(settings) && !isLeaveSubmitGroupNoticeEnabled_(settings)) {
-      return 'suppressed';
+      return LEAVE_NOTIFICATION_STATE.suppressed;
     }
     sendLineMessage_(settings.line_group_id, {
       type: 'flex',
@@ -417,7 +417,7 @@ function sendStoredLeaveNotification_(leavePage, settings) {
         leaveDateLabel_(leavePage.start, leavePage.end),
       contents: buildLeaveNoticeBubble_(leavePage),
     });
-    return;
+    return LEAVE_NOTIFICATION_STATE.sent;
   }
   if (leavePage.status === LEAVE_STATUS.pendingApprover ||
       leavePage.status === LEAVE_STATUS.pendingChiefOffice) {
@@ -427,6 +427,7 @@ function sendStoredLeaveNotification_(leavePage, settings) {
     if (userIds.length) pushApproverCardWithFallback_(userIds, card, leavePage);
     else sendLineMessage_(settings.line_group_id, buildLeaveGroupApprovalBubble_(leavePage));
   }
+  return LEAVE_NOTIFICATION_STATE.sent;
 }
 
 /**
@@ -457,14 +458,16 @@ function retryFailedLeaveNotifications_(settings) {
       return;
     }
     try {
-      const outcome = sendStoredLeaveNotification_(leavePage, settings) === 'suppressed'
-        ? LEAVE_NOTIFICATION_STATE.suppressed : LEAVE_NOTIFICATION_STATE.sent;
+      const outcome = sendStoredLeaveNotification_(leavePage, settings);
       updateLeavePage_(leavePage.pageId, {
         [PROPS_LEAVE.notificationState]: { select: { name: outcome } },
       });
       clearLeaveNotificationFailure_(leavePage.pageId);
       result.retried++;
-      logResult_(new Date(), 'leave-notify-retry', 'ส่งซ้ำสำเร็จ: ' + leavePage.pageId);
+      logResult_(new Date(), 'leave-notify-retry',
+        outcome === LEAVE_NOTIFICATION_STATE.suppressed
+          ? 'งดแจ้งตามสวิตช์ (ไม่ได้ส่งการ์ด): ' + leavePage.pageId
+          : 'ส่งซ้ำสำเร็จ: ' + leavePage.pageId);
     } catch (err) {
       const nextAttempts = recordLeaveNotificationFailure_(leavePage.pageId);
       result.failed++;

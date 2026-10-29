@@ -513,8 +513,14 @@ function leaveTypeList_(settings) {
 // ปิดแล้ว: ลงทะเบียน/ยื่นลาถูกปฏิเสธพร้อมข้อความ (แก้ข้อความได้ที่ leave_closed_message)
 // ยังทำงานต่อ: ปุ่มอนุมัติใบลาเดิมที่ค้างอยู่ + สรุปเช้า "ผู้ลาวันนี้" (ไม่ทิ้งงานที่ไหลอยู่กลางคัน)
 
+// สวิตช์ชีต Settings แบบ "FALSE = ปิด เท่านั้น" (ค่าว่าง/แถวหาย/ค่าอื่นใด = เปิด) — pure
+// ใช้ร่วมทุกสวิตช์ระบบลาเพื่อให้ default "ไม่เปลี่ยนพฤติกรรมระบบเดิม" ตรงกันทุกตัว
+function isSettingNotFalse_(settings, key) {
+  return String((settings && settings[key]) || '').trim().toUpperCase() !== 'FALSE';
+}
+
 function isLeaveSystemEnabled_(settings) {
-  return String((settings && settings.leave_system_enabled) || '').trim().toUpperCase() !== 'FALSE';
+  return isSettingNotFalse_(settings, 'leave_system_enabled');
 }
 
 function leaveClosedMessage_(settings) {
@@ -532,16 +538,16 @@ function requireLeaveSystemEnabled_(settings) {
 // ยื่นแล้วบันทึกเป็น "อนุมัติ" ทันที ไม่ต้องเรียกตัวผู้อนุมัติ แต่ยังส่งการ์ดแจ้งเข้ากลุ่มหลัก
 // (ค่าอื่นใด/แถวหาย = เปิดการอนุมัติตามปกติ เพื่อไม่เปลี่ยนพฤติกรรมระบบที่ติดตั้งไว้แล้วโดยไม่ตั้งใจ)
 function isLeaveApprovalEnabled_(settings) {
-  return String((settings && settings.leave_approval_enabled) || '').trim().toUpperCase() !== 'FALSE';
+  return isSettingNotFalse_(settings, 'leave_approval_enabled');
 }
 
 // สวิตช์แยก: การ์ดแจ้งเข้ากลุ่มหลัก "ทันทีที่ยื่น/แก้ไขใบลา" ในโหมดแจ้งลาอัตโนมัติ
-// (leave_submit_group_notice_enabled = FALSE = ปิด)
+// (leave_submit_group_notice_enabled = FALSE = ปิด) — pure
 // ปิดแล้ว: ยื่นแล้วเงียบ (ยังส่ง 1:1 ยืนยันผู้ยื่นและแจ้งผู้ปฏิบัติงานแทนตามเดิม)
 // แล้วรอแจ้งในสรุปเช้าเท่านั้น — วันก่อนลา 1 วัน (advance_notice_days) และวันที่ลา
 // โหมดอนุมัติไม่เกี่ยวกับสวิตช์นี้: การ์ดขออนุมัติ 1:1 คือกลไกที่ผู้อนุมัติใช้กดอนุมัติ ต้องส่งเสมอ
 function isLeaveSubmitGroupNoticeEnabled_(settings) {
-  return String((settings && settings.leave_submit_group_notice_enabled) || '').trim().toUpperCase() !== 'FALSE';
+  return isSettingNotFalse_(settings, 'leave_submit_group_notice_enabled');
 }
 
 // ---------- API actions ----------

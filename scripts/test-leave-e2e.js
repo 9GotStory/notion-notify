@@ -531,14 +531,14 @@ test('notification retry respects mode: quiet pages suppressed truthfully, appro
   state.settings.leave_submit_group_notice_enabled = 'FALSE';
   const beforeQuiet = state.messages.length;
   context.__quietPage = quietPage;
-  assert(call('sendStoredLeaveNotification_(__quietPage, getSettings_())') === 'suppressed',
+  assert(call('sendStoredLeaveNotification_(__quietPage, getSettings_())') === 'งดแจ้ง',
     'quiet-mode retry should report suppressed');
   assert(state.messages.length === beforeQuiet, 'quiet-mode retry still sent a message');
 
   // โหมดอนุมัติ + สวิตช์ปิด: ใบอนุมัติที่การ์ดเคยพังต้องได้การ์ดชดเชยเข้ากลุ่ม ห้ามงดเงียบ
   state.settings.leave_approval_enabled = 'TRUE';
   const beforeComp = state.messages.length;
-  assert(call('sendStoredLeaveNotification_(__quietPage, getSettings_())') !== 'suppressed',
+  assert(call('sendStoredLeaveNotification_(__quietPage, getSettings_())') === 'แจ้งแล้ว',
     'approval-mode retry must not suppress approved pages');
   assert(state.messages.length === beforeComp + 1 &&
     state.messages[state.messages.length - 1].target === 'group-main',

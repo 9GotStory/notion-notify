@@ -19,7 +19,7 @@ gateway ตรวจ raw `X-Line-Signature`, จำกัด origin, จำก�
 1. สำรองค่าตั้งค่าและจด URL deployment เดิมของ Apps Script ทั้งสองโปรเจกต์ โดยไม่คัดลอก secret ลง log หรือ ticket สาธารณะ
 2. ใน Notion database `ใบลา` เพิ่ม property:
    - `Request ID` ชนิด Text
-   - `สถานะการแจ้ง` ชนิด Select โดยมี `รอแจ้ง`, `แจ้งแล้ว`, `แจ้งไม่สำเร็จ`, `ต้องตรวจสอบ`
+   - `สถานะการแจ้ง` ชนิด Select โดยมี `รอแจ้ง`, `แจ้งแล้ว`, `แจ้งไม่สำเร็จ`, `ต้องตรวจสอบ`, `งดแจ้ง` (option สุดท้ายระบบเพิ่มให้อัตโนมัติเมื่อเปิดใช้ `leave_submit_group_notice_enabled = FALSE`)
 3. ตั้ง `ALLOW_LEGACY_DIRECT=TRUE` ชั่วคราวใน Script Properties ของ Apps Script ทั้งสองโปรเจกต์ **ก่อน** deploy โค้ดรุ่นนี้ เพราะรุ่นใหม่ปฏิเสธ direct request โดยปริยาย
 4. ในโปรเจกต์ webapp ตั้ง `SPREADSHEET_ID` เป็นรหัสของชีตหลัก
 5. push และ deploy Apps Script ทั้งสองโปรเจกต์เป็น version ใหม่บน deployment เดิม

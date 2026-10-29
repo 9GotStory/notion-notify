@@ -308,9 +308,19 @@ function mutationRequestId_(body) {
   return requestId ? requireSubmissionRequestId_(body) : Utilities.getUuid();
 }
 
-/** คำตอบ groupNotice อ่านจากสถานะการแจ้งของใบ (ไม่เดาจากสวิตช์ปัจจุบัน): โหมดอนุมัติแจ้งผู้อนุมัติ = true,
- *  โหมดอัตโนมัติส่งการ์ดจริงเฉพาะใบที่สถานะเป็น "แจ้งแล้ว" — ใบ "งดแจ้ง" ไม่เคยมีการ์ดแม้เปิดสวิตช์คืนภายหลัง */
+/** ป้าย "ผู้พิจารณา" ของโหมดแจ้งลาอัตโนมัติ ตามสวิตช์การ์ดเข้ากลุ่มตอนยื่น — pure
+ *  (ใช้ร่วมทั้งตอนยื่นใหม่และตอนแก้ไขใบ ให้ถ้อยคำตรงกัน) */
+function autoModeApproverLabel_(notifyGroup) {
+  return notifyGroup
+    ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
+    : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าตามวันลา';
+}
+
+/** คำตอบ groupNotice อ่านจากสถานะการแจ้งของใบ (ไม่เดาจากโหมด/สวิตช์ปัจจุบัน) — pure
+ *  ใบ "งดแจ้ง" ไม่เคยมีการ์ด = false เสมอ แม้เปลี่ยนโหมดหรือเปิดสวิตช์คืนภายหลัง
+ *  โหมดอนุมัติส่งการ์ดหาผู้อนุมัติ = true; โหมดอัตโนมัติส่งจริงเฉพาะใบที่สถานะเป็น "แจ้งแล้ว" */
 function duplicateGroupNoticeFlag_(leavePage, settings) {
+  if (leavePage.notificationState === LEAVE_NOTIFICATION_STATE.suppressed) return false;
   if (leavePage.status !== LEAVE_STATUS.approved) return true;
   if (isLeaveApprovalEnabled_(settings)) return true;
   return leavePage.notificationState === LEAVE_NOTIFICATION_STATE.sent;
@@ -466,9 +476,7 @@ function apiSubmitNew_(body, profile, settings, leaveDbId, requestId) {
       quotaDays: quotaDays,
       quotaDaysLabel: quotaDaysLabel_(leaveType, quotaDays),
       period: period,
-      approverName: notifyGroup
-        ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
-        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าตามวันลา',
+      approverName: autoModeApproverLabel_(notifyGroup),
       needsSecond: false,
       autoApproved: true,
       requestId: requestId,
@@ -882,9 +890,7 @@ function apiUpdateLeave_(body) {
       newStatus = LEAVE_STATUS.approved;
       currentApproverJson = '';
       notifyGroup = isLeaveSubmitGroupNoticeEnabled_(settings);
-      approverLabel = notifyGroup
-        ? 'ไม่ต้องอนุมัติ — แจ้งเข้ากลุ่มหลักแล้ว'
-        : 'ไม่ต้องอนุมัติ — แจ้งในสรุปเช้าตามวันลา';
+      approverLabel = autoModeApproverLabel_(notifyGroup);
     } else {
       // รันเส้นทางผู้อนุมัติใหม่จากคอนฟิกสด (throw ไทยได้ — ใบเดิมยังอยู่สถานะเดิม ผู้ใช้ยังยกเลิกได้)
       const chain = resolveApprovalChain_(readApproversConfig_(), settings, roster, staff);
@@ -954,20 +960,21 @@ function apiUpdateLeave_(body) {
     }
 
     let notificationPending = false;
-    if (newStatus === LEAVE_STATUS.approved && !notifyGroup) {
-      // โหมดอัตโนมัติที่ปิดการ์ดตอนยื่น: แก้ไขแล้วก็เงียบเหมือนกัน รอแจ้งในสรุปเช้าตามวันลา
-    } else if (newStatus === LEAVE_STATUS.approved) {
-      // โหมดแจ้งลาอัตโนมัติ: แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลัก — ใบลาขึ้นสรุปเช้าได้ทันทีเพราะยังเป็น "อนุมัติ"
-      try {
-        sendLineMessage_(settings.line_group_id, {
-          type: 'flex',
-          altText: '🏖️ แก้ไขการแจ้งลา: ' + updatedPage.fullName + ' — ' + input.leaveType + ' ' +
-            leaveDateLabel_(input.start, input.end),
-          contents: buildLeaveNoticeBubble_(updatedPage),
-        });
-      } catch (notifyErr) {
-        notificationPending = true;
-        logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลา (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
+    if (newStatus === LEAVE_STATUS.approved) {
+      // โหมดแจ้งลาอัตโนมัติ: แจ้งการ์ด (ไม่มีปุ่ม) เข้ากลุ่มหลักเฉพาะเมื่อเปิดการ์ดตอนยื่นไว้ —
+      // ปิดไว้แล้วการแก้ไขก็เงียบเหมือนตอนยื่น รอแจ้งในสรุปเช้าตามวันลา
+      if (notifyGroup) {
+        try {
+          sendLineMessage_(settings.line_group_id, {
+            type: 'flex',
+            altText: '🏖️ แก้ไขการแจ้งลา: ' + updatedPage.fullName + ' — ' + input.leaveType + ' ' +
+              leaveDateLabel_(input.start, input.end),
+            contents: buildLeaveNoticeBubble_(updatedPage),
+          });
+        } catch (notifyErr) {
+          notificationPending = true;
+          logResult_(new Date(), 'error', 'ส่งการ์ดแจ้งลา (แก้ไข) เข้ากลุ่มไม่สำเร็จ: ' + notifyErr);
+        }
       }
     } else if (viaPool) {
       try {

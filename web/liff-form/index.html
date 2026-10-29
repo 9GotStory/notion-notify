@@ -708,8 +708,8 @@
     if (state.approvalEnabled === false) {
       // ข้อความตามสวิตช์จริง: แจ้งกลุ่มทันทีตอนยื่น หรือเงียบแล้วรอสรุปเช้าตามวันลา
       $('approvalOffNote').innerHTML = state.submitGroupNotice === false
-        ? '<span class="font-semibold text-sky-700">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกทันที และแจ้งในสรุปเช้าตามวันลา'
-        : '<span class="font-semibold text-sky-700">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกและแจ้งกลุ่มหลักทันที';
+        ? '<span class="font-semibold text-info">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกทันที และแจ้งในสรุปเช้าตามวันลา'
+        : '<span class="font-semibold text-info">อนุมัติอัตโนมัติ</span> · เมื่อส่ง ระบบจะบันทึกและแจ้งกลุ่มหลักทันที';
     }
     $('btnRegNext').disabled = off || state.registrationPending;
     if (!state.sending) $('btnSubmit').disabled = off;
@@ -1358,8 +1358,8 @@
         '<div class="pt-2 border-t border-slate-100"><span class="text-slate-500 block mb-1">ผู้พิจารณา</span><span class="font-semibold">' + escapeHtml(result.approverName) + '</span>' +
         (result.autoApproved && !result.notificationPending
           ? (result.groupNotice === false
-            ? '<span class="block text-xs text-sky-700 mt-1">อนุมัติอัตโนมัติ · แจ้งในสรุปเช้าตามวันลา</span>'
-            : '<span class="block text-xs text-sky-700 mt-1">อนุมัติอัตโนมัติ · ระบบบันทึกและแจ้งกลุ่มหลักแล้ว</span>')
+            ? '<span class="block text-xs text-info mt-1">อนุมัติอัตโนมัติ · แจ้งในสรุปเช้าตามวันลา</span>'
+            : '<span class="block text-xs text-info mt-1">อนุมัติอัตโนมัติ · ระบบบันทึกและแจ้งกลุ่มหลักแล้ว</span>')
           : (result.needsSecond ? '<span class="block text-xs text-slate-500 mt-1">ใบลานี้อนุมัติสองชั้น: ผู้อนุมัติของกลุ่มงาน → หัวหน้า สสอ.</span>' : '')) +
         (result.warnings && result.warnings.length
           ? '<span class="block text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-2 whitespace-pre-line">' + escapeHtml(result.warnings.join('\n')) + '</span>'

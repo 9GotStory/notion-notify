@@ -63,6 +63,13 @@ function notificationConfigurationReady_(settings) {
     /^C[0-9a-f]{32}$/i.test(String(s.line_group_id || '').trim());
 }
 
+/** การรันเช้าของวันหยุดจะเงียบ (ไม่ส่งเข้ากลุ่ม) เมื่อไม่มีอะไรเลย: ไม่มีงาน/วันเกิดของวันนั้นเอง
+ *  ไม่มีสรุปรายเดือน และไม่มีข้อมูลล่วงหน้าของวันถัดไป — มีส่วนใดส่วนหนึ่งก็ต้องส่งตามปกติ
+ *  (เช่น เสาร์ที่ไม่มีงานแต่อาทิตย์มีงาน ยังต้องส่งส่วน "วันพรุ่งนี้" ให้กลุ่มรู้ล่วงหน้า) — pure */
+function isQuietDayOffMorning_(isDayOff, items, advance, monthly) {
+  return isDayOff && items.length === 0 && !advance && !(monthly && monthly.summary);
+}
+
 // วันเสาร์-อาทิตย์ของวันที่กำหนด อิงเวลา Asia/Bangkok เสมอ ไม่พึ่ง timezone ของเซิร์ฟเวอร์ที่รันสคริปต์
 // (แปลงเป็นสตริง yyyy-MM-dd ในโซนกรุงเทพฯ ก่อน แล้วอ่านซ้ำแบบ UTC midnight เพื่อไม่ให้ผูกกับ timezone ของเครื่องที่รัน)
 function isWeekend_(date) {
@@ -130,10 +137,10 @@ function checkAndSendNotification() {
     const monthly = maybeCollectMonthlyLeaveSummary_(now, settings, props);
 
     const isDayOff = isWeekend_(now) || isHoliday_(now);
-    
-    // ถ้าเป็นวันหยุด จะแจ้งเตือนเฉพาะเมื่อมีรายการของวันนี้ (งานหรือวันเกิด) หรือมีสรุปรายเดือนต้องส่ง
-    // หากไม่มี จะไม่ส่งแจ้งเตือน (แม้จะมีล่วงหน้า advance ก็จะถูกข้ามไปส่งในวันทำการถัดไป)
-    if (isDayOff && items.length === 0 && !(monthly && monthly.summary)) {
+
+    // ถ้าเป็นวันหยุด จะเงียบเฉพาะเมื่อไม่มีอะไรเลย — มีงาน/วันเกิดของวันนั้นเอง มีสรุปรายเดือน
+    // หรือมีข้อมูลล่วงหน้าของวันถัดไป (เช่น เสาร์ไม่มีงานแต่อาทิตย์มีงาน ต้องยังส่งส่วน "วันพรุ่งนี้")
+    if (isQuietDayOffMorning_(isDayOff, items, advance, monthly)) {
       const dayType = isWeekend_(now) ? 'วันเสาร์-อาทิตย์' : 'วันหยุดราชการ';
       logResult_(now, 'skip', dayType + ' (ไม่มีงาน/วันเกิด/สรุปเดือนสำหรับวันนี้)');
       if (monthly) props.setProperty('last_monthly_leave_summary', monthly.currentMonth);
@@ -209,7 +216,9 @@ function cleanupOldFailCounts_(props, todayStr) {
 function buildLineMessage_(date, items, leaves, format, advance, monthly, conflicts) {
   if (String(format).trim().toLowerCase() === 'flex') {
     const dateLabel = thaiDateLabel_(date);
-    let altText = `ปฏิทินการปฏิบัติงาน · ${dateLabel} (${items.length} รายการ)`;
+    // วันหยุดที่ส่งเฉพาะส่วนล่วงหน้า (วันนั้นไม่มีงานเอง) ไม่ต้องแสดง "(0 รายการ)" ให้สับสน
+    let altText = `ปฏิทินการปฏิบัติงาน · ${dateLabel}` +
+      (items.length ? ` (${items.length} รายการ)` : '');
     if (leaves.length) altText += ` — ผู้ลา ${leaves.length} คน`;
     if (advance) altText += ` — ล่วงหน้า ${advance.items.length + advance.leaves.length} รายการ`;
     if (monthly) altText += ' — สรุปใบลาเดือนที่แล้ว';

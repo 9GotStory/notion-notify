@@ -19,6 +19,7 @@ function runUnitTests() {
     testTimeLabels_,
     testItemSubFields_,
     testTextMessage_,
+    testQuietDayOffMorning_,
     testFlexMessage_,
     testMessagePreview_,
     testCleanupOldFailCounts_,
@@ -309,6 +310,23 @@ function testTextMessage_() {
   assertContains_(message.text, 'ประชุมทีม');
   assertContains_(message.text, 'ผู้รับผิดชอบ: สมชาย');
   assertFalse_(/[📅🔭🏖️📊]/u.test(message.text));
+}
+
+function testQuietDayOffMorning_() {
+  const item = createTestItem_();
+  const advance = { date: new Date('2026-10-25T00:00:00Z'), items: [createTestItem_()], leaves: [] };
+  // วันหยุดที่ไม่มีอะไรเลย = เงียบ (พฤติกรรมเดิม)
+  assertTrue_(isQuietDayOffMorning_(true, [], null, null), 'วันหยุดเปล่าต้องเงียบ');
+  assertTrue_(isQuietDayOffMorning_(true, [], null, { summary: null }), 'สรุปเดือนเป็น null ต้องเงียบ');
+  // วันหยุดที่มีงานของวันนั้นเอง / มีสรุปเดือน = ส่ง
+  assertFalse_(isQuietDayOffMorning_(true, [item], null, null), 'วันหยุดที่มีงานต้องส่ง');
+  assertFalse_(isQuietDayOffMorning_(true, [], null, { summary: { title: 'สรุป' } }),
+    'วันหยุดที่มีสรุปเดือนต้องส่ง');
+  // วันหยุดที่ไม่มีงานเองแต่วันถัดไปมีงาน (เสาร์เงียบ อาทิตย์มีงาน) = ต้องส่งส่วนล่วงหน้า
+  assertFalse_(isQuietDayOffMorning_(true, [], advance, null),
+    'วันหยุดที่มีข้อมูลล่วงหน้าต้องส่ง (กันเคสเสาร์ไม่มีงาน อาทิตย์มีงาน)');
+  // วันทำการไม่ผ่านด่านนี้ (ไปเช็คเงื่อนไข "ไม่มีงานและไม่มีผู้ลา" แทน)
+  assertFalse_(isQuietDayOffMorning_(false, [], null, null), 'วันทำการไม่ใช่ของด่านวันหยุด');
 }
 
 function testFlexMessage_() {
@@ -663,9 +681,9 @@ function testLeaveSubmitGroupNoticeSwitch_() {
   assertFalse_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.suppressed),
     { leave_approval_enabled: 'FALSE', leave_submit_group_notice_enabled: 'TRUE' }),
     'สวิตช์ปัจจุบันไม่เปลี่ยนความจริงของใบที่งดไปแล้ว');
-  assertTrue_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.suppressed),
+  assertFalse_(duplicateGroupNoticeFlag_(page(LEAVE_NOTIFICATION_STATE.suppressed),
     { leave_approval_enabled: 'TRUE' }),
-    'โหมดอนุมัติแจ้งผู้อนุมัติ = true เสมอ');
+    'ใบที่งดแจ้งไม่เคยมีการ์ด = false แม้ปัจจุบันเปิดโหมดอนุมัติ');
   assertTrue_(duplicateGroupNoticeFlag_(
     { status: LEAVE_STATUS.pendingApprover, notificationState: LEAVE_NOTIFICATION_STATE.pending },
     autoSettings), 'ใบรออนุมัติแจ้งผู้อนุมัติแล้ว = true');
